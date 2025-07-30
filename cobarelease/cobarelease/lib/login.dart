@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart'; // <-- Pastikan import ini ada
 import 'package:secpanel/helpers/db_helper.dart';
@@ -29,20 +31,12 @@ class _LoginPageState extends State<LoginPage> {
   /// Fungsi untuk meminta izin MANAGE_EXTERNAL_STORAGE.
   /// Ini akan membuka halaman Pengaturan Sistem pada Android 11+.
   Future<void> _requestStoragePermissionOnStartup() async {
-    // Cek apakah izin sudah diberikan
-    if (await Permission.manageExternalStorage.isGranted) {
-      print("Penyimpanan: Izin sudah diberikan.");
-      return;
-    }
-
-    // Jika belum, minta izinnya
-    var status = await Permission.manageExternalStorage.request();
-
-    if (status.isGranted) {
-      print("Penyimpanan: Izin berhasil diberikan oleh pengguna.");
-    } else {
-      print("Penyimpanan: Pengguna menolak memberikan izin.");
-      // Opsional: Tampilkan pesan jika izin penting untuk fungsi awal
+    // This "if" statement stops the code from running on macOS/Windows/Linux
+    if (Platform.isAndroid || Platform.isIOS) {
+      var status = await Permission.storage.status;
+      if (status.isDenied) {
+        await Permission.storage.request();
+      }
     }
   }
 

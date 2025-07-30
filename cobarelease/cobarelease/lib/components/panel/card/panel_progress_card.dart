@@ -11,12 +11,16 @@ class PanelProgressCard extends StatelessWidget {
   final String panelTitle;
   final String statusBusbar;
   final String statusComponent;
+  final String statusPalet;
+  final String statusCorepart;
   final String ppNumber;
   final String wbsNumber;
   final VoidCallback onEdit;
   final String panelVendorName;
   final String busbarVendorName;
   final String componentVendorName;
+  final String paletVendorName;
+  final String corepartVendorName;
   final bool isClosed;
   final DateTime? closedDate;
   final String? busbarRemarks;
@@ -30,12 +34,16 @@ class PanelProgressCard extends StatelessWidget {
     required this.panelTitle,
     required this.statusBusbar,
     required this.statusComponent,
+    required this.statusPalet,
+    required this.statusCorepart,
     required this.ppNumber,
     required this.wbsNumber,
     required this.onEdit,
     required this.panelVendorName,
     required this.busbarVendorName,
     required this.componentVendorName,
+    required this.paletVendorName,
+    required this.corepartVendorName,
     required this.isClosed,
     this.closedDate,
     this.busbarRemarks,
@@ -105,6 +113,26 @@ class PanelProgressCard extends StatelessWidget {
     return 'assets/images/no-status-gray.png';
   }
 
+  String _getPaletStatusImage(String status) {
+    final lower = status.toLowerCase();
+    if (lower == 'n/a' || lower.contains('open')) {
+      return 'assets/images/no-status-gray.png';
+    } else if (lower.contains('close')) {
+      return 'assets/images/done-green.png';
+    }
+    return 'assets/images/no-status-gray.png';
+  }
+
+  String _getCorepartStatusImage(String status) {
+    final lower = status.toLowerCase();
+    if (lower == 'n/a' || lower.contains('open')) {
+      return 'assets/images/no-status-gray.png';
+    } else if (lower.contains('close')) {
+      return 'assets/images/done-green.png';
+    }
+    return 'assets/images/no-status-gray.png';
+  }
+
   String _formatTimeAgo(DateTime date) {
     final difference = DateTime.now().difference(date);
     if (difference.inDays > 0) {
@@ -127,6 +155,12 @@ class PanelProgressCard extends StatelessWidget {
     final String componentDisplayStatus = (statusComponent == 'N/A')
         ? 'Open'
         : statusComponent;
+    final String paletDisplayStatus = (statusPalet == 'N/A')
+        ? 'Open'
+        : statusPalet;
+    final String corepartDisplayStatus = (statusCorepart == 'N/A')
+        ? 'Open'
+        : statusCorepart;
     final bool isFuture =
         startDate != null && startDate!.isAfter(DateTime.now());
     final String durationLabel = isFuture ? "Mulai Dalam" : "Durasi Proses";
@@ -264,156 +298,389 @@ class PanelProgressCard extends StatelessWidget {
                     top: BorderSide(width: 1, color: AppColors.grayLight),
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(
-                      panelTitle,
-                      style: const TextStyle(
-                        color: AppColors.black,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  "Busbar",
-                                  style: TextStyle(
-                                    color: AppColors.gray,
-                                    fontWeight: FontWeight.w400,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.grayLight,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    busbarVendorName == 'N/A'
-                                        ? 'Open Vendor'
-                                        : busbarVendorName,
-                                    style: const TextStyle(
-                                      color: AppColors.black,
-                                      fontWeight: FontWeight.w400,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                    Container(
+                      width: MediaQuery.of(context).size.width - 68,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            panelTitle,
+                            style: const TextStyle(
+                              color: AppColors.black,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Text(
-                                  busbarDisplayStatus,
-                                  style: const TextStyle(
-                                    color: AppColors.black,
-                                    fontWeight: FontWeight.w400,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Image.asset(
-                                  _getBusbarStatusImage(statusBusbar),
-                                  height: 12,
-                                ),
-                                const SizedBox(width: 4),
-                                if (hasRemarks) ...[
-                                  InkWell(
-                                    onTap: () => _showRemarksBottomSheet(
-                                      context,
-                                      busbarRemarks!,
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color: AppColors.grayLight,
-                                          width: 1,
+                          ),
+                          const SizedBox(height: 12),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Text(
+                                              "Busbar",
+                                              style: TextStyle(
+                                                color: AppColors.gray,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 4,
+                                                    vertical: 2,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.grayLight,
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                busbarVendorName == 'N/A'
+                                                    ? 'Open Vendor'
+                                                    : busbarVendorName,
+                                                style: const TextStyle(
+                                                  color: AppColors.black,
+                                                  fontWeight: FontWeight.w400,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                      child: Image.asset(
-                                        'assets/images/remarks.png',
-                                        height: 16,
+                                        const SizedBox(height: 4),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  busbarDisplayStatus,
+                                                  style: const TextStyle(
+                                                    color: AppColors.black,
+                                                    fontWeight: FontWeight.w400,
+                                                    fontSize: 10,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Image.asset(
+                                                  _getBusbarStatusImage(
+                                                    statusBusbar,
+                                                  ),
+                                                  height: 12,
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            if (hasRemarks) ...[
+                                              InkWell(
+                                                onTap: () =>
+                                                    _showRemarksBottomSheet(
+                                                      context,
+                                                      busbarRemarks!,
+                                                    ),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(
+                                                    4,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          16,
+                                                        ),
+                                                    border: Border.all(
+                                                      color:
+                                                          AppColors.grayLight,
+                                                      width: 1,
+                                                    ),
+                                                  ),
+                                                  child: Image.asset(
+                                                    'assets/images/remarks.png',
+                                                    height: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Text(
+                                              "Busbar",
+                                              style: TextStyle(
+                                                color: AppColors.gray,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 4,
+                                                    vertical: 2,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.grayLight,
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                busbarVendorName == 'N/A'
+                                                    ? 'Open Vendor'
+                                                    : busbarVendorName,
+                                                style: const TextStyle(
+                                                  color: AppColors.black,
+                                                  fontWeight: FontWeight.w400,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  busbarDisplayStatus,
+                                                  style: const TextStyle(
+                                                    color: AppColors.black,
+                                                    fontWeight: FontWeight.w400,
+                                                    fontSize: 10,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Image.asset(
+                                                  _getBusbarStatusImage(
+                                                    statusBusbar,
+                                                  ),
+                                                  height: 12,
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            if (hasRemarks) ...[
+                                              InkWell(
+                                                onTap: () =>
+                                                    _showRemarksBottomSheet(
+                                                      context,
+                                                      busbarRemarks!,
+                                                    ),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(
+                                                    4,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          16,
+                                                        ),
+                                                    border: Border.all(
+                                                      color:
+                                                          AppColors.grayLight,
+                                                      width: 1,
+                                                    ),
+                                                  ),
+                                                  child: Image.asset(
+                                                    'assets/images/remarks.png',
+                                                    height: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 60,
+                                    child: Container(
+                                      alignment: Alignment.centerRight,
+                                      child: Container(
+                                        child: InkWell(
+                                          onTap: onEdit,
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: AppColors.grayLight,
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child: Image.asset(
+                                              'assets/images/edit-green.png',
+                                              height: 20,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
-                              ],
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Row(
-                              children: [
-                                Text(
-                                  "Component",
-                                  style: TextStyle(
-                                    color: AppColors.gray,
-                                    fontWeight: FontWeight.w400,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Text(
-                                  componentDisplayStatus,
-                                  style: const TextStyle(
-                                    color: AppColors.black,
-                                    fontWeight: FontWeight.w400,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Image.asset(
-                                  _getComponentStatusImage(statusComponent),
-                                  height: 12,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        InkWell(
-                          onTap: onEdit,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: AppColors.grayLight,
-                                width: 1,
                               ),
-                            ),
-                            child: Image.asset(
-                              'assets/images/edit-green.png',
-                              height: 20,
-                            ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Row(
+                                          children: [
+                                            Text(
+                                              "Component",
+                                              style: TextStyle(
+                                                color: AppColors.gray,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              componentDisplayStatus,
+                                              style: const TextStyle(
+                                                color: AppColors.black,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Image.asset(
+                                              _getComponentStatusImage(
+                                                statusComponent,
+                                              ),
+                                              height: 12,
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Row(
+                                          children: [
+                                            Text(
+                                              "Palet",
+                                              style: TextStyle(
+                                                color: AppColors.gray,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              paletDisplayStatus,
+                                              style: const TextStyle(
+                                                color: AppColors.black,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Image.asset(
+                                              _getPaletStatusImage(statusPalet),
+                                              height: 12,
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 60,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Row(
+                                          children: [
+                                            Text(
+                                              "Corepart",
+                                              style: TextStyle(
+                                                color: AppColors.gray,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              corepartDisplayStatus,
+                                              style: const TextStyle(
+                                                color: AppColors.black,
+                                                fontWeight: FontWeight.w400,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Image.asset(
+                                              _getCorepartStatusImage(
+                                                statusCorepart,
+                                              ),
+                                              height: 12,
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),

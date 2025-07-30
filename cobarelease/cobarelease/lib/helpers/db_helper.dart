@@ -10,6 +10,8 @@ import 'package:secpanel/models/busbar.dart';
 import 'package:secpanel/models/company.dart';
 import 'package:secpanel/models/companyaccount.dart';
 import 'package:secpanel/models/component.dart';
+import 'package:secpanel/models/corepart.dart';
+import 'package:secpanel/models/palet.dart';
 import 'package:secpanel/models/paneldisplaydata.dart';
 import 'package:secpanel/models/panels.dart';
 
@@ -28,10 +30,10 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'app_database32.db');
+    String path = join(documentsDirectory.path, 'app_database39.db');
     return await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -39,6 +41,8 @@ class DatabaseHelper {
       onUpgrade: (db, oldVersion, newVersion) async {
         var batch = db.batch();
         batch.execute('DROP TABLE IF EXISTS components');
+        batch.execute('DROP TABLE IF EXISTS palet');
+        batch.execute('DROP TABLE IF EXISTS corepart');
         batch.execute('DROP TABLE IF EXISTS busbars');
         batch.execute('DROP TABLE IF EXISTS panels');
         batch.execute('DROP TABLE IF EXISTS company_accounts');
@@ -77,6 +81,8 @@ class DatabaseHelper {
       start_date TEXT, 
       status_busbar TEXT,
       status_component TEXT, 
+      status_palet TEXT,  
+      status_corepart TEXT, 
       logs TEXT, 
       created_by TEXT NOT NULL,
       vendor_id TEXT, 
@@ -101,6 +107,26 @@ class DatabaseHelper {
 
     batch.execute('''
     CREATE TABLE components (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, 
+      panel_no_pp TEXT NOT NULL,
+      vendor TEXT NOT NULL,
+      FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
+      FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
+      UNIQUE(panel_no_pp, vendor) -- Aturan ini mencegah duplikasi
+    )
+  ''');
+    batch.execute('''
+    CREATE TABLE palet (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, 
+      panel_no_pp TEXT NOT NULL,
+      vendor TEXT NOT NULL,
+      FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
+      FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
+      UNIQUE(panel_no_pp, vendor) -- Aturan ini mencegah duplikasi
+    )
+  ''');
+    batch.execute('''
+    CREATE TABLE corepart (
       id INTEGER PRIMARY KEY AUTOINCREMENT, 
       panel_no_pp TEXT NOT NULL,
       vendor TEXT NOT NULL,
@@ -160,6 +186,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 30)),
         statusBusbar: 'Close',
         statusComponent: 'Done',
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'abacus',
         isClosed: true,
@@ -173,6 +201,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 5)),
         statusBusbar: 'On Progress',
         statusComponent: 'On Progress',
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'gaa',
         isClosed: false,
@@ -185,6 +215,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 1)),
         statusBusbar: null,
         statusComponent: null,
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'abacus',
         isClosed: false,
@@ -197,6 +229,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 15)),
         statusBusbar: 'Red Block',
         statusComponent: 'On Progress',
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'gaa',
         isClosed: false,
@@ -209,6 +243,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 20)),
         statusBusbar: 'Siap 100%',
         statusComponent: 'Done',
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'abacus',
         isClosed: false,
@@ -221,6 +257,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(hours: 48)),
         statusBusbar: 'On Progress',
         statusComponent: 'Open',
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'gaa',
         isClosed: false,
@@ -233,6 +271,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 90)),
         statusBusbar: 'Close',
         statusComponent: 'Done',
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'abacus',
         isClosed: true,
@@ -246,6 +286,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 2)),
         statusBusbar: null,
         statusComponent: 'On Progress',
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'gaa',
         isClosed: false,
@@ -258,6 +300,8 @@ class DatabaseHelper {
         startDate: now.subtract(const Duration(days: 3)),
         statusBusbar: 'On Progress',
         statusComponent: null,
+        statusPalet: 'Close',
+        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'abacus',
         isClosed: false,
@@ -265,6 +309,12 @@ class DatabaseHelper {
     ];
     for (final p in panels) {
       batch.insert('panels', p.toMap());
+      if (p.statusPalet == 'Close') {
+        batch.insert('palet', {'panel_no_pp': p.noPp, 'vendor': 'abacus'});
+      }
+      if (p.statusCorepart == 'Close') {
+        batch.insert('corepart', {'panel_no_pp': p.noPp, 'vendor': 'gaa'});
+      }
     }
 
     batch.insert('busbars', {
@@ -276,6 +326,8 @@ class DatabaseHelper {
       'panel_no_pp': 'J-2101.01-A01-01',
       'vendor': 'warehouse',
     });
+
+    // For Panel: J-2205.15-B02-02
     batch.insert('busbars', {
       'panel_no_pp': 'J-2205.15-B02-02',
       'vendor': 'dsm',
@@ -285,6 +337,8 @@ class DatabaseHelper {
       'panel_no_pp': 'J-2205.15-B02-02',
       'vendor': 'warehouse',
     });
+
+    // For Panel: J-2101.01-A01-04
     batch.insert('busbars', {
       'panel_no_pp': 'J-2101.01-A01-04',
       'vendor': 'ttj',
@@ -294,6 +348,8 @@ class DatabaseHelper {
       'panel_no_pp': 'J-2101.01-A01-04',
       'vendor': 'warehouse',
     });
+
+    // For Panel: J-2208.18-D05-05
     batch.insert('busbars', {
       'panel_no_pp': 'J-2208.18-D05-05',
       'vendor': 'presisi',
@@ -303,6 +359,8 @@ class DatabaseHelper {
       'panel_no_pp': 'J-2208.18-D05-05',
       'vendor': 'warehouse',
     });
+
+    // For Panel: J-2311.02-E01-06
     batch.insert('busbars', {
       'panel_no_pp': 'J-2311.02-E01-06',
       'vendor': 'sutrado',
@@ -312,6 +370,8 @@ class DatabaseHelper {
       'panel_no_pp': 'J-2311.02-E01-06',
       'vendor': 'warehouse',
     });
+
+    // For Panel: J-2001.01-F01-07
     batch.insert('busbars', {
       'panel_no_pp': 'J-2001.01-F01-07',
       'vendor': 'gpe',
@@ -321,10 +381,14 @@ class DatabaseHelper {
       'panel_no_pp': 'J-2001.01-F01-07',
       'vendor': 'warehouse',
     });
+
+    // For Panel: J-2312.01-G01-08
     batch.insert('components', {
       'panel_no_pp': 'J-2312.01-G01-08',
       'vendor': 'warehouse',
     });
+
+    // For Panel: J-2401.01-H01-09
     batch.insert('busbars', {
       'panel_no_pp': 'J-2401.01-H01-09',
       'vendor': 'dsm',
@@ -343,7 +407,13 @@ class DatabaseHelper {
     if (currentUser.role != AppRole.admin) {
       switch (currentUser.role) {
         case AppRole.k3:
-          panelIdsSubQuery = 'SELECT no_pp FROM panels WHERE vendor_id = ?';
+          panelIdsSubQuery = '''
+            SELECT panel_no_pp FROM panels WHERE vendor = ?
+            UNION
+            SELECT panel_no_pp FROM palet WHERE vendor = ?
+            UNION
+            SELECT panel_no_pp FROM corepart WHERE vendor = ?
+          ''';
           whereArgs.add(currentUser.id);
           break;
         case AppRole.k5:
@@ -368,14 +438,18 @@ class DatabaseHelper {
         '''
       SELECT
         p.no_pp, p.no_panel, p.no_wbs, p.percent_progress, p.start_date,
-        p.status_busbar, p.status_component, p.logs, p.created_by, p.vendor_id,
+        p.status_busbar, p.status_component, p.status_palet, p.status_corepart, p.logs, p.created_by, p.vendor_id,
         p.is_closed, p.closed_date,
         pu.name as panel_vendor_name,
         (SELECT GROUP_CONCAT(name) FROM companies WHERE id IN (SELECT vendor FROM busbars WHERE panel_no_pp = p.no_pp)) as busbar_vendor_names,
         (SELECT GROUP_CONCAT(id) FROM companies WHERE id IN (SELECT vendor FROM busbars WHERE panel_no_pp = p.no_pp)) as busbar_vendor_ids,
         (SELECT GROUP_CONCAT(remarks) FROM busbars WHERE panel_no_pp = p.no_pp) as busbar_remarks,
         (SELECT GROUP_CONCAT(name) FROM companies WHERE id IN (SELECT vendor FROM components WHERE panel_no_pp = p.no_pp)) as component_vendor_names,
-        (SELECT GROUP_CONCAT(id) FROM companies WHERE id IN (SELECT vendor FROM components WHERE panel_no_pp = p.no_pp)) as component_vendor_ids
+        (SELECT GROUP_CONCAT(id) FROM companies WHERE id IN (SELECT vendor FROM components WHERE panel_no_pp = p.no_pp)) as component_vendor_ids,
+        (SELECT GROUP_CONCAT(name) FROM companies WHERE id IN (SELECT vendor FROM palet WHERE panel_no_pp = p.no_pp)) as palet_vendor_names,
+        (SELECT GROUP_CONCAT(id) FROM companies WHERE id IN (SELECT vendor FROM palet WHERE panel_no_pp = p.no_pp)) as palet_vendor_ids,
+        (SELECT GROUP_CONCAT(name) FROM companies WHERE id IN (SELECT vendor FROM corepart WHERE panel_no_pp = p.no_pp)) as corepart_vendor_names,
+        (SELECT GROUP_CONCAT(id) FROM companies WHERE id IN (SELECT vendor FROM corepart WHERE panel_no_pp = p.no_pp)) as corepart_vendor_ids
       FROM panels p
       LEFT JOIN companies pu ON p.vendor_id = pu.id
       WHERE p.no_pp IN ($panelIdsSubQuery)
@@ -398,6 +472,10 @@ class DatabaseHelper {
         busbarRemarks: map['busbar_remarks'] as String?,
         componentVendorNames: map['component_vendor_names'] as String? ?? 'N/A',
         componentVendorIds: cleanIds(map['component_vendor_ids'] as String?),
+        paletVendorNames: map['palet_vendor_names'] as String? ?? 'N/A',
+        paletVendorIds: cleanIds(map['palet_vendor_ids'] as String?),
+        corepartVendorNames: map['corepart_vendor_names'] as String? ?? 'N/A',
+        corepartVendorIds: cleanIds(map['corepart_vendor_ids'] as String?),
       );
     }).toList();
   }
@@ -693,6 +771,18 @@ class DatabaseHelper {
     )).map((map) => Component.fromMap(map)).toList();
   }
 
+  Future<List<Palet>> getAllPalet() async {
+    Database db = await instance.database;
+    return (await db.query('palet')).map((map) => Palet.fromMap(map)).toList();
+  }
+
+  Future<List<Corepart>> getAllCorepart() async {
+    Database db = await instance.database;
+    return (await db.query(
+      'corepart',
+    )).map((map) => Corepart.fromMap(map)).toList();
+  }
+
   // --- Busbar CRUD ---
   Future<void> upsertBusbarRemarkandVendor({
     required String panelNoPp,
@@ -738,6 +828,8 @@ class DatabaseHelper {
     List<Panel> panels = [];
     List<Busbar> busbars = [];
     List<Component> components = [];
+    List<Palet> palet = [];
+    List<Corepart> corepart = [];
 
     if (currentUser.role == AppRole.admin) {
       // Admin can access all data
@@ -746,6 +838,8 @@ class DatabaseHelper {
       panels = await getAllPanels();
       busbars = await getAllBusbars();
       components = await getAllComponents();
+      palet = await getAllPalet();
+      corepart = await getAllCorepart();
     } else {
       // Logic for non-admin roles
       List<String> relevantPanelIds = [];
@@ -785,8 +879,28 @@ class DatabaseHelper {
           relevantPanelIds = resPanels
               .map((map) => map['no_pp'] as String)
               .toList();
-          // Hapus atau abaikan penambahan companies.addAll(...) dan companyAccounts.addAll(...) di sini
-          // karena kita sudah membatasi ke perusahaan currentUser saja.
+
+          final resPalet = await db.query(
+            'palet',
+            distinct: true,
+            columns: ['panel_no_pp'],
+            where: 'vendor = ?',
+            whereArgs: [companyId],
+          );
+          relevantPanelIds = resPalet
+              .map((map) => map['panel_no_pp'] as String)
+              .toList();
+
+          final resCorepart = await db.query(
+            'corepart',
+            distinct: true,
+            columns: ['panel_no_pp'],
+            where: 'vendor = ?',
+            whereArgs: [companyId],
+          );
+          relevantPanelIds = resCorepart
+              .map((map) => map['panel_no_pp'] as String)
+              .toList();
           break;
 
         case AppRole.k5:
@@ -814,13 +928,14 @@ class DatabaseHelper {
           relevantPanelIds = resComponents
               .map((map) => map['panel_no_pp'] as String)
               .toList();
-          // Hapus atau abaikan penambahan companies.addAll(...) dan companyAccounts.addAll(...) di sini
           break;
 
         default:
           panels = [];
           busbars = [];
           components = [];
+          palet = [];
+          corepart = [];
           break;
       }
 
@@ -856,10 +971,26 @@ class DatabaseHelper {
             whereArgs: relevantPanelIds,
           )).map(Component.fromMap).toList();
         }
+        if (currentUser.role == AppRole.k3) {
+          palet = (await db.query(
+            'palet',
+            where: 'panel_no_pp IN ($placeholders)',
+            whereArgs: relevantPanelIds,
+          )).map(Palet.fromMap).toList();
+        }
+        if (currentUser.role == AppRole.k3) {
+          corepart = (await db.query(
+            'corepart',
+            where: 'panel_no_pp IN ($placeholders)',
+            whereArgs: relevantPanelIds,
+          )).map(Corepart.fromMap).toList();
+        }
       } else {
         panels = [];
         busbars = [];
         components = [];
+        palet = [];
+        corepart = [];
       }
     }
 
@@ -869,6 +1000,8 @@ class DatabaseHelper {
       'panels': panels,
       'busbars': busbars,
       'components': components,
+      'palet': palet,
+      'corepart': corepart,
     };
   }
 
@@ -932,6 +1065,8 @@ class DatabaseHelper {
         TextCellValue('start_date'),
         TextCellValue('status_busbar'),
         TextCellValue('status_component'),
+        TextCellValue('status_palet'),
+        TextCellValue('status_corepart'),
         TextCellValue('created_by'),
         TextCellValue('vendor_id'),
         TextCellValue('is_closed'),
@@ -946,6 +1081,8 @@ class DatabaseHelper {
           _toCellValue(p.startDate?.toIso8601String()),
           _toCellValue(p.statusBusbar),
           _toCellValue(p.statusComponent),
+          _toCellValue(p.statusPalet),
+          _toCellValue(p.statusCorepart),
           _toCellValue(p.createdBy),
           _toCellValue(p.vendorId),
           _toCellValue(p.isClosed),
@@ -974,6 +1111,20 @@ class DatabaseHelper {
       final sheet = excel['Components'];
       sheet.appendRow([TextCellValue('panel_no_pp'), TextCellValue('vendor')]);
       for (final c in data['components'] as List<Component>) {
+        sheet.appendRow([_toCellValue(c.panelNoPp), _toCellValue(c.vendor)]);
+      }
+    }
+    if (tablesToInclude['Palet'] == true) {
+      final sheet = excel['Palet'];
+      sheet.appendRow([TextCellValue('panel_no_pp'), TextCellValue('vendor')]);
+      for (final c in data['Palet'] as List<Palet>) {
+        sheet.appendRow([_toCellValue(c.panelNoPp), _toCellValue(c.vendor)]);
+      }
+    }
+    if (tablesToInclude['Corepart'] == true) {
+      final sheet = excel['Corepart'];
+      sheet.appendRow([TextCellValue('panel_no_pp'), TextCellValue('vendor')]);
+      for (final c in data['Corepart'] as List<Corepart>) {
         sheet.appendRow([_toCellValue(c.panelNoPp), _toCellValue(c.vendor)]);
       }
     }
@@ -1009,6 +1160,8 @@ class DatabaseHelper {
               'start_date': p.startDate?.toIso8601String(),
               'status_busbar': p.statusBusbar,
               'status_component': p.statusComponent,
+              'status_palet': p.statusPalet,
+              'status_corepart': p.statusCorepart,
               'created_by': p.createdBy,
               'vendor_id': p.vendorId,
               'is_closed': p.isClosed ? 1 : 0,
@@ -1033,6 +1186,16 @@ class DatabaseHelper {
           .map((c) => {'panel_no_pp': c.panelNoPp, 'vendor': c.vendor})
           .toList();
     }
+    if (tablesToInclude['Palet'] == true) {
+      jsonData['palet'] = (data['palet'] as List<Palet>)
+          .map((c) => {'panel_no_pp': c.panelNoPp, 'vendor': c.vendor})
+          .toList();
+    }
+    if (tablesToInclude['Corepart'] == true) {
+      jsonData['corepart'] = (data['corepart'] as List<Corepart>)
+          .map((c) => {'panel_no_pp': c.panelNoPp, 'vendor': c.vendor})
+          .toList();
+    }
     return const JsonEncoder.withIndent('  ').convert(jsonData);
   }
 
@@ -1044,6 +1207,8 @@ class DatabaseHelper {
     await db.transaction((txn) async {
       // --- BARIS-BARIS INI DIHAPUS UNTUK MENCEGAH DATABASE DIRESET TOTAL ---
       // await txn.delete('components');
+      // await txn.delete('palet');
+      // await txn.delete('corepart');
       // await txn.delete('busbars');
       // await txn.delete('panels');
       // await txn.delete('company_accounts');
@@ -1122,6 +1287,28 @@ class DatabaseHelper {
           );
         }
       }
+      if (data.containsKey('palet') && data['palet'] != null) {
+        for (var itemData in data['palet']!) {
+          updateProgress("Linking palet: ${itemData['panel_no_pp']}");
+          // Sama seperti busbars, hati-hati dengan PK AUTOINCREMENT.
+          await txn.insert(
+            'palet',
+            itemData,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+      if (data.containsKey('corepart') && data['corepart'] != null) {
+        for (var itemData in data['corepart']!) {
+          updateProgress("Linking corepart: ${itemData['panel_no_pp']}");
+          // Sama seperti busbars, hati-hati dengan PK AUTOINCREMENT.
+          await txn.insert(
+            'corepart',
+            itemData,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
     });
   }
 
@@ -1179,6 +1366,8 @@ class DatabaseHelper {
         TextCellValue('start_date'),
         TextCellValue('status_busbar'),
         TextCellValue('status_component'),
+        TextCellValue('status_palet'),
+        TextCellValue('status_corepart'),
         TextCellValue('created_by'),
         TextCellValue('vendor_id'),
         TextCellValue('is_closed'),
@@ -1226,6 +1415,30 @@ class DatabaseHelper {
         _toCellValue('PP-CONTOH-01'),
         _toCellValue('vendor_whs_contoh'),
       ]);
+
+      final paletSheet = excel['palet'];
+      // FIX: Bungkus header dengan TextCellValue
+      paletSheet.appendRow([
+        TextCellValue('panel_no_pp'),
+        TextCellValue('vendor'),
+      ]);
+      // FIX: Bungkus contoh data dengan CellValue yang sesuai
+      paletSheet.appendRow([
+        _toCellValue('PP-CONTOH-01'),
+        _toCellValue('vendor_whs_contoh'),
+      ]);
+
+      final corepartSheet = excel['corepart'];
+      // FIX: Bungkus header dengan TextCellValue
+      corepartSheet.appendRow([
+        TextCellValue('panel_no_pp'),
+        TextCellValue('vendor'),
+      ]);
+      // FIX: Bungkus contoh data dengan CellValue yang sesuai
+      corepartSheet.appendRow([
+        _toCellValue('PP-CONTOH-01'),
+        _toCellValue('vendor_whs_contoh'),
+      ]);
     }
     return excel;
   }
@@ -1261,6 +1474,8 @@ class DatabaseHelper {
               '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}T10:00:00',
           'status_busbar': 'On Progress',
           'status_component': 'Open',
+          'status_palet': 'Open',
+          'status_corepart': 'Open',
           'created_by': 'admin',
           'vendor_id': 'vendor_k3_contoh',
           'is_closed': "0 atau 1",
@@ -1275,6 +1490,12 @@ class DatabaseHelper {
         },
       ];
       jsonData['components'] = [
+        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_whs_contoh'},
+      ];
+      jsonData['palet'] = [
+        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_whs_contoh'},
+      ];
+      jsonData['corepart'] = [
         {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_whs_contoh'},
       ];
     }

@@ -4,6 +4,8 @@ import 'package:secpanel/models/approles.dart';
 import 'package:secpanel/models/busbar.dart';
 import 'package:secpanel/models/companyaccount.dart';
 import 'package:secpanel/models/component.dart';
+import 'package:secpanel/models/palet.dart';
+import 'package:secpanel/models/corepart.dart';
 import 'package:secpanel/models/panels.dart';
 import 'package:secpanel/models/company.dart';
 import 'package:secpanel/theme/colors.dart';
@@ -25,6 +27,8 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
   late List<Panel> _panels;
   late List<Busbar> _busbars;
   late List<Component> _components;
+  late List<Palet> _palet;
+  late List<Corepart> _corepart;
 
   // Initial state for selected tables will be determined by user role
   final Map<String, bool> _selectedTables = {
@@ -33,6 +37,8 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
     'Panels': false,
     'Busbars': false,
     'Components': false,
+    'Palet': false,
+    'Corepart': false,
   };
 
   final List<String> _availableTableNames =
@@ -63,10 +69,15 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
         _availableTableNames.add('Panels');
         _availableTableNames.add('Busbars');
         _availableTableNames.add('Components');
+        _availableTableNames.add('Palet');
+        _availableTableNames.add('Corepart');
         // Admin memilih semua secara default
         _selectedTables['Panels'] = true;
         _selectedTables['Busbars'] = true;
         _selectedTables['Components'] = true;
+        _selectedTables['Palet'] = true;
+        _selectedTables['Corepart'] = true;
+
         break;
       case AppRole.k3:
         _availableTableNames.add('Panels');
@@ -74,10 +85,14 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
         _availableTableNames.add(
           'Components',
         ); // K3 perlu melihat komponen untuk panel mereka
+        _availableTableNames.add('Palet');
+        _availableTableNames.add('Corepart');
         // K3 memilih panels, busbars, components secara default
         _selectedTables['Panels'] = true;
         _selectedTables['Busbars'] = true;
         _selectedTables['Components'] = true;
+        _selectedTables['Palet'] = true;
+        _selectedTables['Corepart'] = true;
         break;
       case AppRole.k5:
         _availableTableNames.add('Panels');
@@ -85,8 +100,11 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
         // K5 memilih panels, busbars secara default
         _selectedTables['Panels'] = true;
         _selectedTables['Busbars'] = true;
-        _selectedTables['Components'] =
-            false; // K5 tidak memiliki akses langsung ke tabel komponen
+        _selectedTables['Components'] = false;
+
+        _selectedTables['Palet'] = false;
+        _selectedTables['Corepart'] = false;
+
         break;
       case AppRole.warehouse:
         _availableTableNames.add('Components');
@@ -96,6 +114,9 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
         _selectedTables['Busbars'] =
             false; // Warehouse tidak memiliki akses langsung ke data tabel busbars
         _selectedTables['Components'] = true;
+
+        _selectedTables['Palet'] = false;
+        _selectedTables['Corepart'] = false;
         break;
       default:
         // Tidak ada tabel spesifik untuk peran lainnya
@@ -112,6 +133,8 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
     _panels = filteredData['panels'] as List<Panel>;
     _busbars = filteredData['busbars'] as List<Busbar>;
     _components = filteredData['components'] as List<Component>;
+    _palet = filteredData['palet'] as List<Palet>;
+    _corepart = filteredData['corepart'] as List<Corepart>;
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -140,6 +163,8 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
         panels: _panels,
         busbars: _busbars,
         components: _components,
+        palet: _palet,
+        corepart: _corepart,
         tableNames:
             tablesToShowInPreview, // Gunakan daftar yang difilter untuk pratinjau
       ),
@@ -353,6 +378,9 @@ class _DataPreviewerSheet extends StatefulWidget {
   final List<Panel> panels;
   final List<Busbar> busbars;
   final List<Component> components;
+  final List<Palet> palet;
+  final List<Corepart> corepart;
+
   final List<String>
   tableNames; // Daftar tabel yang benar-benar akan ditampilkan
 
@@ -362,6 +390,8 @@ class _DataPreviewerSheet extends StatefulWidget {
     required this.panels,
     required this.busbars,
     required this.components,
+    required this.palet,
+    required this.corepart,
     required this.tableNames,
   });
 
@@ -413,6 +443,8 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
       'Panels': _buildPanelsTable,
       'Busbars': _buildBusbarsTable,
       'Components': _buildComponentsTable,
+      'Palet': _buildPaletTable,
+      'Corepart': _buildCorepartTable,
     };
 
     // Filter daftar widget TabBarView berdasarkan tableNames yang diberikan
@@ -604,6 +636,48 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
                 cells: [
                   DataCell(Text(component.panelNoPp, style: cellStyle)),
                   DataCell(Text(component.vendor, style: cellStyle)),
+                ],
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildPaletTable() {
+    return _buildTableContainer(
+      _buildStyledDataTable(
+        columns: [
+          DataColumn(label: Text('Panel No PP', style: headerStyle)),
+          DataColumn(label: Text('Vendor', style: headerStyle)),
+        ],
+        rows: widget.palet
+            .map(
+              (palet) => DataRow(
+                cells: [
+                  DataCell(Text(palet.panelNoPp, style: cellStyle)),
+                  DataCell(Text(palet.vendor, style: cellStyle)),
+                ],
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildCorepartTable() {
+    return _buildTableContainer(
+      _buildStyledDataTable(
+        columns: [
+          DataColumn(label: Text('Panel No PP', style: headerStyle)),
+          DataColumn(label: Text('Vendor', style: headerStyle)),
+        ],
+        rows: widget.corepart
+            .map(
+              (corepart) => DataRow(
+                cells: [
+                  DataCell(Text(corepart.panelNoPp, style: cellStyle)),
+                  DataCell(Text(corepart.vendor, style: cellStyle)),
                 ],
               ),
             )

@@ -27,6 +27,8 @@ enum PanelFilterStatus {
 class PanelFilterBottomSheet extends StatefulWidget {
   final List<String> selectedStatuses;
   final List<String> selectedComponents;
+  final List<String> selectedPalet;
+  final List<String> selectedCorepart;
   final bool includeArchived;
   final SortOption? selectedSort;
   final List<PanelFilterStatus> selectedPanelStatuses;
@@ -36,21 +38,29 @@ class PanelFilterBottomSheet extends StatefulWidget {
   final List<String> selectedPanelVendors;
   final List<String> selectedBusbarVendors;
   final List<String> selectedComponentVendors;
+  final List<String> selectedPaletVendors;
+  final List<String> selectedCorepartVendors;
 
   final Function(List<String>) onStatusesChanged;
   final Function(List<String>) onComponentsChanged;
+  final Function(List<String>) onPaletChanged;
+  final Function(List<String>) onCorepartChanged;
   final Function(bool) onIncludeArchivedChanged;
   final Function(SortOption?) onSortChanged;
   final Function(List<PanelFilterStatus>) onPanelStatusesChanged;
   final Function(List<String>) onPanelVendorsChanged;
   final Function(List<String>) onBusbarVendorsChanged;
   final Function(List<String>) onComponentVendorsChanged;
+  final Function(List<String>) onPaletVendorsChanged;
+  final Function(List<String>) onCorepartVendorsChanged;
   final VoidCallback onReset;
 
   const PanelFilterBottomSheet({
     super.key,
     required this.selectedStatuses,
     required this.selectedComponents,
+    required this.selectedPalet,
+    required this.selectedCorepart,
     required this.includeArchived,
     required this.selectedSort,
     required this.selectedPanelStatuses,
@@ -60,14 +70,20 @@ class PanelFilterBottomSheet extends StatefulWidget {
     required this.selectedPanelVendors,
     required this.selectedBusbarVendors,
     required this.selectedComponentVendors,
+    required this.selectedPaletVendors,
+    required this.selectedCorepartVendors,
     required this.onStatusesChanged,
     required this.onComponentsChanged,
+    required this.onPaletChanged,
+    required this.onCorepartChanged,
     required this.onIncludeArchivedChanged,
     required this.onSortChanged,
     required this.onPanelStatusesChanged,
     required this.onPanelVendorsChanged,
     required this.onBusbarVendorsChanged,
     required this.onComponentVendorsChanged,
+    required this.onPaletVendorsChanged,
+    required this.onCorepartVendorsChanged,
     required this.onReset,
   });
 
@@ -78,24 +94,32 @@ class PanelFilterBottomSheet extends StatefulWidget {
 class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
   late List<String> _selectedStatuses;
   late List<String> _selectedComponents;
+  late List<String> _selectedPalet;
+  late List<String> _selectedCorepart;
   late bool _includeArchived;
   late SortOption? _selectedSort;
   late List<PanelFilterStatus> _selectedPanelStatuses;
   late List<String> _selectedPanelVendors;
   late List<String> _selectedBusbarVendors;
   late List<String> _selectedComponentVendors;
+  late List<String> _selectedPaletVendors;
+  late List<String> _selectedCorepartVendors;
 
   @override
   void initState() {
     super.initState();
     _selectedStatuses = List.from(widget.selectedStatuses);
     _selectedComponents = List.from(widget.selectedComponents);
+    _selectedPalet = List.from(widget.selectedPalet);
+    _selectedCorepart = List.from(widget.selectedCorepart);
     _includeArchived = widget.includeArchived;
     _selectedSort = widget.selectedSort;
     _selectedPanelStatuses = List.from(widget.selectedPanelStatuses);
     _selectedPanelVendors = List.from(widget.selectedPanelVendors);
     _selectedBusbarVendors = List.from(widget.selectedBusbarVendors);
     _selectedComponentVendors = List.from(widget.selectedComponentVendors);
+    _selectedPaletVendors = List.from(widget.selectedPaletVendors);
+    _selectedCorepartVendors = List.from(widget.selectedCorepartVendors);
   }
 
   Widget _buildOptionButton({
@@ -146,12 +170,16 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
   void _applyFilters() {
     widget.onStatusesChanged(_selectedStatuses);
     widget.onComponentsChanged(_selectedComponents);
+    widget.onPaletChanged(_selectedPalet);
+    widget.onCorepartChanged(_selectedCorepart);
     widget.onIncludeArchivedChanged(_includeArchived);
     widget.onSortChanged(_selectedSort);
     widget.onPanelStatusesChanged(_selectedPanelStatuses);
     widget.onPanelVendorsChanged(_selectedPanelVendors);
     widget.onBusbarVendorsChanged(_selectedBusbarVendors);
     widget.onComponentVendorsChanged(_selectedComponentVendors);
+    widget.onPaletVendorsChanged(_selectedPaletVendors);
+    widget.onCorepartVendorsChanged(_selectedCorepartVendors);
     Navigator.pop(context);
   }
 
@@ -391,6 +419,47 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                         )
                         .toList(),
                   ),
+                  const Text(
+                    "Vendor Palet (K3)",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: widget.allWHSVendors
+                        .map(
+                          (vendor) => _buildOptionButton(
+                            label: vendor.name,
+                            selected: _selectedPaletVendors.contains(vendor.id),
+                            onTap: () => _toggleSelection(
+                              _selectedPaletVendors,
+                              vendor.id,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+
+                  const Text(
+                    "Vendor Corepart (K3)",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: widget.allWHSVendors
+                        .map(
+                          (vendor) => _buildOptionButton(
+                            label: vendor.name,
+                            selected: _selectedCorepartVendors.contains(
+                              vendor.id,
+                            ),
+                            onTap: () => _toggleSelection(
+                              _selectedCorepartVendors,
+                              vendor.id,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
 
                   // ✨ FILTER STATUS BUSBAR & KOMPONEN DIKEMBALIKAN
                   const SizedBox(height: 12),
@@ -420,6 +489,38 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                         selected: _selectedComponents.contains("Open"),
                         onTap: () =>
                             _toggleSelection(_selectedComponents, "Open"),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: [
+                      _buildOptionButton(
+                        label: "Close",
+                        selected: _selectedPalet.contains("Close"),
+                        onTap: () => _toggleSelection(_selectedPalet, "Close"),
+                      ),
+                      _buildOptionButton(
+                        label: "Open",
+                        selected: _selectedPalet.contains("Open"),
+                        onTap: () => _toggleSelection(_selectedPalet, "Open"),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: [
+                      _buildOptionButton(
+                        label: "Close",
+                        selected: _selectedCorepart.contains("Close"),
+                        onTap: () =>
+                            _toggleSelection(_selectedCorepart, "Close"),
+                      ),
+                      _buildOptionButton(
+                        label: "Open",
+                        selected: _selectedCorepart.contains("Open"),
+                        onTap: () =>
+                            _toggleSelection(_selectedCorepart, "Open"),
                       ),
                     ],
                   ),

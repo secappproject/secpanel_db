@@ -238,6 +238,8 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
         createdBy: widget.currentCompany.id,
         vendorId: _selectedK3VendorId,
         statusComponent: "Open",
+        statusPalet: "Open",
+        statusCorepart: "Open",
       );
 
       await DatabaseHelper.instance.insertPanel(newPanel);

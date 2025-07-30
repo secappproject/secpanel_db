@@ -33,6 +33,8 @@ class _ImportReviewScreenState extends State<ImportReviewScreen> {
       'start_date',
       'status_busbar',
       'status_component',
+      'status_palet',
+      'status_corepart',
       'created_by',
       'vendor_id',
       'is_closed',
@@ -40,6 +42,8 @@ class _ImportReviewScreenState extends State<ImportReviewScreen> {
     ],
     'busbars': ['panel_no_pp', 'vendor', 'remarks'],
     'components': ['panel_no_pp', 'vendor'],
+    'palet': ['panel_no_pp', 'vendor'],
+    'corepart': ['panel_no_pp', 'vendor'],
   };
 
   final ValueNotifier<double> _progressNotifier = ValueNotifier(0.0);
@@ -78,6 +82,12 @@ class _ImportReviewScreenState extends State<ImportReviewScreen> {
       'components': (await dbHelper.getAllComponents())
           .map((c) => "${c.panelNoPp}_${c.vendor}")
           .toSet(),
+      'palet': (await dbHelper.getAllPalet())
+          .map((c) => "${c.panelNoPp}_${c.vendor}")
+          .toSet(),
+      'corepart': (await dbHelper.getAllCorepart())
+          .map((c) => "${c.panelNoPp}_${c.vendor}")
+          .toSet(),
     };
   }
 
@@ -108,7 +118,12 @@ class _ImportReviewScreenState extends State<ImportReviewScreen> {
         }
       }
     }
-    final List<String> compositeKeyTables = ['busbars', 'components'];
+    final List<String> compositeKeyTables = [
+      'busbars',
+      'components',
+      'palet',
+      'corepart',
+    ];
     for (final tableName in compositeKeyTables) {
       if (!_editableData.containsKey(tableName) ||
           _editableData[tableName]!.isEmpty)
@@ -184,6 +199,8 @@ class _ImportReviewScreenState extends State<ImportReviewScreen> {
             break;
           case 'busbars':
           case 'components':
+          case 'palet':
+          case 'corepart':
             final panelFk = row['panel_no_pp']?.toString() ?? '';
             final vendorFk = row['vendor']?.toString() ?? '';
             if ((panelFk.isNotEmpty &&
@@ -1212,6 +1229,8 @@ class _ImportReviewScreenState extends State<ImportReviewScreen> {
         return 'Peringatan: ID Pembuat atau Vendor untuk panel ini tidak ditemukan.';
       case 'busbars':
       case 'components':
+      case 'palet':
+      case 'corepart':
         return 'Peringatan: ID Panel atau Vendor untuk item ini tidak ditemukan.';
       default:
         return 'Peringatan: Terjadi potensi masalah relasi data.';

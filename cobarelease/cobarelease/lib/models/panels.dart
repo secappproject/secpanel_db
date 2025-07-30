@@ -8,6 +8,9 @@ class Panel {
   DateTime? startDate;
   String? statusBusbar;
   String? statusComponent;
+  String? statusPalet;
+  String? statusCorepart;
+
   List<Map<String, dynamic>>? logs;
   String createdBy;
   String? vendorId;
@@ -22,6 +25,8 @@ class Panel {
     this.startDate,
     this.statusBusbar,
     this.statusComponent,
+    this.statusCorepart,
+    this.statusPalet,
     this.logs,
     required this.createdBy,
     this.vendorId,
@@ -38,6 +43,8 @@ class Panel {
       'start_date': startDate?.toIso8601String(),
       'status_busbar': statusBusbar,
       'status_component': statusComponent,
+      'status_palet': statusPalet,
+      'status_corepart': statusCorepart,
       'logs': logs != null ? jsonEncode(logs) : null,
       'created_by': createdBy,
       'vendor_id': vendorId,
@@ -57,6 +64,8 @@ class Panel {
           : null,
       statusBusbar: map['status_busbar'],
       statusComponent: map['status_component'],
+      statusPalet: map['status_palet'],
+      statusCorepart: map['status_corepart'],
       logs: map['logs'] != null
           ? (jsonDecode(map['logs']) as List)
                 .map((item) => item as Map<String, dynamic>)

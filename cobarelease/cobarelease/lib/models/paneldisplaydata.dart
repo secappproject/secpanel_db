@@ -7,6 +7,10 @@ class PanelDisplayData {
   final List<String> busbarVendorIds;
   final String componentVendorNames;
   final List<String> componentVendorIds;
+  final String paletVendorNames;
+  final List<String> paletVendorIds;
+  final String corepartVendorNames;
+  final List<String> corepartVendorIds;
   final String? busbarRemarks;
 
   PanelDisplayData({
@@ -16,6 +20,10 @@ class PanelDisplayData {
     required this.busbarVendorIds,
     required this.componentVendorNames,
     required this.componentVendorIds,
+    required this.paletVendorNames,
+    required this.paletVendorIds,
+    required this.corepartVendorNames,
+    required this.corepartVendorIds,
     this.busbarRemarks,
   });
 }

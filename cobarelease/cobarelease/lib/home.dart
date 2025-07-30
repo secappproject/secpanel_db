@@ -43,8 +43,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<String> selectedPanelVendors = [];
   List<String> selectedBusbarVendors = [];
   List<String> selectedComponentVendors = [];
+  List<String> selectedPaletVendors = [];
+  List<String> selectedCorepartVendors = [];
   List<String> selectedStatuses = [];
   List<String> selectedComponents = [];
+  List<String> selectedPalet = [];
+  List<String> selectedCorepart = [];
 
   @override
   void initState() {
@@ -143,7 +147,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           panel.noWbs.toLowerCase().contains(query) ||
           data.panelVendorName.toLowerCase().contains(query) ||
           data.busbarVendorNames.toLowerCase().contains(query) ||
-          data.componentVendorNames.toLowerCase().contains(query);
+          data.componentVendorNames.toLowerCase().contains(query) ||
+          data.paletVendorNames.toLowerCase().contains(query) ||
+          data.corepartVendorNames.toLowerCase().contains(query);
 
       final matchPanelVendor =
           selectedPanelVendors.isEmpty ||
@@ -159,6 +165,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             (id) => data.componentVendorIds.contains(id),
           );
 
+      final matchPaletVendor =
+          selectedPaletVendors.isEmpty ||
+          selectedPaletVendors.any((id) => data.paletVendorIds.contains(id));
+
+      final matchCorepartVendor =
+          selectedCorepartVendors.isEmpty ||
+          selectedCorepartVendors.any(
+            (id) => data.corepartVendorIds.contains(id),
+          );
+
       final matchStatus =
           selectedStatuses.isEmpty ||
           selectedStatuses.contains(panel.statusBusbar);
@@ -167,14 +183,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           selectedComponents.isEmpty ||
           selectedComponents.contains(panel.statusComponent);
 
+      final matchPalet =
+          selectedPalet.isEmpty || selectedPalet.contains(panel.statusPalet);
+
+      final matchCorepart =
+          selectedCorepart.isEmpty ||
+          selectedCorepart.contains(panel.statusCorepart);
+
       // Jika tidak cocok dengan salah satu filter dasar, langsung sembunyikan.
       final baseFiltersMatch =
           matchSearch &&
           matchPanelVendor &&
           matchBusbarVendor &&
           matchComponentVendor &&
+          matchPaletVendor &&
+          matchCorepartVendor &&
           matchStatus &&
-          matchComponent;
+          matchComponent &&
+          matchPalet &&
+          matchCorepart;
 
       if (!baseFiltersMatch) {
         return false;
@@ -213,7 +240,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               .where(
                 (data) =>
                     data.busbarVendorIds.isEmpty ||
-                    data.componentVendorIds.isEmpty,
+                    data.componentVendorIds.isEmpty ||
+                    data.paletVendorIds.isEmpty ||
+                    data.corepartVendorIds.isEmpty,
               )
               .toList();
         }
@@ -327,6 +356,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       builder: (_) => PanelFilterBottomSheet(
         selectedStatuses: selectedStatuses,
         selectedComponents: selectedComponents,
+        selectedPalet: selectedPalet,
+        selectedCorepart: selectedCorepart,
         includeArchived: includeArchived,
         selectedSort: selectedSort,
         selectedPanelStatuses: selectedPanelStatuses,
@@ -336,9 +367,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         selectedPanelVendors: selectedPanelVendors,
         selectedBusbarVendors: selectedBusbarVendors,
         selectedComponentVendors: selectedComponentVendors,
+        selectedPaletVendors: selectedPaletVendors,
+        selectedCorepartVendors: selectedCorepartVendors,
         onStatusesChanged: (value) => setState(() => selectedStatuses = value),
         onComponentsChanged: (value) =>
             setState(() => selectedComponents = value),
+        onPaletChanged: (value) => setState(() => selectedPalet = value),
+        onCorepartChanged: (value) => setState(() => selectedCorepart = value),
         onIncludeArchivedChanged: (value) =>
             setState(() => includeArchived = value ?? false),
         onSortChanged: (value) => setState(() => selectedSort = value),
@@ -350,6 +385,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             setState(() => selectedBusbarVendors = value),
         onComponentVendorsChanged: (value) =>
             setState(() => selectedComponentVendors = value),
+        onPaletVendorsChanged: (value) =>
+            setState(() => selectedPaletVendors = value),
+        onCorepartVendorsChanged: (value) =>
+            setState(() => selectedCorepartVendors = value),
         onReset: () {
           setState(() {
             searchQuery = "";
@@ -360,8 +399,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             selectedPanelVendors = [];
             selectedBusbarVendors = [];
             selectedComponentVendors = [];
+            selectedPaletVendors = [];
+            selectedCorepartVendors = [];
             selectedStatuses = [];
             selectedComponents = [];
+            selectedPalet = [];
+            selectedCorepart = [];
           });
           Navigator.pop(context);
         },
@@ -461,7 +504,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       openVendorCount = baseFilteredList
           .where(
             (data) =>
-                data.busbarVendorIds.isEmpty || data.componentVendorIds.isEmpty,
+                data.busbarVendorIds.isEmpty ||
+                data.componentVendorIds.isEmpty ||
+                data.paletVendorIds.isEmpty ||
+                data.corepartVendorIds.isEmpty,
           )
           .length;
     }
@@ -613,6 +659,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       panelTitle: panel.noPanel,
                       statusBusbar: panel.statusBusbar ?? "N/A",
                       statusComponent: panel.statusComponent ?? "N/A",
+                      statusPalet: panel.statusPalet ?? "N/A",
+                      statusCorepart: panel.statusCorepart ?? "N/A",
                       ppNumber: panel.noPp,
                       wbsNumber: panel.noWbs,
                       onEdit: () {
@@ -627,6 +675,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       panelVendorName: data.panelVendorName,
                       busbarVendorName: data.busbarVendorNames,
                       componentVendorName: data.componentVendorNames,
+                      paletVendorName: data.paletVendorNames,
+                      corepartVendorName: data.corepartVendorNames,
                       isClosed: panel.isClosed,
                       closedDate: panel.closedDate,
                       busbarRemarks: data.busbarRemarks,
