@@ -5,6 +5,7 @@ import 'package:secpanel/theme/colors.dart';
 
 class PanelProgressCard extends StatelessWidget {
   final String duration;
+  final DateTime? targetDelivery;
   final double progress;
   final DateTime? startDate;
   final String progressLabel;
@@ -29,6 +30,7 @@ class PanelProgressCard extends StatelessWidget {
   const PanelProgressCard({
     super.key,
     required this.duration,
+    required this.targetDelivery,
     required this.progress,
     required this.startDate,
     required this.progressLabel,
@@ -69,8 +71,19 @@ class PanelProgressCard extends StatelessWidget {
     return hari;
   }
 
+  // bool _shouldShowAlert() {
+  //   return !isClosed && progress < 0.5 && _extractDays(duration) >= 2;
+  // }
+
   bool _shouldShowAlert() {
-    return !isClosed && progress < 0.5 && _extractDays(duration) >= 2;
+    if (isClosed || targetDelivery == null) {
+      return false; // Jangan tampilkan alert jika sudah ditutup atau tidak ada target
+    }
+    final now = DateTime.now();
+    final difference = targetDelivery!.difference(now);
+
+    // Tampilkan jika target belum lewat dan kurang dari 2 hari (48 jam) lagi
+    return !difference.isNegative && difference.inHours < 48;
   }
 
   Color _getProgressColor() {
@@ -724,9 +737,9 @@ class PanelProgressCard extends StatelessWidget {
                   textColor: AppColors.schneiderGreen,
                 )
               else if (_shouldShowAlert())
-                const AlertBox(
+                AlertBox(
                   title: "Perlu Dikejar",
-                  description: "Durasi proses melebihi batas aman (2 hari)",
+                  description: "Kurang dari 2 hari menuju target delivery!",
                 ),
               Container(
                 padding: const EdgeInsets.all(12),

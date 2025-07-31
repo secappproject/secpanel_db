@@ -30,7 +30,7 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'app_database41.db');
+    String path = join(documentsDirectory.path, 'app_database43.db');
     return await openDatabase(
       path,
       version: 13,
@@ -79,8 +79,9 @@ class DatabaseHelper {
       no_wbs TEXT NOT NULL,
       percent_progress REAL, 
       start_date TEXT, 
-      status_busbar_pcc TEXT, -- DIUBAH
-      status_busbar_mcc TEXT, -- DIUBAH
+      target_delivery TEXT,
+      status_busbar_pcc TEXT,
+      status_busbar_mcc TEXT,
       status_component TEXT, 
       status_palet TEXT,  
       status_corepart TEXT, 
@@ -180,6 +181,7 @@ class DatabaseHelper {
         noWbs: 'WBS-A-001',
         percentProgress: 100,
         startDate: now.subtract(const Duration(days: 30)),
+        targetDelivery: now.subtract(const Duration(days: 15)),
         statusBusbarPcc: 'Close',
         statusBusbarMcc: 'Close',
         statusComponent: 'Done',
@@ -196,6 +198,7 @@ class DatabaseHelper {
         noWbs: 'WBS-B-002',
         percentProgress: 75,
         startDate: now.subtract(const Duration(days: 5)),
+        targetDelivery: now.add(const Duration(days: 1)),
         statusBusbarPcc: 'On Progress',
         statusBusbarMcc: 'On Progress',
         statusComponent: 'On Progress',
@@ -211,39 +214,10 @@ class DatabaseHelper {
         noWbs: 'WBS-C-003',
         percentProgress: 10,
         startDate: now.subtract(const Duration(days: 1)),
+        targetDelivery: now.add(const Duration(days: 10)),
         statusBusbarPcc: null,
         statusBusbarMcc: null,
         statusComponent: null,
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'abacus',
-        isClosed: false,
-      ),
-      Panel(
-        noPp: 'J-2101.01-A01-04',
-        noPanel: 'MDP-02-GedungB',
-        noWbs: 'WBS-A-004',
-        percentProgress: 60,
-        startDate: now.subtract(const Duration(days: 15)),
-        statusBusbarPcc: 'Red Block',
-        statusBusbarMcc: 'On Progress',
-        statusComponent: 'On Progress',
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'gaa',
-        isClosed: false,
-      ),
-      Panel(
-        noPp: 'J-2208.18-D05-05',
-        noPanel: 'CP-01-Control',
-        noWbs: 'WBS-D-005',
-        percentProgress: 100,
-        startDate: now.subtract(const Duration(days: 20)),
-        statusBusbarPcc: 'Siap 100%',
-        statusBusbarMcc: 'Siap 100%',
-        statusComponent: 'Done',
         statusPalet: 'Close',
         statusCorepart: 'Close',
         createdBy: 'admin',
@@ -270,8 +244,6 @@ class DatabaseHelper {
       'panel_no_pp': 'J-2101.01-A01-01',
       'vendor': 'warehouse',
     });
-
-    // For Panel: J-2205.15-B02-02
     batch.insert('busbars', {
       'panel_no_pp': 'J-2205.15-B02-02',
       'vendor': 'dsm',
@@ -280,63 +252,6 @@ class DatabaseHelper {
     batch.insert('components', {
       'panel_no_pp': 'J-2205.15-B02-02',
       'vendor': 'warehouse',
-    });
-
-    // For Panel: J-2101.01-A01-04
-    batch.insert('busbars', {
-      'panel_no_pp': 'J-2101.01-A01-04',
-      'vendor': 'ttj',
-      'remarks': 'Kabel utama tidak sesuai spesifikasi awal.',
-    });
-    batch.insert('components', {
-      'panel_no_pp': 'J-2101.01-A01-04',
-      'vendor': 'warehouse',
-    });
-
-    // For Panel: J-2208.18-D05-05
-    batch.insert('busbars', {
-      'panel_no_pp': 'J-2208.18-D05-05',
-      'vendor': 'presisi',
-      'remarks': 'Final check OK.',
-    });
-    batch.insert('components', {
-      'panel_no_pp': 'J-2208.18-D05-05',
-      'vendor': 'warehouse',
-    });
-
-    // For Panel: J-2311.02-E01-06
-    batch.insert('busbars', {
-      'panel_no_pp': 'J-2311.02-E01-06',
-      'vendor': 'sutrado',
-      'remarks': '',
-    });
-    batch.insert('components', {
-      'panel_no_pp': 'J-2311.02-E01-06',
-      'vendor': 'warehouse',
-    });
-
-    // For Panel: J-2001.01-F01-07
-    batch.insert('busbars', {
-      'panel_no_pp': 'J-2001.01-F01-07',
-      'vendor': 'gpe',
-      'remarks': '',
-    });
-    batch.insert('components', {
-      'panel_no_pp': 'J-2001.01-F01-07',
-      'vendor': 'warehouse',
-    });
-
-    // For Panel: J-2312.01-G01-08
-    batch.insert('components', {
-      'panel_no_pp': 'J-2312.01-G01-08',
-      'vendor': 'warehouse',
-    });
-
-    // For Panel: J-2401.01-H01-09
-    batch.insert('busbars', {
-      'panel_no_pp': 'J-2401.01-H01-09',
-      'vendor': 'dsm',
-      'remarks': 'Menunggu komponen dari warehouse.',
     });
   }
 
@@ -377,11 +292,12 @@ class DatabaseHelper {
     } else {
       panelIdsSubQuery = 'SELECT no_pp FROM panels';
     }
+
     final String finalQuery =
         '''
       SELECT
-        p.no_pp, p.no_panel, p.no_wbs, p.percent_progress, p.start_date,
-        p.status_busbar_pcc, p.status_busbar_mcc, -- DIUBAH
+        p.no_pp, p.no_panel, p.no_wbs, p.percent_progress, p.start_date, p.target_delivery,
+        p.status_busbar_pcc, p.status_busbar_mcc,
         p.status_component, p.status_palet, p.status_corepart, p.logs, p.created_by, p.vendor_id,
         p.is_closed, p.closed_date,
         pu.name as panel_vendor_name,

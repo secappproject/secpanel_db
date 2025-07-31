@@ -6,6 +6,7 @@ class Panel {
   String noWbs;
   double? percentProgress;
   DateTime? startDate;
+  DateTime? targetDelivery;
   String? statusBusbarPcc;
   String? statusBusbarMcc;
   String? statusComponent;
@@ -23,6 +24,7 @@ class Panel {
     required this.noWbs,
     this.percentProgress,
     this.startDate,
+    this.targetDelivery,
     this.statusBusbarPcc,
     this.statusBusbarMcc,
     this.statusComponent,
@@ -42,6 +44,7 @@ class Panel {
       'no_wbs': noWbs,
       'percent_progress': percentProgress,
       'start_date': startDate?.toIso8601String(),
+      'target_delivery': targetDelivery?.toIso8601String(),
       'status_busbar_pcc': statusBusbarPcc,
       'status_busbar_mcc': statusBusbarMcc,
       'status_component': statusComponent,
@@ -63,6 +66,11 @@ class Panel {
       percentProgress: (map['percent_progress'] as num?)?.toDouble(),
       startDate: map['start_date'] != null
           ? DateTime.parse(map['start_date'])
+          : null,
+      targetDelivery:
+          map['target_delivery'] !=
+              null // TAMBAHKAN DI fromMap
+          ? DateTime.parse(map['target_delivery'])
           : null,
       statusBusbarPcc: map['status_busbar_pcc'],
       statusBusbarMcc: map['status_busbar_mcc'],

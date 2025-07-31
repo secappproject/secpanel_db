@@ -30,33 +30,29 @@ class EditPanelBottomSheet extends StatefulWidget {
 class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   final _formKey = GlobalKey<FormState>();
 
-  // Controllers for text fields
   late final TextEditingController _noPanelController;
   late final TextEditingController _noWbsController;
   late final TextEditingController _noPpController;
   late final TextEditingController _progressController;
 
-  // State variables
-  late Panel _panel; // A local, mutable copy of the panel
+  late Panel _panel;
   late DateTime _selectedDate;
+  late DateTime? _selectedTargetDeliveryDate;
   late String? _selectedK3VendorId;
-  late bool _isSent; // State for "Tandai Sudah Dikirim"
+  late bool _isSent;
   late bool _canMarkAsSent;
 
   bool _isLoading = false;
   bool _isSuccess = false;
 
-  // Role checks
   bool get _isAdmin => widget.currentCompany.role == AppRole.admin;
   bool get _isK3 => widget.currentCompany.role == AppRole.k3;
 
   @override
   void initState() {
     super.initState();
-    // Create a deep copy to avoid modifying the original panel data directly
     _panel = Panel.fromMap(widget.panelData.panel.toMap());
 
-    // Initialize controllers and state from the panel data
     _noPanelController = TextEditingController(text: _panel.noPanel);
     _noWbsController = TextEditingController(text: _panel.noWbs);
     _noPpController = TextEditingController(text: _panel.noPp);
@@ -64,13 +60,11 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
       text: _panel.percentProgress?.toInt().toString() ?? '0',
     );
     _selectedDate = _panel.startDate ?? DateTime.now();
+    _selectedTargetDeliveryDate = _panel.targetDelivery;
     _selectedK3VendorId = _panel.vendorId;
     _isSent = _panel.isClosed;
 
-    // Determine initial state for the "Mark as Sent" checkbox
     _updateCanMarkAsSent();
-
-    // Listen for changes in the progress field to enable/disable the checkbox
     _progressController.addListener(_updateCanMarkAsSent);
   }
 
@@ -89,7 +83,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     if (mounted) {
       setState(() {
         _canMarkAsSent = progress >= 75;
-        // If progress drops below 75, uncheck and disable "Mark as Sent"
         if (!_canMarkAsSent) {
           _isSent = false;
         }
@@ -116,7 +109,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
 
       final isUnique = await DatabaseHelper.instance.isPanelNumberUnique(
         noPanel,
-        currentNoPp: originalNoPp, // Kirim No. PP asli untuk pengecualian
+        currentNoPp: originalNoPp,
       );
       if (!isUnique) {
         if (mounted) {
@@ -130,17 +123,17 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
         }
         return;
       }
-      // Update the local panel object with the new values
+
       _panel.noPanel = _noPanelController.text.trim();
       _panel.noWbs = _noWbsController.text.trim();
       _panel.noPp = _noPpController.text.trim();
       _panel.percentProgress =
           double.tryParse(_progressController.text.trim()) ?? 0.0;
       _panel.startDate = _selectedDate;
+      _panel.targetDelivery = _selectedTargetDeliveryDate;
       _panel.vendorId = _selectedK3VendorId;
       _panel.isClosed = _isSent;
 
-      // Update closed date based on the "isSent" status
       if (_isSent && _panel.closedDate == null) {
         _panel.closedDate = DateTime.now();
       } else if (!_isSent) {
@@ -156,7 +149,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
         await Future.delayed(const Duration(milliseconds: 1500));
 
         if (mounted) {
-          widget.onSave(_panel); // Pass the updated panel back
+          widget.onSave(_panel);
           Navigator.pop(context);
         }
       } catch (e) {
@@ -219,8 +212,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(modalContext);
-                      widget
-                          .onDelete(); // This will trigger deletion in the home screen
+                      widget.onDelete();
                     },
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -261,7 +253,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Drag handle
               Center(
                 child: Container(
                   height: 5,
@@ -273,22 +264,19 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                 ),
               ),
               const SizedBox(height: 24),
-
-              // Header
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Title
-                  Text(
-                    "Edit Panel ${_panel.noPanel}",
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w500,
+                  Expanded(
+                    child: Text(
+                      "Edit Panel ${_panel.noPanel}",
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-
-                  // -- ✨ CHANGE IS HERE --
-                  // Only show the delete icon if the user is an admin
                   if (_isAdmin)
                     IconButton(
                       icon: const Icon(
@@ -300,14 +288,10 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                 ],
               ),
               const SizedBox(height: 16),
-
-              // "Tandai Sudah Dikirim" widget
               if (_isAdmin || _isK3) ...[
                 _buildMarkAsSent(),
                 const SizedBox(height: 16),
               ],
-
-              // Form Fields
               _buildTextField(
                 controller: _noPanelController,
                 label: "No. Panel",
@@ -334,6 +318,8 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                 ],
               ),
               const SizedBox(height: 16),
+              _buildTargetDeliveryPicker(),
+              const SizedBox(height: 16),
               if (_isAdmin)
                 _buildAdminVendorPicker()
               else if (_isK3)
@@ -346,8 +332,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
       ),
     );
   }
-
-  // --- WIDGET BUILDER HELPERS ---
 
   Widget _buildMarkAsSent() {
     final Color borderColor = _isSent
@@ -406,7 +390,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                         _isSent = value ?? false;
                       });
                     }
-                  : null, // Disables the checkbox
+                  : null,
               activeColor: AppColors.schneiderGreen,
               checkColor: Colors.white,
               visualDensity: VisualDensity.compact,
@@ -452,13 +436,11 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                 return '0-100';
               }
             }
-            // Validator untuk field non-angka
             if (!isNumber && (value == null || value.isEmpty)) {
               return 'Field ini tidak boleh kosong';
             }
-            return null; // Lolos validasi
+            return null;
           },
-
           decoration: InputDecoration(
             suffixText: suffixText,
             hintText: 'Masukkan $label',
@@ -650,6 +632,127 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w300,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTargetDeliveryPicker() {
+    Future<void> pickTargetDate() async {
+      final date = await showDatePicker(
+        context: context,
+        initialDate: _selectedTargetDeliveryDate ?? DateTime.now(),
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2101),
+        initialEntryMode: DatePickerEntryMode.calendarOnly,
+        builder: (context, child) {
+          return Theme(
+            data: ThemeData.light().copyWith(
+              colorScheme: const ColorScheme.light(
+                primary: AppColors.schneiderGreen,
+                onPrimary: Colors.white,
+                onSurface: AppColors.black,
+              ),
+              textButtonTheme: TextButtonThemeData(
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.pressed)) {
+                      return Colors.white;
+                    }
+                    return AppColors.schneiderGreen;
+                  }),
+                  backgroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.pressed)) {
+                      return AppColors.schneiderGreen;
+                    }
+                    return Colors.transparent;
+                  }),
+                  side: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.pressed)) {
+                      return BorderSide.none;
+                    }
+                    return const BorderSide(color: AppColors.schneiderGreen);
+                  }),
+                  padding: WidgetStateProperty.all(
+                    const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                  ),
+                  shape: WidgetStateProperty.all(
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  textStyle: WidgetStateProperty.all(
+                    const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      fontFamily: 'Lexend',
+                    ),
+                  ),
+                ),
+              ),
+              datePickerTheme: DatePickerThemeData(
+                backgroundColor: Colors.white,
+                headerBackgroundColor: AppColors.white,
+                headerForegroundColor: AppColors.black,
+                dividerColor: AppColors.grayLight,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            child: child!,
+          );
+        },
+      );
+      if (date == null) return;
+
+      setState(() {
+        _selectedTargetDeliveryDate = DateTime(date.year, date.month, date.day);
+      });
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Target Delivery",
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w400),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: pickTargetDate,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.grayLight),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.flag_outlined,
+                  size: 20,
+                  color: AppColors.gray,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _selectedTargetDeliveryDate == null
+                      ? 'Pilih Tanggal'
+                      : DateFormat(
+                          'd MMM yyyy',
+                        ).format(_selectedTargetDeliveryDate!),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w300,
+                    color: _selectedTargetDeliveryDate == null
+                        ? AppColors.gray
+                        : AppColors.black,
                   ),
                 ),
               ],
