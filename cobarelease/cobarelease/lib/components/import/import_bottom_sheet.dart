@@ -21,7 +21,7 @@ class ImportBottomSheet extends StatefulWidget {
 class _ImportBottomSheetState extends State<ImportBottomSheet> {
   bool _isProcessing = false;
   String _statusText = "Ketuk untuk memilih file";
-  String _selectedTemplateType = 'panels_and_relations'; // Value baru
+  String _selectedTemplateType = 'panels_and_relations';
   String _selectedTemplateFormat = 'xlsx';
   bool _isDownloading = false;
 
@@ -49,7 +49,7 @@ class _ImportBottomSheetState extends State<ImportBottomSheet> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+            const SnackBar(
               content: Text('Template berhasil disimpan.'),
               backgroundColor: AppColors.schneiderGreen,
             ),
@@ -311,7 +311,7 @@ class _ImportBottomSheetState extends State<ImportBottomSheet> {
                 (val) => setState(() => _selectedTemplateType = val),
               ),
               _buildOptionButton(
-                'Company & Relasi',
+                'Company & Akun',
                 'companies_and_accounts',
                 _selectedTemplateType,
                 (val) => setState(() => _selectedTemplateType = val),

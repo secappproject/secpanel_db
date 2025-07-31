@@ -1,5 +1,3 @@
-// lib/components/import_progress_dialog.dart
-
 import 'package:flutter/material.dart';
 import 'package:secpanel/theme/colors.dart';
 

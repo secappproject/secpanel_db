@@ -11,8 +11,7 @@ import 'package:secpanel/models/company.dart';
 import 'package:secpanel/theme/colors.dart';
 
 class PreviewBottomSheet extends StatefulWidget {
-  final Company
-  currentUser; // Tambahkan ini untuk menerima pengguna yang sedang login
+  final Company currentUser;
 
   const PreviewBottomSheet({super.key, required this.currentUser});
 
@@ -30,9 +29,8 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
   late List<Palet> _palet;
   late List<Corepart> _corepart;
 
-  // Initial state for selected tables will be determined by user role
   final Map<String, bool> _selectedTables = {
-    'Companies': false, // Default to false, will be set based on role
+    'Companies': false,
     'Company Accounts': false,
     'Panels': false,
     'Busbars': false,
@@ -41,53 +39,45 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
     'Corepart': false,
   };
 
-  final List<String> _availableTableNames =
-      []; // Filtered table names for display
+  final List<String> _availableTableNames = [];
   String _selectedFormat = 'Excel';
 
   @override
   void initState() {
     super.initState();
     _setAvailableTablesBasedOnRole();
-    _loadAllData(); // Load all data, filtering happens in DBHelper
+    _loadAllData();
   }
 
-  // Metode untuk mengatur tabel yang tersedia berdasarkan peran pengguna
   void _setAvailableTablesBasedOnRole() {
     _availableTableNames.clear();
 
-    // Semua peran bisa mengekspor Companies dan Company Accounts
     _availableTableNames.add('Companies');
     _availableTableNames.add('Company Accounts');
 
-    // Atur pilihan default berdasarkan peran
     _selectedTables['Companies'] = true;
     _selectedTables['Company Accounts'] = true;
 
     switch (widget.currentUser.role) {
       case AppRole.admin:
+      case AppRole.viewer:
         _availableTableNames.add('Panels');
         _availableTableNames.add('Busbars');
         _availableTableNames.add('Components');
         _availableTableNames.add('Palet');
         _availableTableNames.add('Corepart');
-        // Admin memilih semua secara default
         _selectedTables['Panels'] = true;
         _selectedTables['Busbars'] = true;
         _selectedTables['Components'] = true;
         _selectedTables['Palet'] = true;
         _selectedTables['Corepart'] = true;
-
         break;
       case AppRole.k3:
         _availableTableNames.add('Panels');
         _availableTableNames.add('Busbars');
-        _availableTableNames.add(
-          'Components',
-        ); // K3 perlu melihat komponen untuk panel mereka
+        _availableTableNames.add('Components');
         _availableTableNames.add('Palet');
         _availableTableNames.add('Corepart');
-        // K3 memilih panels, busbars, components secara default
         _selectedTables['Panels'] = true;
         _selectedTables['Busbars'] = true;
         _selectedTables['Components'] = true;
@@ -97,29 +87,21 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
       case AppRole.k5:
         _availableTableNames.add('Panels');
         _availableTableNames.add('Busbars');
-        // K5 memilih panels, busbars secara default
         _selectedTables['Panels'] = true;
         _selectedTables['Busbars'] = true;
         _selectedTables['Components'] = false;
-
         _selectedTables['Palet'] = false;
         _selectedTables['Corepart'] = false;
-
         break;
       case AppRole.warehouse:
         _availableTableNames.add('Components');
-        // Warehouse memilih komponen secara default
-        _selectedTables['Panels'] =
-            false; // Warehouse tidak memiliki akses langsung ke data tabel panels
-        _selectedTables['Busbars'] =
-            false; // Warehouse tidak memiliki akses langsung ke data tabel busbars
+        _selectedTables['Panels'] = false;
+        _selectedTables['Busbars'] = false;
         _selectedTables['Components'] = true;
-
         _selectedTables['Palet'] = false;
         _selectedTables['Corepart'] = false;
         break;
       default:
-        // Tidak ada tabel spesifik untuk peran lainnya
         break;
     }
   }
@@ -141,11 +123,9 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
     }
   }
 
-  // Metode untuk menampilkan pratinjau data
   void _showPreview() {
     if (_isLoading) return;
 
-    // Filter tabel yang akan ditampilkan di pratinjau berdasarkan opsi yang dipilih di bottom sheet
     final List<String> tablesToShowInPreview = _availableTableNames
         .where((name) => _selectedTables[name] == true)
         .toList();
@@ -165,13 +145,11 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
         components: _components,
         palet: _palet,
         corepart: _corepart,
-        tableNames:
-            tablesToShowInPreview, // Gunakan daftar yang difilter untuk pratinjau
+        tableNames: tablesToShowInPreview,
       ),
     );
   }
 
-  // Metode pembangun untuk judul bagian
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.only(top: 24.0, bottom: 12.0),
@@ -186,7 +164,6 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
     );
   }
 
-  // Metode pembangun untuk opsi multi-pilihan (checkbox)
   Widget _buildMultiSelectOption(String label) {
     final bool isSelected = _selectedTables[label] ?? false;
     return GestureDetector(
@@ -215,7 +192,6 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
     );
   }
 
-  // Metode pembangun untuk opsi satu pilihan (radio button)
   Widget _buildSingleSelectOption(String format) {
     final bool isSelected = _selectedFormat == format;
     return GestureDetector(
@@ -283,10 +259,9 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
                 children: [
                   _buildSectionTitle("Pilih Tabel untuk Diekspor"),
                   Wrap(
-                    children:
-                        _availableTableNames // Gunakan daftar yang sudah difilter di sini
-                            .map((name) => _buildMultiSelectOption(name))
-                            .toList(),
+                    children: _availableTableNames
+                        .map((name) => _buildMultiSelectOption(name))
+                        .toList(),
                   ),
                   _buildSectionTitle("Pilih Format File"),
                   Wrap(
@@ -380,9 +355,7 @@ class _DataPreviewerSheet extends StatefulWidget {
   final List<Component> components;
   final List<Palet> palet;
   final List<Corepart> corepart;
-
-  final List<String>
-  tableNames; // Daftar tabel yang benar-benar akan ditampilkan
+  final List<String> tableNames;
 
   const _DataPreviewerSheet({
     required this.companies,
@@ -421,9 +394,7 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
   void initState() {
     super.initState();
     _tabController = TabController(
-      length: widget
-          .tableNames
-          .length, // Sesuaikan panjang tab dengan tabel yang akan ditampilkan
+      length: widget.tableNames.length,
       vsync: this,
     );
   }
@@ -436,7 +407,6 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
 
   @override
   Widget build(BuildContext context) {
-    // Mapping antara nama tabel string dan widget pembangun tabel yang sesuai
     Map<String, Widget Function()> tableBuilders = {
       'Companies': _buildCompaniesTable,
       'Company Accounts': _buildCompanyAccountsTable,
@@ -447,7 +417,6 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
       'Corepart': _buildCorepartTable,
     };
 
-    // Filter daftar widget TabBarView berdasarkan tableNames yang diberikan
     List<Widget> tabViews = widget.tableNames
         .map((tableName) => tableBuilders[tableName]!())
         .toList();
@@ -489,11 +458,7 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
             ),
             const Divider(height: 1, color: AppColors.grayLight),
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children:
-                    tabViews, // Gunakan daftar tabViews yang sudah difilter
-              ),
+              child: TabBarView(controller: _tabController, children: tabViews),
             ),
           ],
         ),
@@ -586,6 +551,10 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
           DataColumn(label: Text('No PP', style: headerStyle)),
           DataColumn(label: Text('No Panel', style: headerStyle)),
           DataColumn(label: Text('Vendor ID', style: headerStyle)),
+          DataColumn(label: Text('Status PCC', style: headerStyle)),
+          DataColumn(label: Text('Status MCC', style: headerStyle)),
+          DataColumn(label: Text('AO PCC', style: headerStyle)),
+          DataColumn(label: Text('ETA PCC', style: headerStyle)),
         ],
         rows: widget.panels
             .map(
@@ -594,6 +563,24 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
                   DataCell(Text(panel.noPp, style: cellStyle)),
                   DataCell(Text(panel.noPanel, style: cellStyle)),
                   DataCell(Text(panel.vendorId ?? 'N/A', style: cellStyle)),
+                  DataCell(
+                    Text(panel.statusBusbarPcc ?? 'N/A', style: cellStyle),
+                  ),
+                  DataCell(
+                    Text(panel.statusBusbarMcc ?? 'N/A', style: cellStyle),
+                  ),
+                  DataCell(
+                    Text(
+                      panel.aoBusbarPcc?.toString() ?? 'N/A',
+                      style: cellStyle,
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      panel.etaBusbarPcc?.toString() ?? 'N/A',
+                      style: cellStyle,
+                    ),
+                  ),
                 ],
               ),
             )

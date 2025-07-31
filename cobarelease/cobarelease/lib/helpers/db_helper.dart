@@ -29,10 +29,10 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'app_database_final.db');
+    String path = join(documentsDirectory.path, 'app_database_final_4.db');
     return await openDatabase(
       path,
-      version: 2, // Naikkan versi untuk trigger onUpgrade jika perlu
+      version: 1,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -94,9 +94,7 @@ class DatabaseHelper {
       created_by TEXT NOT NULL,
       vendor_id TEXT, 
       is_closed INTEGER NOT NULL DEFAULT 0, 
-      closed_date TEXT,
-      FOREIGN KEY (created_by) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
-      FOREIGN KEY (vendor_id) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE
+      closed_date TEXT
     )
     ''');
 
@@ -106,7 +104,6 @@ class DatabaseHelper {
       panel_no_pp TEXT NOT NULL,
       vendor TEXT NOT NULL, 
       remarks TEXT,
-      FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
       UNIQUE(panel_no_pp, vendor)
     )
     ''');
@@ -115,7 +112,6 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         panel_no_pp TEXT NOT NULL,
         vendor TEXT NOT NULL,
-        FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
         UNIQUE(panel_no_pp, vendor)
       )
     ''');
@@ -124,7 +120,6 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         panel_no_pp TEXT NOT NULL,
         vendor TEXT NOT NULL,
-        FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
         UNIQUE(panel_no_pp, vendor)
       )
     ''');
@@ -133,7 +128,6 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         panel_no_pp TEXT NOT NULL,
         vendor TEXT NOT NULL,
-        FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
         UNIQUE(panel_no_pp, vendor)
       )
     ''');
@@ -145,11 +139,7 @@ class DatabaseHelper {
   Future<void> _createDummyData(Batch batch) async {
     final companies = [
       Company(id: 'admin', name: 'Administrator', role: AppRole.admin),
-      Company(
-        id: 'viewer',
-        name: 'Viewer',
-        role: AppRole.viewer,
-      ), // DITAMBAHKAN
+      Company(id: 'viewer', name: 'Viewer', role: AppRole.viewer),
       Company(id: 'warehouse', name: 'Warehouse', role: AppRole.warehouse),
       Company(id: 'abacus', name: 'Abacus', role: AppRole.k3),
       Company(id: 'gaa', name: 'GAA', role: AppRole.k3),
@@ -160,12 +150,9 @@ class DatabaseHelper {
       batch.insert('companies', c.toMap());
     }
 
-    // PERUBAHAN: Menambahkan akun viewer dan akun kedua untuk setiap vendor
     final accounts = [
       CompanyAccount(username: 'admin', password: '123', companyId: 'admin'),
       CompanyAccount(username: 'viewer', password: '123', companyId: 'viewer'),
-
-      // Warehouse
       CompanyAccount(
         username: 'whs_user1',
         password: '123',
@@ -176,8 +163,6 @@ class DatabaseHelper {
         password: '123',
         companyId: 'warehouse',
       ),
-
-      // Abacus
       CompanyAccount(
         username: 'abacus_user1',
         password: '123',
@@ -188,16 +173,10 @@ class DatabaseHelper {
         password: '123',
         companyId: 'abacus',
       ),
-
-      // GAA
       CompanyAccount(username: 'gaa_user1', password: '123', companyId: 'gaa'),
       CompanyAccount(username: 'gaa_user2', password: '123', companyId: 'gaa'),
-
-      // GPE
       CompanyAccount(username: 'gpe_user1', password: '123', companyId: 'gpe'),
       CompanyAccount(username: 'gpe_user2', password: '123', companyId: 'gpe'),
-
-      // DSM
       CompanyAccount(username: 'dsm_user1', password: '123', companyId: 'dsm'),
       CompanyAccount(username: 'dsm_user2', password: '123', companyId: 'dsm'),
     ];
@@ -292,7 +271,6 @@ class DatabaseHelper {
     String panelIdsSubQuery = '';
     List<dynamic> whereArgs = [];
 
-    // PERUBAHAN: Viewer bisa melihat semua data seperti Admin
     if (currentUser.role != AppRole.admin &&
         currentUser.role != AppRole.viewer) {
       switch (currentUser.role) {
@@ -320,7 +298,6 @@ class DatabaseHelper {
           return [];
       }
     } else {
-      // Admin dan Viewer melihat semua panel
       panelIdsSubQuery = 'SELECT no_pp FROM panels';
     }
 
@@ -421,7 +398,6 @@ class DatabaseHelper {
     return count > 0;
   }
 
-  // --- Company & Account CRUD ---
   Future<void> insertCompanyWithAccount(
     Company company,
     CompanyAccount account,
@@ -498,23 +474,6 @@ class DatabaseHelper {
       whereArgs: [username],
     );
   }
-
-  // Future<Company?> getCompanyById(String id) async {
-  //   final db = await instance.database;
-  //   final res = await db.query(
-  //     'companies',
-  //     from: 'companies c',
-  //     join:
-  //         'JOIN company_accounts ca ON c.id = ca.company_id WHERE ca.username = ?',
-  //     whereArgs: [id],
-  //   );
-  //   if (res.isNotEmpty) {
-  //     final company = Company.fromMap(res.first);
-  //     company.id = id;
-  //     return company;
-  //   }
-  //   return null;
-  // }
 
   Future<Company?> getCompanyById(String id) async {
     final db = await instance.database;
@@ -612,7 +571,6 @@ class DatabaseHelper {
     return result.map((map) => Company.fromMap(map)).toList();
   }
 
-  // --- Panel CRUD ---
   Future<int> insertPanel(Panel panel) async {
     Database db = await instance.database;
     return await db.insert('panels', panel.toMap());
@@ -703,7 +661,6 @@ class DatabaseHelper {
     )).map((map) => Corepart.fromMap(map)).toList();
   }
 
-  // --- Busbar CRUD ---
   Future<void> upsertBusbarRemarkandVendor({
     required String panelNoPp,
     required String vendorId,
@@ -751,8 +708,8 @@ class DatabaseHelper {
     List<Palet> palet = [];
     List<Corepart> corepart = [];
 
-    if (currentUser.role == AppRole.admin) {
-      // Admin can access all data
+    if (currentUser.role == AppRole.admin ||
+        currentUser.role == AppRole.viewer) {
       companies = await getAllCompanies();
       companyAccounts = await getAllCompanyAccounts();
       panels = await getAllPanels();
@@ -761,7 +718,6 @@ class DatabaseHelper {
       palet = await getAllPalet();
       corepart = await getAllCorepart();
     } else {
-      // Logic for non-admin roles
       List<String> relevantPanelIds = [];
       String companyId = currentUser.id;
 
@@ -779,10 +735,6 @@ class DatabaseHelper {
         currentUserAccounts.map(CompanyAccount.fromMap).toList(),
       );
 
-      // Sekarang, kita akan mengisi relevantPanelIds berdasarkan peran,
-      // tetapi companies dan companyAccounts tidak akan ditambah lagi dari relasi panel,
-      // karena kita hanya ingin data internal perusahaan untuk Companies dan Company Accounts.
-
       switch (currentUser.role) {
         case AppRole.k3:
           final resPanels = await db.query(
@@ -791,9 +743,9 @@ class DatabaseHelper {
             where: 'vendor_id = ?',
             whereArgs: [companyId],
           );
-          relevantPanelIds = resPanels
-              .map((map) => map['no_pp'] as String)
-              .toList();
+          relevantPanelIds.addAll(
+            resPanels.map((map) => map['no_pp'] as String).toList(),
+          );
 
           final resPalet = await db.query(
             'palet',
@@ -802,9 +754,9 @@ class DatabaseHelper {
             where: 'vendor = ?',
             whereArgs: [companyId],
           );
-          relevantPanelIds = resPalet
-              .map((map) => map['panel_no_pp'] as String)
-              .toList();
+          relevantPanelIds.addAll(
+            resPalet.map((map) => map['panel_no_pp'] as String).toList(),
+          );
 
           final resCorepart = await db.query(
             'corepart',
@@ -813,9 +765,9 @@ class DatabaseHelper {
             where: 'vendor = ?',
             whereArgs: [companyId],
           );
-          relevantPanelIds = resCorepart
-              .map((map) => map['panel_no_pp'] as String)
-              .toList();
+          relevantPanelIds.addAll(
+            resCorepart.map((map) => map['panel_no_pp'] as String).toList(),
+          );
           break;
 
         case AppRole.k5:
@@ -829,7 +781,6 @@ class DatabaseHelper {
           relevantPanelIds = resBusbars
               .map((map) => map['panel_no_pp'] as String)
               .toList();
-          // Hapus atau abaikan penambahan companies.addAll(...) dan companyAccounts.addAll(...) di sini
           break;
 
         case AppRole.warehouse:
@@ -844,19 +795,11 @@ class DatabaseHelper {
               .map((map) => map['panel_no_pp'] as String)
               .toList();
           break;
-
         default:
-          panels = [];
-          busbars = [];
-          components = [];
-          palet = [];
-          corepart = [];
           break;
       }
 
-      // Pastikan tidak ada duplikasi jika penambahan lain terjadi di masa mendatang
-      companies = companies.toSet().toList();
-      companyAccounts = companyAccounts.toSet().toList();
+      relevantPanelIds = relevantPanelIds.toSet().toList();
 
       if (relevantPanelIds.isNotEmpty) {
         String placeholders = List.filled(
@@ -870,42 +813,27 @@ class DatabaseHelper {
           whereArgs: relevantPanelIds,
         )).map(Panel.fromMap).toList();
 
-        if (currentUser.role == AppRole.k3 || currentUser.role == AppRole.k5) {
-          busbars = (await db.query(
-            'busbars',
-            where: 'panel_no_pp IN ($placeholders)',
-            whereArgs: relevantPanelIds,
-          )).map(Busbar.fromMap).toList();
-        }
+        busbars = (await db.query(
+          'busbars',
+          where: 'panel_no_pp IN ($placeholders)',
+          whereArgs: relevantPanelIds,
+        )).map(Busbar.fromMap).toList();
 
-        if (currentUser.role == AppRole.k3 ||
-            currentUser.role == AppRole.warehouse) {
-          components = (await db.query(
-            'components',
-            where: 'panel_no_pp IN ($placeholders)',
-            whereArgs: relevantPanelIds,
-          )).map(Component.fromMap).toList();
-        }
-        if (currentUser.role == AppRole.k3) {
-          palet = (await db.query(
-            'palet',
-            where: 'panel_no_pp IN ($placeholders)',
-            whereArgs: relevantPanelIds,
-          )).map(Palet.fromMap).toList();
-        }
-        if (currentUser.role == AppRole.k3) {
-          corepart = (await db.query(
-            'corepart',
-            where: 'panel_no_pp IN ($placeholders)',
-            whereArgs: relevantPanelIds,
-          )).map(Corepart.fromMap).toList();
-        }
-      } else {
-        panels = [];
-        busbars = [];
-        components = [];
-        palet = [];
-        corepart = [];
+        components = (await db.query(
+          'components',
+          where: 'panel_no_pp IN ($placeholders)',
+          whereArgs: relevantPanelIds,
+        )).map(Component.fromMap).toList();
+        palet = (await db.query(
+          'palet',
+          where: 'panel_no_pp IN ($placeholders)',
+          whereArgs: relevantPanelIds,
+        )).map(Palet.fromMap).toList();
+        corepart = (await db.query(
+          'corepart',
+          where: 'panel_no_pp IN ($placeholders)',
+          whereArgs: relevantPanelIds,
+        )).map(Corepart.fromMap).toList();
       }
     }
 
@@ -934,7 +862,7 @@ class DatabaseHelper {
       if (value is String) return TextCellValue(value);
       if (value is int) return IntCellValue(value);
       if (value is double) return DoubleCellValue(value);
-      if (value is bool) return IntCellValue(value ? 1 : 0);
+      if (value is bool) return BoolCellValue(value);
       return TextCellValue(value.toString());
     }
 
@@ -978,11 +906,18 @@ class DatabaseHelper {
         TextCellValue('no_wbs'),
         TextCellValue('percent_progress'),
         TextCellValue('start_date'),
-        TextCellValue('status_busbar_pcc'), // DIUBAH
-        TextCellValue('status_busbar_mcc'), // DIUBAH
+        TextCellValue('target_delivery'),
+        TextCellValue('status_busbar_pcc'),
+        TextCellValue('status_busbar_mcc'),
         TextCellValue('status_component'),
         TextCellValue('status_palet'),
         TextCellValue('status_corepart'),
+        TextCellValue('ao_busbar_pcc'),
+        TextCellValue('eta_busbar_pcc'),
+        TextCellValue('ao_busbar_mcc'),
+        TextCellValue('eta_busbar_mcc'),
+        TextCellValue('ao_component'),
+        TextCellValue('eta_component'),
         TextCellValue('created_by'),
         TextCellValue('vendor_id'),
         TextCellValue('is_closed'),
@@ -995,11 +930,18 @@ class DatabaseHelper {
           _toCellValue(p.noWbs),
           _toCellValue(p.percentProgress),
           _toCellValue(p.startDate?.toIso8601String()),
+          _toCellValue(p.targetDelivery?.toIso8601String()),
           _toCellValue(p.statusBusbarPcc),
           _toCellValue(p.statusBusbarMcc),
           _toCellValue(p.statusComponent),
           _toCellValue(p.statusPalet),
           _toCellValue(p.statusCorepart),
+          _toCellValue(p.aoBusbarPcc?.toIso8601String()),
+          _toCellValue(p.etaBusbarPcc?.toIso8601String()),
+          _toCellValue(p.aoBusbarMcc?.toIso8601String()),
+          _toCellValue(p.etaBusbarMcc?.toIso8601String()),
+          _toCellValue(p.aoComponent?.toIso8601String()),
+          _toCellValue(p.etaComponent?.toIso8601String()),
           _toCellValue(p.createdBy),
           _toCellValue(p.vendorId),
           _toCellValue(p.isClosed),
@@ -1034,14 +976,14 @@ class DatabaseHelper {
     if (tablesToInclude['Palet'] == true) {
       final sheet = excel['Palet'];
       sheet.appendRow([TextCellValue('panel_no_pp'), TextCellValue('vendor')]);
-      for (final c in data['Palet'] as List<Palet>) {
+      for (final c in data['palet'] as List<Palet>) {
         sheet.appendRow([_toCellValue(c.panelNoPp), _toCellValue(c.vendor)]);
       }
     }
     if (tablesToInclude['Corepart'] == true) {
       final sheet = excel['Corepart'];
       sheet.appendRow([TextCellValue('panel_no_pp'), TextCellValue('vendor')]);
-      for (final c in data['Corepart'] as List<Corepart>) {
+      for (final c in data['corepart'] as List<Corepart>) {
         sheet.appendRow([_toCellValue(c.panelNoPp), _toCellValue(c.vendor)]);
       }
     }
@@ -1068,53 +1010,30 @@ class DatabaseHelper {
     }
     if (tablesToInclude['Panels'] == true) {
       jsonData['panels'] = (data['panels'] as List<Panel>)
-          .map(
-            (p) => {
-              'no_pp': p.noPp,
-              'no_panel': p.noPanel,
-              'no_wbs': p.noWbs,
-              'percent_progress': p.percentProgress,
-              'start_date': p.startDate?.toIso8601String(),
-              'status_busbar_pcc': p.statusBusbarPcc,
-              'status_busbar_mcc': p.statusBusbarMcc,
-              'status_component': p.statusComponent,
-              'status_palet': p.statusPalet,
-              'status_corepart': p.statusCorepart,
-              'created_by': p.createdBy,
-              'vendor_id': p.vendorId,
-              'is_closed': p.isClosed ? 1 : 0,
-              'closed_date': p.closedDate?.toIso8601String(),
-            },
-          )
+          .map((p) => p.toMap())
           .toList();
     }
     if (tablesToInclude['Busbars'] == true) {
       jsonData['busbars'] = (data['busbars'] as List<Busbar>)
-          .map(
-            (b) => {
-              'panel_no_pp': b.panelNoPp,
-              'vendor': b.vendor,
-              'remarks': b.remarks,
-            },
-          )
+          .map((b) => b.toMap())
           .toList();
     }
     if (tablesToInclude['Components'] == true) {
       jsonData['components'] = (data['components'] as List<Component>)
-          .map((c) => {'panel_no_pp': c.panelNoPp, 'vendor': c.vendor})
+          .map((c) => c.toMap())
           .toList();
     }
     if (tablesToInclude['Palet'] == true) {
       jsonData['palet'] = (data['palet'] as List<Palet>)
-          .map((c) => {'panel_no_pp': c.panelNoPp, 'vendor': c.vendor})
+          .map((c) => c.toMap())
           .toList();
     }
     if (tablesToInclude['Corepart'] == true) {
       jsonData['corepart'] = (data['corepart'] as List<Corepart>)
-          .map((c) => {'panel_no_pp': c.panelNoPp, 'vendor': c.vendor})
+          .map((c) => c.toMap())
           .toList();
     }
-    return const JsonEncoder.withIndent('  ').convert(jsonData);
+    return JsonEncoder.withIndent('  ').convert(jsonData);
   }
 
   Future<void> importData(
@@ -1123,16 +1042,6 @@ class DatabaseHelper {
   ) async {
     final db = await database;
     await db.transaction((txn) async {
-      // --- BARIS-BARIS INI DIHAPUS UNTUK MENCEGAH DATABASE DIRESET TOTAL ---
-      // await txn.delete('components');
-      // await txn.delete('palet');
-      // await txn.delete('corepart');
-      // await txn.delete('busbars');
-      // await txn.delete('panels');
-      // await txn.delete('company_accounts');
-      // await txn.delete('companies');
-      // ---------------------------------------------------------------------
-
       int totalOperations = data.values.fold(
         0,
         (sum, list) => sum + list.length,
@@ -1145,7 +1054,6 @@ class DatabaseHelper {
         onProgress(completedOperations / totalOperations, message);
       }
 
-      // Menggunakan ConflictAlgorithm.replace untuk UPSERT (Update jika PK ada, Insert jika tidak)
       if (data.containsKey('companies') && data['companies'] != null) {
         for (var itemData in data['companies']!) {
           updateProgress(
@@ -1182,11 +1090,6 @@ class DatabaseHelper {
       if (data.containsKey('busbars') && data['busbars'] != null) {
         for (var itemData in data['busbars']!) {
           updateProgress("Linking busbar: ${itemData['panel_no_pp']}");
-          // Perlu diingat: Jika 'id' busbar ada di file dan merupakan AUTOINCREMENT,
-          // ConflictAlgorithm.replace akan mencoba menggunakan ID itu.
-          // Jika ID tersebut sudah ada dan merupakan PK AUTOINCREMENT, bisa ada perilaku tak terduga.
-          // Umumnya, untuk tabel AUTOINCREMENT, jika Anda tidak ingin pengguna mengatur ID,
-          // jangan sertakan kolom 'id' di file impor.
           await txn.insert(
             'busbars',
             itemData,
@@ -1197,7 +1100,6 @@ class DatabaseHelper {
       if (data.containsKey('components') && data['components'] != null) {
         for (var itemData in data['components']!) {
           updateProgress("Linking component: ${itemData['panel_no_pp']}");
-          // Sama seperti busbars, hati-hati dengan PK AUTOINCREMENT.
           await txn.insert(
             'components',
             itemData,
@@ -1208,7 +1110,6 @@ class DatabaseHelper {
       if (data.containsKey('palet') && data['palet'] != null) {
         for (var itemData in data['palet']!) {
           updateProgress("Linking palet: ${itemData['panel_no_pp']}");
-          // Sama seperti busbars, hati-hati dengan PK AUTOINCREMENT.
           await txn.insert(
             'palet',
             itemData,
@@ -1219,7 +1120,6 @@ class DatabaseHelper {
       if (data.containsKey('corepart') && data['corepart'] != null) {
         for (var itemData in data['corepart']!) {
           updateProgress("Linking corepart: ${itemData['panel_no_pp']}");
-          // Sama seperti busbars, hati-hati dengan PK AUTOINCREMENT.
           await txn.insert(
             'corepart',
             itemData,
@@ -1228,196 +1128,6 @@ class DatabaseHelper {
         }
       }
     });
-  }
-
-  Excel _generateExcelTemplate(String dataType) {
-    final excel = Excel.createExcel();
-    excel.delete('Sheet1');
-    final now = DateTime.now();
-
-    // --- Helper untuk konversi nilai ke CellValue ---
-    CellValue? _toCellValue(dynamic value) {
-      if (value == null) return null;
-      if (value is String) return TextCellValue(value);
-      if (value is int) return IntCellValue(value);
-      if (value is double) return DoubleCellValue(value);
-      return TextCellValue(value.toString());
-    }
-
-    if (dataType == 'companies_and_accounts') {
-      final companySheet = excel['companies'];
-      // FIX: Bungkus header dengan TextCellValue
-      companySheet.appendRow([
-        TextCellValue('id'),
-        TextCellValue('name'),
-        TextCellValue('role'),
-      ]);
-      // FIX: Bungkus contoh data dengan CellValue yang sesuai
-      companySheet.appendRow([
-        _toCellValue('vendor_k3_contoh'),
-        _toCellValue('Nama Vendor K3 Contoh'),
-        _toCellValue('k3'),
-      ]);
-
-      final accountSheet = excel['company_accounts'];
-      // FIX: Bungkus header dengan TextCellValue
-      accountSheet.appendRow([
-        TextCellValue('username'),
-        TextCellValue('password'),
-        TextCellValue('company_id'),
-      ]);
-      // FIX: Bungkus contoh data dengan CellValue yang sesuai
-      accountSheet.appendRow([
-        _toCellValue('staff_k3_contoh'),
-        _toCellValue('password123'),
-        _toCellValue('vendor_k3_contoh'),
-      ]);
-    } else {
-      // panels_and_relations
-      final panelSheet = excel['panels'];
-      // FIX: Bungkus header dengan TextCellValue
-      panelSheet.appendRow([
-        TextCellValue('no_pp'),
-        TextCellValue('no_panel'),
-        TextCellValue('no_wbs'),
-        TextCellValue('percent_progress'),
-        TextCellValue('start_date'),
-        TextCellValue('status_busbar'),
-        TextCellValue('status_component'),
-        TextCellValue('status_palet'),
-        TextCellValue('status_corepart'),
-        TextCellValue('created_by'),
-        TextCellValue('vendor_id'),
-        TextCellValue('is_closed'),
-        TextCellValue('closed_date'),
-      ]);
-      // FIX: Bungkus contoh data dengan CellValue yang sesuai
-      panelSheet.appendRow([
-        _toCellValue('PP-CONTOH-01'),
-        _toCellValue('PANEL-CONTOH-A'),
-        _toCellValue('WBS-CONTOH-01'),
-        _toCellValue(80.5),
-        _toCellValue(
-          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}T10:00:00',
-        ),
-        _toCellValue('On Progress'),
-        _toCellValue('Open'),
-        _toCellValue('admin'),
-        _toCellValue('vendor_k3_contoh'),
-        _toCellValue(0),
-        _toCellValue(null), // null akan menjadi sel kosong
-      ]);
-
-      final busbarSheet = excel['busbars'];
-      // FIX: Bungkus header dengan TextCellValue
-      busbarSheet.appendRow([
-        TextCellValue('panel_no_pp'),
-        TextCellValue('vendor'),
-        TextCellValue('remarks'),
-      ]);
-      // FIX: Bungkus contoh data dengan CellValue yang sesuai
-      busbarSheet.appendRow([
-        _toCellValue('PP-CONTOH-01'),
-        _toCellValue('vendor_k5_contoh'),
-        _toCellValue('Catatan untuk busbar'),
-      ]);
-
-      final componentSheet = excel['components'];
-      // FIX: Bungkus header dengan TextCellValue
-      componentSheet.appendRow([
-        TextCellValue('panel_no_pp'),
-        TextCellValue('vendor'),
-      ]);
-      // FIX: Bungkus contoh data dengan CellValue yang sesuai
-      componentSheet.appendRow([
-        _toCellValue('PP-CONTOH-01'),
-        _toCellValue('vendor_whs_contoh'),
-      ]);
-
-      final paletSheet = excel['palet'];
-      // FIX: Bungkus header dengan TextCellValue
-      paletSheet.appendRow([
-        TextCellValue('panel_no_pp'),
-        TextCellValue('vendor'),
-      ]);
-      // FIX: Bungkus contoh data dengan CellValue yang sesuai
-      paletSheet.appendRow([
-        _toCellValue('PP-CONTOH-01'),
-        _toCellValue('vendor_whs_contoh'),
-      ]);
-
-      final corepartSheet = excel['corepart'];
-      // FIX: Bungkus header dengan TextCellValue
-      corepartSheet.appendRow([
-        TextCellValue('panel_no_pp'),
-        TextCellValue('vendor'),
-      ]);
-      // FIX: Bungkus contoh data dengan CellValue yang sesuai
-      corepartSheet.appendRow([
-        _toCellValue('PP-CONTOH-01'),
-        _toCellValue('vendor_whs_contoh'),
-      ]);
-    }
-    return excel;
-  }
-
-  String _generateJsonTemplateString(String dataType) {
-    Map<String, dynamic> jsonData = {};
-    final now = DateTime.now();
-
-    if (dataType == 'companies_and_accounts') {
-      jsonData['companies'] = [
-        {
-          'id': 'vendor_k3_contoh',
-          'name': 'Nama Vendor K3 Contoh',
-          'role': "pilih: k3, k5, warehouse",
-        },
-      ];
-      jsonData['company_accounts'] = [
-        {
-          'username': 'staff_k3_contoh',
-          'password': '123',
-          'company_id': 'vendor_k3_contoh',
-        },
-      ];
-    } else {
-      // panels_and_relations
-      jsonData['panels'] = [
-        {
-          'no_pp': 'PP-CONTOH-01',
-          'no_panel': 'PANEL-CONTOH-A',
-          'no_wbs': 'WBS-CONTOH-01',
-          'percent_progress': "80.5",
-          'start_date':
-              '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}T10:00:00',
-          'status_busbar': 'On Progress',
-          'status_component': 'Open',
-          'status_palet': 'Open',
-          'status_corepart': 'Open',
-          'created_by': 'admin',
-          'vendor_id': 'vendor_k3_contoh',
-          'is_closed': "0 atau 1",
-          'closed_date': "format: YYYY-MM-DDTHH:MM:SS (kosongkan jika belum)",
-        },
-      ];
-      jsonData['busbars'] = [
-        {
-          'panel_no_pp': 'PP-CONTOH-01',
-          'vendor': 'vendor_k5_contoh',
-          'remarks': 'Catatan untuk busbar',
-        },
-      ];
-      jsonData['components'] = [
-        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_whs_contoh'},
-      ];
-      jsonData['palet'] = [
-        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_whs_contoh'},
-      ];
-      jsonData['corepart'] = [
-        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_whs_contoh'},
-      ];
-    }
-    return const JsonEncoder.withIndent('  ').convert(jsonData);
   }
 
   Future<TemplateFile> generateImportTemplate({
@@ -1435,6 +1145,162 @@ class DatabaseHelper {
     }
   }
 
+  String _generateJsonTemplateString(String dataType) {
+    Map<String, dynamic> jsonData = {};
+
+    if (dataType == 'companies_and_accounts') {
+      jsonData['companies'] = [
+        {
+          'id': 'vendor_k3_contoh',
+          'name': 'Nama Vendor K3 Contoh',
+          'role': "pilih: k3, k5, warehouse, viewer",
+        },
+      ];
+      jsonData['company_accounts'] = [
+        {
+          'username': 'staff_k3_contoh',
+          'password': '123',
+          'company_id': 'vendor_k3_contoh',
+        },
+      ];
+    } else {
+      final now = DateTime.now().toIso8601String();
+      jsonData['panels'] = [
+        {
+          'no_pp': 'PP-CONTOH-01',
+          'no_panel': 'PANEL-CONTOH-A',
+          'no_wbs': 'WBS-CONTOH-01',
+          'percent_progress': 80.5,
+          'start_date': now,
+          'target_delivery': now,
+          'status_busbar_pcc': 'On Progress',
+          'status_busbar_mcc': 'Open',
+          'status_component': 'Open',
+          'status_palet': 'Open',
+          'status_corepart': 'Open',
+          'ao_busbar_pcc': now,
+          'eta_busbar_pcc': now,
+          'ao_busbar_mcc': now,
+          'eta_busbar_mcc': now,
+          'ao_component': now,
+          'eta_component': now,
+          'created_by': 'admin',
+          'vendor_id': 'vendor_k3_contoh',
+          'is_closed': 0,
+          'closed_date': null,
+        },
+      ];
+      jsonData['busbars'] = [
+        {
+          'panel_no_pp': 'PP-CONTOH-01',
+          'vendor': 'vendor_k5_contoh',
+          'remarks': 'Catatan untuk busbar',
+        },
+      ];
+      jsonData['components'] = [
+        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'warehouse'},
+      ];
+      jsonData['palet'] = [
+        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_k3_contoh'},
+      ];
+      jsonData['corepart'] = [
+        {'panel_no_pp': 'PP-CONTOH-01', 'vendor': 'vendor_k3_contoh'},
+      ];
+    }
+    return JsonEncoder.withIndent('  ').convert(jsonData);
+  }
+
+  Excel _generateExcelTemplate(String dataType) {
+    final excel = Excel.createExcel();
+    excel.delete('Sheet1');
+
+    CellValue? _toCellValue(dynamic value) {
+      if (value == null) return null;
+      if (value is String) return TextCellValue(value);
+      if (value is int) return IntCellValue(value);
+      if (value is double) return DoubleCellValue(value);
+      if (value is bool) return BoolCellValue(value);
+      return TextCellValue(value.toString());
+    }
+
+    if (dataType == 'companies_and_accounts') {
+      final companySheet = excel['companies'];
+      companySheet.appendRow([
+        TextCellValue('id'),
+        TextCellValue('name'),
+        TextCellValue('role'),
+      ]);
+      companySheet.appendRow([
+        _toCellValue('vendor_k3_contoh'),
+        _toCellValue('Nama Vendor K3 Contoh'),
+        _toCellValue('k3'),
+      ]);
+
+      final accountSheet = excel['company_accounts'];
+      accountSheet.appendRow([
+        TextCellValue('username'),
+        TextCellValue('password'),
+        TextCellValue('company_id'),
+      ]);
+      accountSheet.appendRow([
+        _toCellValue('staff_k3_contoh'),
+        _toCellValue('password123'),
+        _toCellValue('vendor_k3_contoh'),
+      ]);
+    } else {
+      final panelSheet = excel['panels'];
+      panelSheet.appendRow([
+        TextCellValue('no_pp'),
+        TextCellValue('no_panel'),
+        TextCellValue('no_wbs'),
+        TextCellValue('percent_progress'),
+        TextCellValue('start_date'),
+        TextCellValue('target_delivery'),
+        TextCellValue('status_busbar_pcc'),
+        TextCellValue('status_busbar_mcc'),
+        TextCellValue('status_component'),
+        TextCellValue('status_palet'),
+        TextCellValue('status_corepart'),
+        TextCellValue('ao_busbar_pcc'),
+        TextCellValue('eta_busbar_pcc'),
+        TextCellValue('ao_busbar_mcc'),
+        TextCellValue('eta_busbar_mcc'),
+        TextCellValue('ao_component'),
+        TextCellValue('eta_component'),
+        TextCellValue('created_by'),
+        TextCellValue('vendor_id'),
+        TextCellValue('is_closed'),
+        TextCellValue('closed_date'),
+      ]);
+
+      final busbarSheet = excel['busbars'];
+      busbarSheet.appendRow([
+        TextCellValue('panel_no_pp'),
+        TextCellValue('vendor'),
+        TextCellValue('remarks'),
+      ]);
+
+      final componentSheet = excel['components'];
+      componentSheet.appendRow([
+        TextCellValue('panel_no_pp'),
+        TextCellValue('vendor'),
+      ]);
+
+      final paletSheet = excel['palet'];
+      paletSheet.appendRow([
+        TextCellValue('panel_no_pp'),
+        TextCellValue('vendor'),
+      ]);
+
+      final corepartSheet = excel['corepart'];
+      corepartSheet.appendRow([
+        TextCellValue('panel_no_pp'),
+        TextCellValue('vendor'),
+      ]);
+    }
+    return excel;
+  }
+
   Future<bool> isPanelNumberUnique(
     String noPanel, {
     String? currentNoPp,
@@ -1442,7 +1308,6 @@ class DatabaseHelper {
     final db = await database;
     List<Map<String, dynamic>> result;
     if (currentNoPp != null) {
-      // Untuk mode EDIT: periksa apakah ada panel LAIN dengan no_panel yang sama.
       result = await db.query(
         'panels',
         where: 'no_panel = ? AND no_pp != ?',
@@ -1450,7 +1315,6 @@ class DatabaseHelper {
         limit: 1,
       );
     } else {
-      // Untuk mode TAMBAH: periksa apakah no_panel sudah ada.
       result = await db.query(
         'panels',
         where: 'no_panel = ?',
@@ -1458,7 +1322,7 @@ class DatabaseHelper {
         limit: 1,
       );
     }
-    return result.isEmpty; // True jika unik
+    return result.isEmpty;
   }
 
   Future<bool> isUsernameTaken(String username) async {
