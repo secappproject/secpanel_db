@@ -648,6 +648,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     final data = panelsToDisplay[index];
                     final panel = data.panel;
                     return PanelProgressCard(
+                      currentUserRole: widget.currentCompany.role,
                       targetDelivery: panel.targetDelivery,
                       duration: _formatDuration(panel.startDate),
                       progress: (panel.percentProgress ?? 0) / 100.0,

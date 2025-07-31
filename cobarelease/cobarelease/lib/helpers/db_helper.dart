@@ -32,7 +32,7 @@ class DatabaseHelper {
     String path = join(documentsDirectory.path, 'app_database_final.db');
     return await openDatabase(
       path,
-      version: 1, // Reset versi jika diperlukan
+      version: 2, // Naikkan versi untuk trigger onUpgrade jika perlu
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -145,6 +145,11 @@ class DatabaseHelper {
   Future<void> _createDummyData(Batch batch) async {
     final companies = [
       Company(id: 'admin', name: 'Administrator', role: AppRole.admin),
+      Company(
+        id: 'viewer',
+        name: 'Viewer',
+        role: AppRole.viewer,
+      ), // DITAMBAHKAN
       Company(id: 'warehouse', name: 'Warehouse', role: AppRole.warehouse),
       Company(id: 'abacus', name: 'Abacus', role: AppRole.k3),
       Company(id: 'gaa', name: 'GAA', role: AppRole.k3),
@@ -155,21 +160,46 @@ class DatabaseHelper {
       batch.insert('companies', c.toMap());
     }
 
+    // PERUBAHAN: Menambahkan akun viewer dan akun kedua untuk setiap vendor
     final accounts = [
       CompanyAccount(username: 'admin', password: '123', companyId: 'admin'),
+      CompanyAccount(username: 'viewer', password: '123', companyId: 'viewer'),
+
+      // Warehouse
       CompanyAccount(
         username: 'whs_user1',
         password: '123',
         companyId: 'warehouse',
       ),
       CompanyAccount(
+        username: 'whs_user2',
+        password: '123',
+        companyId: 'warehouse',
+      ),
+
+      // Abacus
+      CompanyAccount(
         username: 'abacus_user1',
         password: '123',
         companyId: 'abacus',
       ),
+      CompanyAccount(
+        username: 'abacus_user2',
+        password: '123',
+        companyId: 'abacus',
+      ),
+
+      // GAA
       CompanyAccount(username: 'gaa_user1', password: '123', companyId: 'gaa'),
+      CompanyAccount(username: 'gaa_user2', password: '123', companyId: 'gaa'),
+
+      // GPE
       CompanyAccount(username: 'gpe_user1', password: '123', companyId: 'gpe'),
+      CompanyAccount(username: 'gpe_user2', password: '123', companyId: 'gpe'),
+
+      // DSM
       CompanyAccount(username: 'dsm_user1', password: '123', companyId: 'dsm'),
+      CompanyAccount(username: 'dsm_user2', password: '123', companyId: 'dsm'),
     ];
     for (final a in accounts) {
       batch.insert('company_accounts', a.toMap());
@@ -262,7 +292,9 @@ class DatabaseHelper {
     String panelIdsSubQuery = '';
     List<dynamic> whereArgs = [];
 
-    if (currentUser.role != AppRole.admin) {
+    // PERUBAHAN: Viewer bisa melihat semua data seperti Admin
+    if (currentUser.role != AppRole.admin &&
+        currentUser.role != AppRole.viewer) {
       switch (currentUser.role) {
         case AppRole.k3:
           panelIdsSubQuery = '''
@@ -288,6 +320,7 @@ class DatabaseHelper {
           return [];
       }
     } else {
+      // Admin dan Viewer melihat semua panel
       panelIdsSubQuery = 'SELECT no_pp FROM panels';
     }
 

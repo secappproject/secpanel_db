@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:secpanel/components/alert_box.dart';
 import 'package:secpanel/components/panel/card/remarks_bottom_sheet.dart';
+import 'package:secpanel/models/approles.dart';
 import 'package:secpanel/theme/colors.dart';
 
 class PanelProgressCard extends StatelessWidget {
+  final AppRole currentUserRole;
   final String duration;
   final DateTime? targetDelivery;
   final double progress;
@@ -29,6 +31,7 @@ class PanelProgressCard extends StatelessWidget {
 
   const PanelProgressCard({
     super.key,
+    required this.currentUserRole,
     required this.duration,
     required this.targetDelivery,
     required this.progress,
@@ -71,35 +74,28 @@ class PanelProgressCard extends StatelessWidget {
     return hari;
   }
 
-  // bool _shouldShowAlert() {
-  //   return !isClosed && progress < 0.5 && _extractDays(duration) >= 2;
-  // }
-
   bool _shouldShowAlert() {
     if (isClosed || targetDelivery == null) {
-      return false; // Jangan tampilkan alert jika sudah ditutup atau tidak ada target
+      return false;
     }
     final now = DateTime.now();
     final difference = targetDelivery!.difference(now);
 
-    // Tampilkan jika target belum lewat dan kurang dari 2 hari (48 jam) lagi
     return !difference.isNegative && difference.inHours < 48;
   }
 
   Color _getProgressColor() {
     if (isClosed) return AppColors.schneiderGreen;
-    if (progress < 0.5) return AppColors.red; // Less than 50%
-    if (progress < 0.75) return AppColors.orange; // 50% to 74.9%
-    return AppColors.blue; // 75% to 100%
+    if (progress < 0.5) return AppColors.red;
+    if (progress < 0.75) return AppColors.orange;
+    return AppColors.blue;
   }
 
   String _getProgressImage() {
     if (isClosed) return 'assets/images/progress-bolt-green.png';
-    if (progress < 0.5)
-      return 'assets/images/progress-bolt-red.png'; // Less than 50%
-    if (progress < 0.75)
-      return 'assets/images/progress-bolt-orange.png'; // 50% to 74.9%
-    return 'assets/images/progress-bolt-blue.png'; // 75% to 100%
+    if (progress < 0.5) return 'assets/images/progress-bolt-red.png';
+    if (progress < 0.75) return 'assets/images/progress-bolt-orange.png';
+    return 'assets/images/progress-bolt-blue.png';
   }
 
   String _getBusbarStatusImage(String status) {
@@ -165,8 +161,8 @@ class PanelProgressCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool hasRemarks = busbarRemarks != null && busbarRemarks!.isNotEmpty;
 
-    final String pccDisplayStatus = statusBusbarPcc ?? 'N/A';
-    final String mccDisplayStatus = statusBusbarMcc ?? 'N/A';
+    final String pccDisplayStatus = statusBusbarPcc;
+    final String mccDisplayStatus = statusBusbarMcc;
     final String pccImageStatus = _getBusbarStatusImage(statusBusbarPcc);
     final String mccImageStatus = _getBusbarStatusImage(statusBusbarMcc);
 
@@ -218,7 +214,7 @@ class PanelProgressCard extends StatelessWidget {
                             children: [
                               Text(
                                 durationLabel,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   color: AppColors.gray,
                                   fontWeight: FontWeight.w400,
                                   fontSize: 10,
@@ -240,35 +236,7 @@ class PanelProgressCard extends StatelessWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Row(
-                          children: [
-                            // const Text(
-                            //   "Panel",
-                            //   style: TextStyle(
-                            //     color: AppColors.gray,
-                            //     fontWeight: FontWeight.w400,
-                            //     fontSize: 10,
-                            //   ),
-                            // ),
-                            // const SizedBox(width: 4),
-                            // Container(
-                            //   padding: const EdgeInsets.symmetric(
-                            //     horizontal: 4,
-                            //     vertical: 2,
-                            //   ),
-                            //   decoration: BoxDecoration(
-                            //     color: AppColors.grayLight,
-                            //     borderRadius: BorderRadius.circular(4),
-                            //   ),
-                            //   child: Text(
-                            //     panelVendorName,
-                            //     style: const TextStyle(
-                            //       color: AppColors.black,
-                            //       fontWeight: FontWeight.w400,
-                            //       fontSize: 8,
-                            //     ),
-                            //   ),
-                            // ),
+                        Row(children: [
                           ],
                         ),
                         const SizedBox(height: 4),
@@ -318,7 +286,7 @@ class PanelProgressCard extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Container(
+                    SizedBox(
                       width: MediaQuery.of(context).size.width - 68,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -327,13 +295,13 @@ class PanelProgressCard extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Container(
-                                padding: EdgeInsets.all(8),
+                                padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  border: BoxBorder.all(
+                                  border: Border.all(
                                     width: 1,
                                     color: AppColors.grayLight,
                                   ),
-                                  borderRadius: BorderRadius.all(
+                                  borderRadius: const BorderRadius.all(
                                     Radius.circular(12),
                                   ),
                                 ),
@@ -442,7 +410,7 @@ class PanelProgressCard extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              SizedBox(height: 12),
+                              const SizedBox(height: 12),
                               Text(
                                 panelTitle,
                                 style: const TextStyle(
@@ -467,9 +435,9 @@ class PanelProgressCard extends StatelessWidget {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Row(
+                                            const Row(
                                               children: [
-                                                const Text(
+                                                Text(
                                                   "Busbar Pcc",
                                                   style: TextStyle(
                                                     color: AppColors.gray,
@@ -516,9 +484,9 @@ class PanelProgressCard extends StatelessWidget {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Row(
+                                            const Row(
                                               children: [
-                                                const Text(
+                                                Text(
                                                   "Busbar Mcc",
                                                   style: TextStyle(
                                                     color: AppColors.gray,
@@ -560,12 +528,20 @@ class PanelProgressCard extends StatelessWidget {
                                           ],
                                         ),
                                       ),
-                                      Container(
-                                        alignment: Alignment.centerRight,
-                                        width: 60,
-                                        child: Container(
+                                      if (currentUserRole == AppRole.viewer)
+                                        Container(
                                           alignment: Alignment.centerRight,
+                                          width: 60,
                                           child: Container(
+                                            alignment: Alignment.centerRight,
+                                          ),
+                                        ),
+                                      if (currentUserRole != AppRole.viewer)
+                                        Container(
+                                          alignment: Alignment.centerRight,
+                                          width: 60,
+                                          child: Container(
+                                            alignment: Alignment.centerRight,
                                             child: InkWell(
                                               onTap: onEdit,
                                               borderRadius:
@@ -590,7 +566,6 @@ class PanelProgressCard extends StatelessWidget {
                                             ),
                                           ),
                                         ),
-                                      ),
                                     ],
                                   ),
                                 ],
@@ -676,7 +651,7 @@ class PanelProgressCard extends StatelessWidget {
                                       ],
                                     ),
                                   ),
-                                  Container(
+                                  SizedBox(
                                     width: 60,
                                     child: Column(
                                       crossAxisAlignment:
@@ -737,7 +712,7 @@ class PanelProgressCard extends StatelessWidget {
                   textColor: AppColors.schneiderGreen,
                 )
               else if (_shouldShowAlert())
-                AlertBox(
+                const AlertBox(
                   title: "Perlu Dikejar",
                   description: "Kurang dari 2 hari menuju target delivery!",
                 ),
