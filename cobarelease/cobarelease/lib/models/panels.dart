@@ -12,6 +12,14 @@ class Panel {
   String? statusComponent;
   String? statusPalet;
   String? statusCorepart;
+
+  DateTime? aoBusbarPcc;
+  DateTime? etaBusbarPcc;
+  DateTime? aoBusbarMcc;
+  DateTime? etaBusbarMcc;
+  DateTime? aoComponent;
+  DateTime? etaComponent;
+
   List<Map<String, dynamic>>? logs;
   String createdBy;
   String? vendorId;
@@ -30,6 +38,12 @@ class Panel {
     this.statusComponent,
     this.statusCorepart,
     this.statusPalet,
+    this.aoBusbarPcc,
+    this.etaBusbarPcc,
+    this.aoBusbarMcc,
+    this.etaBusbarMcc,
+    this.aoComponent,
+    this.etaComponent,
     this.logs,
     required this.createdBy,
     this.vendorId,
@@ -50,6 +64,12 @@ class Panel {
       'status_component': statusComponent,
       'status_palet': statusPalet,
       'status_corepart': statusCorepart,
+      'ao_busbar_pcc': aoBusbarPcc?.toIso8601String(),
+      'eta_busbar_pcc': etaBusbarPcc?.toIso8601String(),
+      'ao_busbar_mcc': aoBusbarMcc?.toIso8601String(),
+      'eta_busbar_mcc': etaBusbarMcc?.toIso8601String(),
+      'ao_component': aoComponent?.toIso8601String(),
+      'eta_component': etaComponent?.toIso8601String(),
       'logs': logs != null ? jsonEncode(logs) : null,
       'created_by': createdBy,
       'vendor_id': vendorId,
@@ -67,9 +87,7 @@ class Panel {
       startDate: map['start_date'] != null
           ? DateTime.parse(map['start_date'])
           : null,
-      targetDelivery:
-          map['target_delivery'] !=
-              null // TAMBAHKAN DI fromMap
+      targetDelivery: map['target_delivery'] != null
           ? DateTime.parse(map['target_delivery'])
           : null,
       statusBusbarPcc: map['status_busbar_pcc'],
@@ -77,6 +95,24 @@ class Panel {
       statusComponent: map['status_component'],
       statusPalet: map['status_palet'],
       statusCorepart: map['status_corepart'],
+      aoBusbarPcc: map['ao_busbar_pcc'] != null
+          ? DateTime.parse(map['ao_busbar_pcc'])
+          : null,
+      etaBusbarPcc: map['eta_busbar_pcc'] != null
+          ? DateTime.parse(map['eta_busbar_pcc'])
+          : null,
+      aoBusbarMcc: map['ao_busbar_mcc'] != null
+          ? DateTime.parse(map['ao_busbar_mcc'])
+          : null,
+      etaBusbarMcc: map['eta_busbar_mcc'] != null
+          ? DateTime.parse(map['eta_busbar_mcc'])
+          : null,
+      aoComponent: map['ao_component'] != null
+          ? DateTime.parse(map['ao_component'])
+          : null,
+      etaComponent: map['eta_component'] != null
+          ? DateTime.parse(map['eta_component'])
+          : null,
       logs: map['logs'] != null
           ? (jsonDecode(map['logs']) as List)
                 .map((item) => item as Map<String, dynamic>)

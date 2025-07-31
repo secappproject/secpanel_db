@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:excel/excel.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -30,10 +29,10 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'app_database43.db');
+    String path = join(documentsDirectory.path, 'app_database_final.db');
     return await openDatabase(
       path,
-      version: 13,
+      version: 1, // Reset versi jika diperlukan
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -84,7 +83,13 @@ class DatabaseHelper {
       status_busbar_mcc TEXT,
       status_component TEXT, 
       status_palet TEXT,  
-      status_corepart TEXT, 
+      status_corepart TEXT,
+      ao_busbar_pcc TEXT,
+      eta_busbar_pcc TEXT,
+      ao_busbar_mcc TEXT,
+      eta_busbar_mcc TEXT,
+      ao_component TEXT,
+      eta_component TEXT,
       logs TEXT, 
       created_by TEXT NOT NULL,
       vendor_id TEXT, 
@@ -145,9 +150,6 @@ class DatabaseHelper {
       Company(id: 'gaa', name: 'GAA', role: AppRole.k3),
       Company(id: 'gpe', name: 'GPE', role: AppRole.k5),
       Company(id: 'dsm', name: 'DSM', role: AppRole.k5),
-      Company(id: 'ttj', name: 'TTJ', role: AppRole.k5),
-      Company(id: 'presisi', name: 'Presisi', role: AppRole.k5),
-      Company(id: 'sutrado', name: 'Sutrado', role: AppRole.k5),
     ];
     for (final c in companies) {
       batch.insert('companies', c.toMap());
@@ -215,35 +217,32 @@ class DatabaseHelper {
         percentProgress: 10,
         startDate: now.subtract(const Duration(days: 1)),
         targetDelivery: now.add(const Duration(days: 10)),
-        statusBusbarPcc: null,
-        statusBusbarMcc: null,
-        statusComponent: null,
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
         createdBy: 'admin',
         vendorId: 'abacus',
         isClosed: false,
       ),
     ];
+
     for (final p in panels) {
       batch.insert('panels', p.toMap());
-      if (p.statusPalet == 'Close') {
-        batch.insert('palet', {'panel_no_pp': p.noPp, 'vendor': 'abacus'});
+      if (p.statusPalet == 'Close' && p.vendorId != null) {
+        batch.insert('palet', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
       }
-      if (p.statusCorepart == 'Close') {
-        batch.insert('corepart', {'panel_no_pp': p.noPp, 'vendor': 'gaa'});
+      if (p.statusCorepart == 'Close' && p.vendorId != null) {
+        batch.insert('corepart', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
       }
     }
 
     batch.insert('busbars', {
       'panel_no_pp': 'J-2101.01-A01-01',
       'vendor': 'gpe',
-      'remarks': 'Selesai sesuai jadwal.',
+      'remarks': 'Selesai',
     });
     batch.insert('components', {
       'panel_no_pp': 'J-2101.01-A01-01',
       'vendor': 'warehouse',
     });
+
     batch.insert('busbars', {
       'panel_no_pp': 'J-2205.15-B02-02',
       'vendor': 'dsm',
@@ -267,27 +266,26 @@ class DatabaseHelper {
       switch (currentUser.role) {
         case AppRole.k3:
           panelIdsSubQuery = '''
-            SELECT panel_no_pp FROM panels WHERE vendor = ?
+            SELECT no_pp FROM panels WHERE vendor_id = ?
             UNION
             SELECT panel_no_pp FROM palet WHERE vendor = ?
             UNION
             SELECT panel_no_pp FROM corepart WHERE vendor = ?
           ''';
-          whereArgs.add(currentUser.id);
+          whereArgs.addAll([currentUser.id, currentUser.id, currentUser.id]);
           break;
         case AppRole.k5:
           panelIdsSubQuery =
-              'SELECT no_pp FROM panels WHERE no_pp IN (SELECT panel_no_pp FROM busbars WHERE vendor = ?) OR no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)';
+              'SELECT no_pp FROM panels WHERE no_pp IN (SELECT panel_no_pp FROM busbars WHERE vendor = ?)';
           whereArgs.add(currentUser.id);
           break;
         case AppRole.warehouse:
           panelIdsSubQuery =
-              'SELECT no_pp FROM panels WHERE no_pp IN (SELECT panel_no_pp FROM components WHERE vendor = ?) OR no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM components)';
+              'SELECT no_pp FROM panels WHERE no_pp IN (SELECT panel_no_pp FROM components WHERE vendor = ?)';
           whereArgs.add(currentUser.id);
           break;
         default:
-          panelIdsSubQuery = 'SELECT no_pp FROM panels';
-          break;
+          return [];
       }
     } else {
       panelIdsSubQuery = 'SELECT no_pp FROM panels';
@@ -296,10 +294,7 @@ class DatabaseHelper {
     final String finalQuery =
         '''
       SELECT
-        p.no_pp, p.no_panel, p.no_wbs, p.percent_progress, p.start_date, p.target_delivery,
-        p.status_busbar_pcc, p.status_busbar_mcc,
-        p.status_component, p.status_palet, p.status_corepart, p.logs, p.created_by, p.vendor_id,
-        p.is_closed, p.closed_date,
+        p.*,
         pu.name as panel_vendor_name,
         (SELECT GROUP_CONCAT(name) FROM companies WHERE id IN (SELECT vendor FROM busbars WHERE panel_no_pp = p.no_pp)) as busbar_vendor_names,
         (SELECT GROUP_CONCAT(id) FROM companies WHERE id IN (SELECT vendor FROM busbars WHERE panel_no_pp = p.no_pp)) as busbar_vendor_ids,
@@ -620,7 +615,42 @@ class DatabaseHelper {
     return await db.delete('panels', where: 'no_pp = ?', whereArgs: [noPp]);
   }
 
-  // --- Component CRUD ---
+  Future<int> upsertBusbar(Busbar busbar) async {
+    final db = await database;
+    return await db.insert(
+      'busbars',
+      busbar.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<int> upsertComponent(Component component) async {
+    final db = await database;
+    return await db.insert(
+      'components',
+      component.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<int> upsertPalet(Palet palet) async {
+    final db = await database;
+    return await db.insert(
+      'palet',
+      palet.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<int> upsertCorepart(Corepart corepart) async {
+    final db = await database;
+    return await db.insert(
+      'corepart',
+      corepart.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
   Future<List<Component>> getAllComponents() async {
     Database db = await instance.database;
     return (await db.query(

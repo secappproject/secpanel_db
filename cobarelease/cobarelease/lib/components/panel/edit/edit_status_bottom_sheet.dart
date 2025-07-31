@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:secpanel/helpers/db_helper.dart';
 import 'package:secpanel/models/approles.dart';
 import 'package:secpanel/models/paneldisplaydata.dart';
@@ -40,6 +41,13 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
   late final TextEditingController _remarkController;
   bool _isLoading = false;
 
+  late DateTime? _aoBusbarPcc;
+  late DateTime? _etaBusbarPcc;
+  late DateTime? _aoBusbarMcc;
+  late DateTime? _etaBusbarMcc;
+  late DateTime? _aoComponent;
+  late DateTime? _etaComponent;
+
   bool get _isK5 => widget.currentCompany.role == AppRole.k5;
   bool get _isWHS => widget.currentCompany.role == AppRole.warehouse;
 
@@ -58,14 +66,19 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
       text: widget.panelData.busbarRemarks ?? '',
     );
 
+    final panel = widget.panelData.panel;
+
     if (_isK5) {
-      _selectedPccStatus =
-          widget.panelData.panel.statusBusbarPcc ?? "On Progress";
-      _selectedMccStatus =
-          widget.panelData.panel.statusBusbarMcc ?? "On Progress";
+      _selectedPccStatus = panel.statusBusbarPcc ?? "On Progress";
+      _selectedMccStatus = panel.statusBusbarMcc ?? "On Progress";
+      _aoBusbarPcc = panel.aoBusbarPcc;
+      _etaBusbarPcc = panel.etaBusbarPcc;
+      _aoBusbarMcc = panel.aoBusbarMcc;
+      _etaBusbarMcc = panel.etaBusbarMcc;
     } else if (_isWHS) {
-      _selectedComponentStatus =
-          widget.panelData.panel.statusComponent ?? "Open";
+      _selectedComponentStatus = panel.statusComponent ?? "Open";
+      _aoComponent = panel.aoComponent;
+      _etaComponent = panel.etaComponent;
     }
   }
 
@@ -83,11 +96,12 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
       );
       if (panelToUpdate != null) {
         if (_isK5) {
-          final bool wasBusbarUnassigned =
-              widget.panelData.busbarVendorIds.isEmpty;
-
           panelToUpdate.statusBusbarPcc = _selectedPccStatus;
           panelToUpdate.statusBusbarMcc = _selectedMccStatus;
+          panelToUpdate.aoBusbarPcc = _aoBusbarPcc;
+          panelToUpdate.etaBusbarPcc = _etaBusbarPcc;
+          panelToUpdate.aoBusbarMcc = _aoBusbarMcc;
+          panelToUpdate.etaBusbarMcc = _etaBusbarMcc;
 
           await DatabaseHelper.instance.updatePanel(panelToUpdate);
           await DatabaseHelper.instance.upsertBusbarRemarkandVendor(
@@ -97,6 +111,8 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
           );
         } else if (_isWHS) {
           panelToUpdate.statusComponent = _selectedComponentStatus;
+          panelToUpdate.aoComponent = _aoComponent;
+          panelToUpdate.etaComponent = _etaComponent;
           await DatabaseHelper.instance.updatePanel(panelToUpdate);
         }
       }
@@ -184,7 +200,6 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
           ),
           const SizedBox(height: 24),
           _buildStatusCard(durationLabel),
-          if (_isK5) ...[const SizedBox(height: 16), _buildVendornameField()],
           if (_isK5) ...[const SizedBox(height: 16), _buildRemarkField()],
           const SizedBox(height: 32),
           _buildActionButtons(),
@@ -235,7 +250,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                         children: [
                           Text(
                             widget.duration,
-                            style: TextStyle(
+                            style: const TextStyle(
                               color: AppColors.black,
                               fontWeight: FontWeight.w400,
                               fontSize: 12,
@@ -243,7 +258,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                           ),
                           Text(
                             durationLabel,
-                            style: TextStyle(
+                            style: const TextStyle(
                               color: AppColors.gray,
                               fontWeight: FontWeight.w400,
                               fontSize: 10,
@@ -259,9 +274,9 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                   children: [
                     Row(
                       children: [
-                        Text(
+                        const Text(
                           "Panel",
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppColors.gray,
                             fontWeight: FontWeight.w400,
                             fontSize: 10,
@@ -285,7 +300,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                         ),
                       ],
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         Container(
@@ -306,7 +321,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                             ),
                           ),
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text(
                           "${(progress * 100).toStringAsFixed(0)}%",
                           style: const TextStyle(
@@ -336,6 +351,8 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                _buildVendornameField(),
+                const SizedBox(height: 20),
                 if (_isK5) ...[
                   _buildStatusOptionsList(
                     title: "Status Busbar PCC",
@@ -344,7 +361,17 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                       setState(() => _selectedPccStatus = newValue);
                     },
                   ),
-                  const SizedBox(height: 16),
+                  _buildAODatePicker(
+                    "AO Busbar PCC",
+                    _aoBusbarPcc,
+                    (date) => setState(() => _aoBusbarPcc = date),
+                  ),
+                  _buildETADatePicker(
+                    "ETA Busbar PCC",
+                    _etaBusbarPcc,
+                    (date) => setState(() => _etaBusbarPcc = date),
+                  ),
+                  const SizedBox(height: 20),
                   _buildStatusOptionsList(
                     title: "Status Busbar MCC",
                     selectedValue: _selectedMccStatus,
@@ -352,7 +379,17 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                       setState(() => _selectedMccStatus = newValue);
                     },
                   ),
-                ] else if (_isWHS)
+                  _buildAODatePicker(
+                    "AO Busbar MCC",
+                    _aoBusbarMcc,
+                    (date) => setState(() => _aoBusbarMcc = date),
+                  ),
+                  _buildETADatePicker(
+                    "ETA Busbar MCC",
+                    _etaBusbarMcc,
+                    (date) => setState(() => _etaBusbarMcc = date),
+                  ),
+                ] else if (_isWHS) ...[
                   _buildStatusOptionsList(
                     title: "Status Picking Component",
                     selectedValue: _selectedComponentStatus,
@@ -360,6 +397,17 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                       setState(() => _selectedComponentStatus = newValue);
                     },
                   ),
+                  _buildAODatePicker(
+                    "AO Component",
+                    _aoComponent,
+                    (date) => setState(() => _aoComponent = date),
+                  ),
+                  _buildETADatePicker(
+                    "ETA Component",
+                    _etaComponent,
+                    (date) => setState(() => _etaComponent = date),
+                  ),
+                ],
                 const Divider(height: 24, color: AppColors.grayLight),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -395,43 +443,18 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
     required String? selectedValue,
     required ValueChanged<String?> onChanged,
   }) {
-    // Logika untuk warehouse tetap di sini jika diperlukan
     final options = _isK5 ? _busbarStatusOptions : _componentStatusOptions;
-
-    final title = _isK5 ? "Status Busbar" : "Status Picking Component";
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: AppColors.gray,
-                fontWeight: FontWeight.w400,
-                fontSize: 10,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: AppColors.grayLight,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                _isK5
-                    ? widget.currentCompany.name
-                    : widget.busbarVendorName ?? "N/A",
-                style: const TextStyle(
-                  color: AppColors.black,
-                  fontWeight: FontWeight.w400,
-                  fontSize: 10,
-                ),
-              ),
-            ),
-          ],
+        Text(
+          title,
+          style: const TextStyle(
+            color: AppColors.black,
+            fontWeight: FontWeight.w500,
+            fontSize: 14,
+          ),
         ),
         const SizedBox(height: 8),
         ...options.map(
@@ -462,7 +485,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
               Text(
                 status,
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 12,
                   fontWeight: FontWeight.w400,
                 ),
               ),
@@ -477,13 +500,10 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
               SizedBox(
                 height: 24,
                 width: 24,
-                child: Checkbox(
-                  value: groupValue == status,
-                  onChanged: (bool? value) {
-                    if (value == true) {
-                      onChanged(status);
-                    }
-                  },
+                child: Radio<String>(
+                  value: status,
+                  groupValue: groupValue,
+                  onChanged: (value) => onChanged(value),
                   activeColor: AppColors.schneiderGreen,
                 ),
               ),
@@ -494,149 +514,147 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
     );
   }
 
+  Widget _buildAODatePicker(
+    String label,
+    DateTime? selectedDate,
+    ValueChanged<DateTime> onDateChanged,
+  ) {
+    return _buildDatePicker(
+      label,
+      selectedDate,
+      onDateChanged,
+      Icons.assignment_turned_in_outlined,
+    );
+  }
+
+  Widget _buildETADatePicker(
+    String label,
+    DateTime? selectedDate,
+    ValueChanged<DateTime> onDateChanged,
+  ) {
+    return _buildDatePicker(
+      label,
+      selectedDate,
+      onDateChanged,
+      Icons.local_shipping_outlined,
+    );
+  }
+
+  Widget _buildDatePicker(
+    String label,
+    DateTime? selectedDate,
+    ValueChanged<DateTime> onDateChanged,
+    IconData icon,
+  ) {
+    Future<void> pickDate() async {
+      final date = await showDatePicker(
+        context: context,
+        initialDate: selectedDate ?? DateTime.now(),
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2101),
+        builder: (context, child) {
+          return Theme(
+            data: ThemeData.light().copyWith(
+              colorScheme: const ColorScheme.light(
+                primary: AppColors.schneiderGreen,
+                onPrimary: Colors.white,
+                onSurface: AppColors.black,
+              ),
+            ),
+            child: child!,
+          );
+        },
+      );
+      if (date != null) {
+        onDateChanged(date);
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: pickDate,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.grayLight),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: AppColors.gray),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+                Text(
+                  selectedDate != null
+                      ? DateFormat('d MMM yyyy').format(selectedDate)
+                      : 'Pilih Tanggal',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: selectedDate != null
+                        ? AppColors.black
+                        : AppColors.gray,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildVendornameField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Vendor Busbar",
-          style: TextStyle(
+        Text(
+          _isK5 ? "Vendor Busbar" : "Vendor Component",
+          style: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
             color: AppColors.black,
           ),
         ),
-        widget.panelData.busbarVendorIds.isEmpty
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Vendor akan di-assign otomatis jika menyimpan status busbar",
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.gray,
-                      fontWeight: FontWeight.w300,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          initialValue: 'N/A',
-                          maxLines: 1,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w300,
-                            color: AppColors.black,
-                          ),
-                          enabled: false,
-                          decoration: InputDecoration(
-                            fillColor: AppColors.grayLight,
-                            filled: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.grayLight,
-                              ),
-                            ),
-                            disabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.grayLight,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.arrow_circle_right,
-                        size: 24,
-                        color: AppColors.schneiderGreen,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          controller: TextEditingController(
-                            text: widget.currentCompany.name,
-                          ),
-                          maxLines: 1,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                            color: AppColors.black,
-                          ),
-                          enabled: false,
-                          decoration: InputDecoration(
-                            fillColor: AppColors.schneiderGreen.withOpacity(
-                              0.1,
-                            ),
-                            filled: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.schneiderGreen,
-                              ),
-                            ),
-                            disabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.schneiderGreen,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              )
-            : Column(
-                children: [
-                  SizedBox(height: 8),
-                  TextFormField(
-                    initialValue: widget.busbarVendorName,
-                    maxLines: 1,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w300,
-                      color: AppColors.black,
-                    ),
-                    enabled: false,
-                    decoration: InputDecoration(
-                      fillColor: AppColors.grayLight,
-                      filled: true,
-                      hintText: 'Masukkan vendor busbar...',
-                      hintStyle: const TextStyle(color: AppColors.gray),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                          color: AppColors.grayLight,
-                        ),
-                      ),
-                      disabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                          color: AppColors.grayLight,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+        const SizedBox(height: 8),
+        TextFormField(
+          initialValue: widget.currentCompany.name,
+          maxLines: 1,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w300,
+            color: AppColors.black,
+          ),
+          enabled: false,
+          decoration: InputDecoration(
+            fillColor: AppColors.grayLight,
+            filled: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.grayLight),
+            ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.grayLight),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -650,140 +668,81 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 8),
-        (!widget.panelData.busbarVendorIds.contains(widget.currentCompany.id) &&
-                widget.panelData.busbarVendorIds.isNotEmpty)
-            ? TextFormField(
-                initialValue: (_remarkController.text.isEmpty
-                    ? "Tidak ada catatan"
-                    : _remarkController.text),
-                maxLines: 3,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w300,
-                  color: AppColors.black,
-                ),
-                enabled: false,
-                decoration: InputDecoration(
-                  fillColor: AppColors.grayLight,
-                  filled: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.grayLight),
-                  ),
-                  disabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.grayLight),
-                  ),
-                ),
-              )
-            : TextFormField(
-                controller: _remarkController,
-                cursorColor: AppColors.schneiderGreen,
-                maxLines: 3,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w300,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Masukkan remark...',
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.grayLight),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                      color: AppColors.schneiderGreen,
-                    ),
-                  ),
-                ),
-              ),
+        TextFormField(
+          controller: _remarkController,
+          cursorColor: AppColors.schneiderGreen,
+          maxLines: 3,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
+          decoration: InputDecoration(
+            hintText: 'Masukkan remark...',
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.grayLight),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.schneiderGreen),
+            ),
+          ),
+        ),
       ],
     );
   }
 
   Widget _buildActionButtons() {
-    return (!widget.panelData.busbarVendorIds.contains(
-              widget.currentCompany.id,
-            ) &&
-            widget.panelData.busbarVendorIds.isNotEmpty)
-        ? InkWell(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              width: double.infinity,
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: () => Navigator.pop(context),
+            style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.schneiderGreen),
+              side: const BorderSide(color: AppColors.schneiderGreen),
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: const Center(
-                child: Text(
-                  "Tutup",
-                  style: TextStyle(
-                    color: AppColors.schneiderGreen,
-                    fontSize: 12,
-                  ),
-                ),
+            ),
+            child: const Text(
+              "Batal",
+              style: TextStyle(
+                color: AppColors.schneiderGreen,
+                fontWeight: FontWeight.w400,
               ),
             ),
-          )
-        : Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: AppColors.schneiderGreen),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  child: const Text(
-                    "Batal",
-                    style: TextStyle(
-                      color: AppColors.schneiderGreen,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: _saveChanges,
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              backgroundColor: AppColors.schneiderGreen,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadiusGeometry.all(Radius.circular(6)),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _saveChanges,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: AppColors.schneiderGreen,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
+            ),
+            child: _isLoading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
                     ),
+                  )
+                : const Text(
+                    "Simpan",
+                    style: TextStyle(fontWeight: FontWeight.w400),
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Text(
-                          "Simpan",
-                          style: TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                ),
-              ),
-            ],
-          );
+          ),
+        ),
+      ],
+    );
   }
 }

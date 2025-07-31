@@ -5,6 +5,10 @@ import 'package:secpanel/models/approles.dart';
 import 'package:secpanel/models/paneldisplaydata.dart';
 import 'package:secpanel/models/panels.dart';
 import 'package:secpanel/models/company.dart';
+import 'package:secpanel/models/busbar.dart';
+import 'package:secpanel/models/component.dart';
+import 'package:secpanel/models/palet.dart';
+import 'package:secpanel/models/corepart.dart';
 import 'package:secpanel/theme/colors.dart';
 
 class EditPanelBottomSheet extends StatefulWidget {
@@ -40,13 +44,42 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   late DateTime? _selectedTargetDeliveryDate;
   late String? _selectedK3VendorId;
   late bool _isSent;
-  late bool _canMarkAsSent;
+  bool _canMarkAsSent = false;
 
   bool _isLoading = false;
   bool _isSuccess = false;
 
   bool get _isAdmin => widget.currentCompany.role == AppRole.admin;
   bool get _isK3 => widget.currentCompany.role == AppRole.k3;
+
+  List<Company> _k5Vendors = [];
+  List<Company> _whsVendors = [];
+  String? _selectedBusbarVendorId;
+  String? _selectedComponentVendorId;
+  String? _selectedPaletVendorId;
+  String? _selectedCorepartVendorId;
+
+  String? _selectedBusbarPccStatus;
+  String? _selectedBusbarMccStatus;
+  String? _selectedComponentStatus;
+  String? _selectedPaletStatus;
+  String? _selectedCorepartStatus;
+
+  DateTime? _aoBusbarPcc;
+  DateTime? _etaBusbarPcc;
+  DateTime? _aoBusbarMcc;
+  DateTime? _etaBusbarMcc;
+  DateTime? _aoComponent;
+  DateTime? _etaComponent;
+
+  final List<String> busbarStatusOptions = [
+    "On Progress",
+    "Siap 100%",
+    "Close",
+    "Red Block",
+  ];
+  final List<String> componentStatusOptions = ["Open", "On Progress", "Done"];
+  final List<String> paletCorepartStatusOptions = ["Open", "Close"];
 
   @override
   void initState() {
@@ -64,8 +97,48 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     _selectedK3VendorId = _panel.vendorId;
     _isSent = _panel.isClosed;
 
-    _updateCanMarkAsSent();
+    _selectedBusbarPccStatus = _panel.statusBusbarPcc;
+    _selectedBusbarMccStatus = _panel.statusBusbarMcc;
+    _selectedComponentStatus = _panel.statusComponent;
+    _selectedPaletStatus = _panel.statusPalet;
+    _selectedCorepartStatus = _panel.statusCorepart;
+
+    _aoBusbarPcc = _panel.aoBusbarPcc;
+    _etaBusbarPcc = _panel.etaBusbarPcc;
+    _aoBusbarMcc = _panel.aoBusbarMcc;
+    _etaBusbarMcc = _panel.etaBusbarMcc;
+    _aoComponent = _panel.aoComponent;
+    _etaComponent = _panel.etaComponent;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateCanMarkAsSent());
     _progressController.addListener(_updateCanMarkAsSent);
+
+    _loadVendors();
+  }
+
+  Future<void> _loadVendors() async {
+    final k5 = await DatabaseHelper.instance.getK5Vendors();
+    final whs = await DatabaseHelper.instance.getWHSVendors();
+    if (mounted) {
+      setState(() {
+        _k5Vendors = k5;
+        _whsVendors = whs;
+        _selectedBusbarVendorId = widget.panelData.busbarVendorIds.isNotEmpty
+            ? widget.panelData.busbarVendorIds.first
+            : null;
+        _selectedComponentVendorId =
+            widget.panelData.componentVendorIds.isNotEmpty
+            ? widget.panelData.componentVendorIds.first
+            : null;
+        _selectedPaletVendorId = widget.panelData.paletVendorIds.isNotEmpty
+            ? widget.panelData.paletVendorIds.first
+            : null;
+        _selectedCorepartVendorId =
+            widget.panelData.corepartVendorIds.isNotEmpty
+            ? widget.panelData.corepartVendorIds.first
+            : null;
+      });
+    }
   }
 
   @override
@@ -80,9 +153,17 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
 
   void _updateCanMarkAsSent() {
     final progress = int.tryParse(_progressController.text) ?? 0;
-    if (mounted) {
+
+    final paletReady = _selectedPaletStatus == 'Close';
+    final corepartReady = _selectedCorepartStatus == 'Close';
+    final busbarMccReady = _selectedBusbarMccStatus == 'Close';
+
+    final allConditionsMet =
+        progress == 100 && paletReady && corepartReady && busbarMccReady;
+
+    if (mounted && _canMarkAsSent != allConditionsMet) {
       setState(() {
-        _canMarkAsSent = progress >= 75;
+        _canMarkAsSent = allConditionsMet;
         if (!_canMarkAsSent) {
           _isSent = false;
         }
@@ -93,36 +174,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   Future<void> _saveChanges() async {
     if (_isLoading || _isSuccess) return;
     if (_formKey.currentState!.validate()) {
-      if (_isAdmin && _selectedK3VendorId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Admin harus memilih Vendor Panel (K3)'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
       setState(() => _isLoading = true);
-      final noPanel = _noPanelController.text.trim();
-      final originalNoPp = widget.panelData.panel.noPp;
-
-      final isUnique = await DatabaseHelper.instance.isPanelNumberUnique(
-        noPanel,
-        currentNoPp: originalNoPp,
-      );
-      if (!isUnique) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No. Panel sudah digunakan oleh panel lain.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          setState(() => _isLoading = false);
-        }
-        return;
-      }
 
       _panel.noPanel = _noPanelController.text.trim();
       _panel.noWbs = _noWbsController.text.trim();
@@ -134,6 +186,21 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
       _panel.vendorId = _selectedK3VendorId;
       _panel.isClosed = _isSent;
 
+      if (_isAdmin || _isK3) {
+        _panel.statusBusbarPcc = _selectedBusbarPccStatus;
+        _panel.statusBusbarMcc = _selectedBusbarMccStatus;
+        _panel.statusComponent = _selectedComponentStatus;
+        _panel.statusPalet = _selectedPaletStatus;
+        _panel.statusCorepart = _selectedCorepartStatus;
+
+        _panel.aoBusbarPcc = _aoBusbarPcc;
+        _panel.etaBusbarPcc = _etaBusbarPcc;
+        _panel.aoBusbarMcc = _aoBusbarMcc;
+        _panel.etaBusbarMcc = _etaBusbarMcc;
+        _panel.aoComponent = _aoComponent;
+        _panel.etaComponent = _etaComponent;
+      }
+
       if (_isSent && _panel.closedDate == null) {
         _panel.closedDate = DateTime.now();
       } else if (!_isSent) {
@@ -142,6 +209,39 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
 
       try {
         await DatabaseHelper.instance.updatePanel(_panel);
+
+        if (_isAdmin) {
+          if (_selectedBusbarVendorId != null) {
+            await DatabaseHelper.instance.upsertBusbar(
+              Busbar(panelNoPp: _panel.noPp, vendor: _selectedBusbarVendorId!),
+            );
+          }
+          if (_selectedComponentVendorId != null) {
+            await DatabaseHelper.instance.upsertComponent(
+              Component(
+                panelNoPp: _panel.noPp,
+                vendor: _selectedComponentVendorId!,
+              ),
+            );
+          }
+        }
+
+        if (_isAdmin || _isK3) {
+          if (_selectedPaletVendorId != null) {
+            await DatabaseHelper.instance.upsertPalet(
+              Palet(panelNoPp: _panel.noPp, vendor: _selectedPaletVendorId!),
+            );
+          }
+          if (_selectedCorepartVendorId != null) {
+            await DatabaseHelper.instance.upsertCorepart(
+              Corepart(
+                panelNoPp: _panel.noPp,
+                vendor: _selectedCorepartVendorId!,
+              ),
+            );
+          }
+        }
+
         setState(() {
           _isLoading = false;
           _isSuccess = true;
@@ -238,17 +338,17 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 16,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-        ),
-        child: Form(
-          key: _formKey,
+    return DefaultTabController(
+      length: _isAdmin ? 5 : 3,
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,48 +388,303 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                 ],
               ),
               const SizedBox(height: 16),
-              if (_isAdmin || _isK3) ...[
-                _buildMarkAsSent(),
-                const SizedBox(height: 16),
-              ],
-              _buildTextField(
-                controller: _noPanelController,
-                label: "No. Panel",
+              TabBar(
+                isScrollable: true,
+                labelColor: AppColors.black,
+                unselectedLabelColor: AppColors.gray,
+                indicatorColor: AppColors.schneiderGreen,
+                indicatorWeight: 2,
+                tabAlignment: TabAlignment.start,
+                padding: EdgeInsets.zero,
+                indicatorSize: TabBarIndicatorSize.label,
+                tabs: _isAdmin
+                    ? const [
+                        Tab(text: "Panel"),
+                        Tab(text: "Busbar"),
+                        Tab(text: "Component"),
+                        Tab(text: "Palet"),
+                        Tab(text: "Corepart"),
+                      ]
+                    : const [
+                        Tab(text: "Panel"),
+                        Tab(text: "Palet"),
+                        Tab(text: "Corepart"),
+                      ],
               ),
               const SizedBox(height: 16),
-              _buildTextField(controller: _noWbsController, label: "No. WBS"),
-              const SizedBox(height: 16),
-              _buildTextField(controller: _noPpController, label: "No. PP"),
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 1,
-                    child: _buildTextField(
-                      controller: _progressController,
-                      label: "Progress",
-                      isNumber: true,
-                      suffixText: "%",
-                    ),
+              Expanded(
+                child: Form(
+                  key: _formKey,
+                  child: TabBarView(
+                    children: _isAdmin
+                        ? [
+                            _buildPanelTab(),
+                            _buildBusbarTab(),
+                            _buildComponentTab(),
+                            _buildPaletTab(),
+                            _buildCorepartTab(),
+                          ]
+                        : [
+                            _buildPanelTab(),
+                            _buildPaletTab(),
+                            _buildCorepartTab(),
+                          ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(flex: 2, child: _buildDateTimePicker()),
-                ],
+                ),
               ),
               const SizedBox(height: 16),
-              _buildTargetDeliveryPicker(),
-              const SizedBox(height: 16),
-              if (_isAdmin)
-                _buildAdminVendorPicker()
-              else if (_isK3)
-                _buildK3VendorDisplay(),
-              const SizedBox(height: 32),
               _buildActionButtons(),
+              const SizedBox(height: 16),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPanelTab() {
+    return ListView(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      children: [
+        if (_isAdmin || _isK3) ...[
+          _buildMarkAsSent(),
+          const SizedBox(height: 16),
+        ],
+        _buildTextField(controller: _noPanelController, label: "No. Panel"),
+        const SizedBox(height: 16),
+        _buildTextField(controller: _noWbsController, label: "No. WBS"),
+        const SizedBox(height: 16),
+        _buildTextField(controller: _noPpController, label: "No. PP"),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 1,
+              child: _buildTextField(
+                controller: _progressController,
+                label: "Progress",
+                isNumber: true,
+                suffixText: "%",
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(flex: 2, child: _buildDateTimePicker()),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _buildTargetDeliveryPicker(),
+        const SizedBox(height: 16),
+        if (_isAdmin)
+          _buildAdminVendorPicker()
+        else if (_isK3)
+          _buildK3VendorDisplay(),
+      ],
+    );
+  }
+
+  Widget _buildBusbarTab() {
+    return ListView(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      children: [
+        _buildSelectorSection(
+          label: "Vendor Busbar (K5)",
+          options: Map.fromEntries(
+            _k5Vendors.map((v) => MapEntry(v.id, v.name)),
+          ),
+          selectedValue: _selectedBusbarVendorId,
+          onTap: (val) => setState(() => _selectedBusbarVendorId = val),
+        ),
+        const SizedBox(height: 16),
+        _buildSelectorSection(
+          label: "Status Busbar PCC",
+          options: Map.fromEntries(
+            busbarStatusOptions.map((s) => MapEntry(s, s)),
+          ),
+          selectedValue: _selectedBusbarPccStatus,
+          onTap: (val) => setState(() {
+            _selectedBusbarPccStatus = val;
+            _updateCanMarkAsSent();
+          }),
+          isEnabled: _selectedBusbarVendorId != null,
+        ),
+        const SizedBox(height: 16),
+        _buildDatePickerField(
+          label: "Acknowledgement Order PCC",
+          selectedDate: _aoBusbarPcc,
+          onDateChanged: (date) => setState(() => _aoBusbarPcc = date),
+          icon: Icons.assignment_turned_in_outlined,
+        ),
+        const SizedBox(height: 16),
+        _buildDatePickerField(
+          label: "Estimation Arrival PCC",
+          selectedDate: _etaBusbarPcc,
+          onDateChanged: (date) => setState(() => _etaBusbarPcc = date),
+          icon: Icons.local_shipping_outlined,
+        ),
+        const SizedBox(height: 16),
+        _buildSelectorSection(
+          label: "Status Busbar MCC",
+          options: Map.fromEntries(
+            busbarStatusOptions.map((s) => MapEntry(s, s)),
+          ),
+          selectedValue: _selectedBusbarMccStatus,
+          onTap: (val) => setState(() {
+            _selectedBusbarMccStatus = val;
+            _updateCanMarkAsSent();
+          }),
+          isEnabled: _selectedBusbarVendorId != null,
+        ),
+        const SizedBox(height: 16),
+        _buildDatePickerField(
+          label: "Acknowledgement Order MCC",
+          selectedDate: _aoBusbarMcc,
+          onDateChanged: (date) => setState(() => _aoBusbarMcc = date),
+          icon: Icons.assignment_turned_in_outlined,
+        ),
+        const SizedBox(height: 16),
+        _buildDatePickerField(
+          label: "Estimation Arrival MCC",
+          selectedDate: _etaBusbarMcc,
+          onDateChanged: (date) => setState(() => _etaBusbarMcc = date),
+          icon: Icons.local_shipping_outlined,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildComponentTab() {
+    return ListView(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      children: [
+        _buildSelectorSection(
+          label: "Vendor Komponen (WHS)",
+          options: Map.fromEntries(
+            _whsVendors.map((v) => MapEntry(v.id, v.name)),
+          ),
+          selectedValue: _selectedComponentVendorId,
+          onTap: (val) => setState(() => _selectedComponentVendorId = val),
+        ),
+        const SizedBox(height: 16),
+        _buildSelectorSection(
+          label: "Status Komponen",
+          options: Map.fromEntries(
+            componentStatusOptions.map((s) => MapEntry(s, s)),
+          ),
+          selectedValue: _selectedComponentStatus,
+          onTap: (val) => setState(() {
+            _selectedComponentStatus = val;
+            _updateCanMarkAsSent();
+          }),
+          isEnabled: _selectedComponentVendorId != null,
+        ),
+        const SizedBox(height: 16),
+        _buildDatePickerField(
+          label: "Acknowledgement Order Component",
+          selectedDate: _aoComponent,
+          onDateChanged: (date) => setState(() => _aoComponent = date),
+          icon: Icons.assignment_turned_in_outlined,
+        ),
+        const SizedBox(height: 16),
+        _buildDatePickerField(
+          label: "Estimation Arrival Component",
+          selectedDate: _etaComponent,
+          onDateChanged: (date) => setState(() => _etaComponent = date),
+          icon: Icons.local_shipping_outlined,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaletTab() {
+    return ListView(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      children: [
+        _buildSelectorSection(
+          label: "Vendor Palet (K3)",
+          options: Map.fromEntries(
+            widget.k3Vendors.map((v) => MapEntry(v.id, v.name)),
+          ),
+          selectedValue: _selectedPaletVendorId,
+          onTap: (val) => setState(() => _selectedPaletVendorId = val),
+        ),
+        const SizedBox(height: 16),
+        _buildSelectorSection(
+          label: "Status Palet",
+          options: Map.fromEntries(
+            paletCorepartStatusOptions.map((s) => MapEntry(s, s)),
+          ),
+          selectedValue: _selectedPaletStatus,
+          onTap: (val) => setState(() {
+            _selectedPaletStatus = val;
+            _updateCanMarkAsSent();
+          }),
+          isEnabled: _selectedPaletVendorId != null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCorepartTab() {
+    return ListView(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      children: [
+        _buildSelectorSection(
+          label: "Vendor Corepart (K3)",
+          options: Map.fromEntries(
+            widget.k3Vendors.map((v) => MapEntry(v.id, v.name)),
+          ),
+          selectedValue: _selectedCorepartVendorId,
+          onTap: (val) => setState(() => _selectedCorepartVendorId = val),
+        ),
+        const SizedBox(height: 16),
+        _buildSelectorSection(
+          label: "Status Corepart",
+          options: Map.fromEntries(
+            paletCorepartStatusOptions.map((s) => MapEntry(s, s)),
+          ),
+          selectedValue: _selectedCorepartStatus,
+          onTap: (val) => setState(() {
+            _selectedCorepartStatus = val;
+            _updateCanMarkAsSent();
+          }),
+          isEnabled: _selectedCorepartVendorId != null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectorSection({
+    required String label,
+    required Map<String, String> options,
+    required String? selectedValue,
+    required ValueChanged<String?> onTap,
+    bool isEnabled = true,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w400, // PERBAIKAN: Diubah dari w500 ke w400
+            color: isEnabled ? AppColors.black : AppColors.gray,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 12,
+          children: options.entries.map((entry) {
+            return _buildOptionButton(
+              label: entry.value,
+              selected: selectedValue == entry.key,
+              onTap: isEnabled ? () => onTap(entry.key) : null,
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
@@ -372,7 +727,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                     ),
                   ),
                   Text(
-                    "Bisa diklik jika progres terisi di atas 75%",
+                    "Syarat: Progres 100%, Palet, Corepart & Busbar MCC Close.",
                     style: TextStyle(
                       fontSize: 10,
                       color: textColor,
@@ -482,52 +837,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                 onPrimary: Colors.white,
                 onSurface: AppColors.black,
               ),
-              textButtonTheme: TextButtonThemeData(
-                style: ButtonStyle(
-                  foregroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return Colors.white;
-                    }
-                    return AppColors.schneiderGreen;
-                  }),
-                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return AppColors.schneiderGreen;
-                    }
-                    return Colors.transparent;
-                  }),
-                  side: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return BorderSide.none;
-                    }
-                    return const BorderSide(color: AppColors.schneiderGreen);
-                  }),
-                  padding: WidgetStateProperty.all(
-                    const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-                  ),
-                  shape: WidgetStateProperty.all(
-                    RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  textStyle: WidgetStateProperty.all(
-                    const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      fontFamily: 'Lexend',
-                    ),
-                  ),
-                ),
-              ),
-              datePickerTheme: DatePickerThemeData(
-                backgroundColor: Colors.white,
-                headerBackgroundColor: AppColors.white,
-                headerForegroundColor: AppColors.black,
-                dividerColor: AppColors.grayLight,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
             ),
             child: child!,
           );
@@ -538,56 +847,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
       final time = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(_selectedDate),
-        builder: (context, child) {
-          return Theme(
-            data: ThemeData.light().copyWith(
-              colorScheme: const ColorScheme.light(
-                primary: AppColors.schneiderGreen,
-                onPrimary: Colors.white,
-                onSurface: Colors.black,
-                surface: Colors.white,
-              ),
-              textButtonTheme: TextButtonThemeData(
-                style: ButtonStyle(
-                  foregroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return Colors.white;
-                    }
-                    return AppColors.schneiderGreen;
-                  }),
-                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return AppColors.schneiderGreen;
-                    }
-                    return Colors.transparent;
-                  }),
-                  side: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return BorderSide.none;
-                    }
-                    return const BorderSide(color: AppColors.schneiderGreen);
-                  }),
-                  padding: WidgetStateProperty.all(
-                    const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-                  ),
-                  shape: WidgetStateProperty.all(
-                    RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  textStyle: WidgetStateProperty.all(
-                    const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      fontFamily: 'Lexend',
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            child: child!,
-          );
-        },
       );
       if (time == null) return;
 
@@ -643,13 +902,31 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   }
 
   Widget _buildTargetDeliveryPicker() {
-    Future<void> pickTargetDate() async {
+    return _buildDatePickerField(
+      label: 'Target Delivery',
+      selectedDate: _selectedTargetDeliveryDate,
+      onDateChanged: (date) {
+        setState(() {
+          _selectedTargetDeliveryDate = date;
+        });
+      },
+      icon: Icons.flag_outlined,
+    );
+  }
+
+  // PERBAIKAN: Helper widget baru untuk date picker dengan label terpisah
+  Widget _buildDatePickerField({
+    required String label,
+    required DateTime? selectedDate,
+    required ValueChanged<DateTime> onDateChanged,
+    required IconData icon,
+  }) {
+    Future<void> pickDate() async {
       final date = await showDatePicker(
         context: context,
-        initialDate: _selectedTargetDeliveryDate ?? DateTime.now(),
+        initialDate: selectedDate ?? DateTime.now(),
         firstDate: DateTime(2000),
         lastDate: DateTime(2101),
-        initialEntryMode: DatePickerEntryMode.calendarOnly,
         builder: (context, child) {
           return Theme(
             data: ThemeData.light().copyWith(
@@ -658,76 +935,29 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                 onPrimary: Colors.white,
                 onSurface: AppColors.black,
               ),
-              textButtonTheme: TextButtonThemeData(
-                style: ButtonStyle(
-                  foregroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return Colors.white;
-                    }
-                    return AppColors.schneiderGreen;
-                  }),
-                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return AppColors.schneiderGreen;
-                    }
-                    return Colors.transparent;
-                  }),
-                  side: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.pressed)) {
-                      return BorderSide.none;
-                    }
-                    return const BorderSide(color: AppColors.schneiderGreen);
-                  }),
-                  padding: WidgetStateProperty.all(
-                    const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-                  ),
-                  shape: WidgetStateProperty.all(
-                    RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  textStyle: WidgetStateProperty.all(
-                    const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      fontFamily: 'Lexend',
-                    ),
-                  ),
-                ),
-              ),
-              datePickerTheme: DatePickerThemeData(
-                backgroundColor: Colors.white,
-                headerBackgroundColor: AppColors.white,
-                headerForegroundColor: AppColors.black,
-                dividerColor: AppColors.grayLight,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
             ),
             child: child!,
           );
         },
       );
-      if (date == null) return;
-
-      setState(() {
-        _selectedTargetDeliveryDate = DateTime(date.year, date.month, date.day);
-      });
+      if (date != null) {
+        onDateChanged(date);
+      }
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Target Delivery",
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w400),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400),
         ),
         const SizedBox(height: 8),
         InkWell(
-          onTap: pickTargetDate,
+          onTap: pickDate,
           borderRadius: BorderRadius.circular(8),
           child: Container(
+            width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
@@ -735,24 +965,18 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.flag_outlined,
-                  size: 20,
-                  color: AppColors.gray,
-                ),
+                Icon(icon, size: 20, color: AppColors.gray),
                 const SizedBox(width: 8),
                 Text(
-                  _selectedTargetDeliveryDate == null
-                      ? 'Pilih Tanggal'
-                      : DateFormat(
-                          'd MMM yyyy',
-                        ).format(_selectedTargetDeliveryDate!),
+                  selectedDate != null
+                      ? DateFormat('d MMM yyyy').format(selectedDate)
+                      : 'Pilih Tanggal',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w300,
-                    color: _selectedTargetDeliveryDate == null
-                        ? AppColors.gray
-                        : AppColors.black,
+                    color: selectedDate != null
+                        ? AppColors.black
+                        : AppColors.gray,
                   ),
                 ),
               ],
@@ -764,26 +988,13 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   }
 
   Widget _buildAdminVendorPicker() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "Vendor Panel",
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w400),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 12,
-          children: widget.k3Vendors.map((vendor) {
-            return _buildOptionButton(
-              label: vendor.name,
-              selected: _selectedK3VendorId == vendor.id,
-              onTap: () => setState(() => _selectedK3VendorId = vendor.id),
-            );
-          }).toList(),
-        ),
-      ],
+    return _buildSelectorSection(
+      label: "Vendor Panel (K3)",
+      options: Map.fromEntries(
+        widget.k3Vendors.map((v) => MapEntry(v.id, v.name)),
+      ),
+      selectedValue: _selectedK3VendorId,
+      onTap: (val) => setState(() => _selectedK3VendorId = val),
     );
   }
 
@@ -820,7 +1031,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   Widget _buildOptionButton({
     required String label,
     required bool selected,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     final Color borderColor = selected
         ? AppColors.schneiderGreen
@@ -832,13 +1043,19 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
         decoration: BoxDecoration(
           color: selected
               ? AppColors.schneiderGreen.withOpacity(0.08)
-              : Colors.white,
-          border: Border.all(color: borderColor),
+              : (onTap != null ? Colors.white : Colors.grey.shade100),
+          border: Border.all(
+            color: onTap != null ? borderColor : Colors.grey.shade300,
+          ),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           label,
-          style: const TextStyle(fontWeight: FontWeight.w400, fontSize: 12),
+          style: TextStyle(
+            fontWeight: FontWeight.w400,
+            fontSize: 12,
+            color: onTap != null ? AppColors.black : AppColors.gray,
+          ),
         ),
       ),
     );
