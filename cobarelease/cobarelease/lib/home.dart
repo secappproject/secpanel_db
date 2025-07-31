@@ -45,7 +45,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<String> selectedComponentVendors = [];
   List<String> selectedPaletVendors = [];
   List<String> selectedCorepartVendors = [];
-  List<String> selectedStatuses = [];
+  List<String> selectedPccStatuses = [];
+  List<String> selectedMccStatuses = [];
   List<String> selectedComponents = [];
   List<String> selectedPalet = [];
   List<String> selectedCorepart = [];
@@ -95,17 +96,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     if (startDate.isAfter(now)) {
       final futureDifference = startDate.difference(now);
-
       final days = futureDifference.inDays;
       final hours = futureDifference.inHours % 24;
-      final minutes = futureDifference.inMinutes % 60;
-
       return "$days hari $hours jam";
     } else {
       final pastDifference = now.difference(startDate);
       final days = pastDifference.inDays;
       final hours = pastDifference.inHours % 24;
-
       if (days == 0 && hours == 0) {
         return "Baru saja dimulai";
       }
@@ -133,13 +130,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return PanelFilterStatus.progressRed;
   }
 
-  // Lokasi: file HomeScreen.dart
-
   List<PanelDisplayData> get _panelsAfterPrimaryFilters {
     return _allPanelsData.where((data) {
       final panel = data.panel;
 
-      // --- Filter dasar (pencarian, vendor, dll.) ---
       final query = searchQuery.toLowerCase();
       final matchSearch =
           panel.noPanel.toLowerCase().contains(query) ||
@@ -175,9 +169,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             (id) => data.corepartVendorIds.contains(id),
           );
 
-      final matchStatus =
-          selectedStatuses.isEmpty ||
-          selectedStatuses.contains(panel.statusBusbar);
+      final matchPccStatus =
+          selectedPccStatuses.isEmpty ||
+          (panel.statusBusbarPcc != null &&
+              selectedPccStatuses.contains(panel.statusBusbarPcc));
+
+      final matchMccStatus =
+          selectedMccStatuses.isEmpty ||
+          (panel.statusBusbarMcc != null &&
+              selectedMccStatuses.contains(panel.statusBusbarMcc));
 
       final matchComponent =
           selectedComponents.isEmpty ||
@@ -190,7 +190,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           selectedCorepart.isEmpty ||
           selectedCorepart.contains(panel.statusCorepart);
 
-      // Jika tidak cocok dengan salah satu filter dasar, langsung sembunyikan.
       final baseFiltersMatch =
           matchSearch &&
           matchPanelVendor &&
@@ -198,7 +197,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           matchComponentVendor &&
           matchPaletVendor &&
           matchCorepartVendor &&
-          matchStatus &&
+          matchPccStatus &&
+          matchMccStatus &&
           matchComponent &&
           matchPalet &&
           matchCorepart;
@@ -219,13 +219,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   List<PanelDisplayData> get filteredPanelsForDisplay {
     var tabFilteredPanels = _panelsAfterPrimaryFilters;
-    final role = widget.currentCompany.role; // Dapatkan peran akun saat ini
+    final role = widget.currentCompany.role;
 
     switch (_tabController.index) {
-      case 0: // All
-        // Tidak ada filter tambahan untuk tab "All"
+      case 0:
         break;
-      case 1: // Open Vendor
+      case 1:
         if (role == AppRole.k5) {
           tabFilteredPanels = tabFilteredPanels
               .where((data) => data.busbarVendorIds.isEmpty)
@@ -235,7 +234,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               .where((data) => data.componentVendorIds.isEmpty)
               .toList();
         } else {
-          // admin, k3, or others (default to original logic for consistency)
           tabFilteredPanels = tabFilteredPanels
               .where(
                 (data) =>
@@ -247,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               .toList();
         }
         break;
-      case 2: // On Going Panel
+      case 2:
         if (role == AppRole.k5) {
           tabFilteredPanels = tabFilteredPanels
               .where(
@@ -269,7 +267,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               )
               .toList();
         } else {
-          // admin, k3, or others (default to original logic for consistency)
           tabFilteredPanels = tabFilteredPanels
               .where(
                 (data) =>
@@ -279,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               .toList();
         }
         break;
-      case 3: // Ready to Delivery
+      case 3:
         tabFilteredPanels = tabFilteredPanels
             .where(
               (data) =>
@@ -288,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             )
             .toList();
         break;
-      case 4: // Closed Panel
+      case 4:
         tabFilteredPanels = tabFilteredPanels
             .where((data) => data.panel.isClosed)
             .toList();
@@ -354,7 +351,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => PanelFilterBottomSheet(
-        selectedStatuses: selectedStatuses,
+        selectedPccStatuses: selectedPccStatuses,
+        selectedMccStatuses: selectedMccStatuses,
         selectedComponents: selectedComponents,
         selectedPalet: selectedPalet,
         selectedCorepart: selectedCorepart,
@@ -369,7 +367,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         selectedComponentVendors: selectedComponentVendors,
         selectedPaletVendors: selectedPaletVendors,
         selectedCorepartVendors: selectedCorepartVendors,
-        onStatusesChanged: (value) => setState(() => selectedStatuses = value),
+        onPccStatusesChanged: (value) =>
+            setState(() => selectedPccStatuses = value),
+        onMccStatusesChanged: (value) =>
+            setState(() => selectedMccStatuses = value),
         onComponentsChanged: (value) =>
             setState(() => selectedComponents = value),
         onPaletChanged: (value) => setState(() => selectedPalet = value),
@@ -401,7 +402,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             selectedComponentVendors = [];
             selectedPaletVendors = [];
             selectedCorepartVendors = [];
-            selectedStatuses = [];
+            selectedPccStatuses = [];
+            selectedMccStatuses = [];
             selectedComponents = [];
             selectedPalet = [];
             selectedCorepart = [];
@@ -457,8 +459,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
       builder: (_) => EditStatusBottomSheet(
         duration: _formatDuration(dataToEdit.panel.startDate),
-        startDate:
-            dataToEdit.panel.startDate, // ✅ PASTIKAN ANDA MENAMBAHKAN INI
+        startDate: dataToEdit.panel.startDate,
         progress: (dataToEdit.panel.percentProgress ?? 0) / 100.0,
         panelData: dataToEdit,
         panelVendorName: dataToEdit.panelVendorName,
@@ -489,7 +490,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     final allCount = baseFilteredList.length;
 
-    // Logika penghitungan Open Vendor yang spesifik berdasarkan peran
     final int openVendorCount;
     if (role == AppRole.k5) {
       openVendorCount = baseFilteredList
@@ -500,7 +500,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           .where((data) => data.componentVendorIds.isEmpty)
           .length;
     } else {
-      // admin, k3
       openVendorCount = baseFilteredList
           .where(
             (data) =>
@@ -512,7 +511,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           .length;
     }
 
-    // Logika penghitungan On Going Panel yang spesifik berdasarkan peran
     final int onGoingPanelCount;
     if (role == AppRole.k5) {
       onGoingPanelCount = baseFilteredList
@@ -533,7 +531,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           )
           .length;
     } else {
-      // admin, k3
       onGoingPanelCount = baseFilteredList
           .where(
             (data) =>
@@ -653,11 +650,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     return PanelProgressCard(
                       duration: _formatDuration(panel.startDate),
                       progress: (panel.percentProgress ?? 0) / 100.0,
-                      startDate:
-                          panel.startDate, // ✅ PASTIKAN ANDA MENAMBAHKAN INI
+                      startDate: panel.startDate,
                       progressLabel: "${panel.percentProgress?.toInt() ?? 0}%",
                       panelTitle: panel.noPanel,
-                      statusBusbar: panel.statusBusbar ?? "N/A",
+                      statusBusbarPcc: panel.statusBusbarPcc ?? "N/A",
+                      statusBusbarMcc: panel.statusBusbarMcc ?? "N/A",
                       statusComponent: panel.statusComponent ?? "N/A",
                       statusPalet: panel.statusPalet ?? "N/A",
                       statusCorepart: panel.statusCorepart ?? "N/A",

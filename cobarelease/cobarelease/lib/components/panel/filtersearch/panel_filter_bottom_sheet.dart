@@ -25,7 +25,8 @@ enum PanelFilterStatus {
 }
 
 class PanelFilterBottomSheet extends StatefulWidget {
-  final List<String> selectedStatuses;
+  final List<String> selectedPccStatuses;
+  final List<String> selectedMccStatuses;
   final List<String> selectedComponents;
   final List<String> selectedPalet;
   final List<String> selectedCorepart;
@@ -41,7 +42,8 @@ class PanelFilterBottomSheet extends StatefulWidget {
   final List<String> selectedPaletVendors;
   final List<String> selectedCorepartVendors;
 
-  final Function(List<String>) onStatusesChanged;
+  final Function(List<String>) onPccStatusesChanged;
+  final Function(List<String>) onMccStatusesChanged;
   final Function(List<String>) onComponentsChanged;
   final Function(List<String>) onPaletChanged;
   final Function(List<String>) onCorepartChanged;
@@ -57,7 +59,8 @@ class PanelFilterBottomSheet extends StatefulWidget {
 
   const PanelFilterBottomSheet({
     super.key,
-    required this.selectedStatuses,
+    required this.selectedPccStatuses,
+    required this.selectedMccStatuses,
     required this.selectedComponents,
     required this.selectedPalet,
     required this.selectedCorepart,
@@ -72,7 +75,8 @@ class PanelFilterBottomSheet extends StatefulWidget {
     required this.selectedComponentVendors,
     required this.selectedPaletVendors,
     required this.selectedCorepartVendors,
-    required this.onStatusesChanged,
+    required this.onPccStatusesChanged,
+    required this.onMccStatusesChanged,
     required this.onComponentsChanged,
     required this.onPaletChanged,
     required this.onCorepartChanged,
@@ -92,7 +96,8 @@ class PanelFilterBottomSheet extends StatefulWidget {
 }
 
 class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
-  late List<String> _selectedStatuses;
+  late List<String> _selectedPccStatuses;
+  late List<String> _selectedMccStatuses;
   late List<String> _selectedComponents;
   late List<String> _selectedPalet;
   late List<String> _selectedCorepart;
@@ -105,10 +110,20 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
   late List<String> _selectedPaletVendors;
   late List<String> _selectedCorepartVendors;
 
+  final List<String> busbarStatusOptions = [
+    "Close",
+    "On Progress",
+    "Siap 100%",
+    "Red Block",
+  ];
+  final List<String> componentStatusOptions = ["Done", "On Progress", "Open"];
+  final List<String> paletAndCorepartStatusOptions = ["Close", "Open"];
+
   @override
   void initState() {
     super.initState();
-    _selectedStatuses = List.from(widget.selectedStatuses);
+    _selectedPccStatuses = List.from(widget.selectedPccStatuses);
+    _selectedMccStatuses = List.from(widget.selectedMccStatuses);
     _selectedComponents = List.from(widget.selectedComponents);
     _selectedPalet = List.from(widget.selectedPalet);
     _selectedCorepart = List.from(widget.selectedCorepart);
@@ -168,7 +183,8 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
   }
 
   void _applyFilters() {
-    widget.onStatusesChanged(_selectedStatuses);
+    widget.onPccStatusesChanged(_selectedPccStatuses);
+    widget.onMccStatusesChanged(_selectedMccStatuses);
     widget.onComponentsChanged(_selectedComponents);
     widget.onPaletChanged(_selectedPalet);
     widget.onCorepartChanged(_selectedCorepart);
@@ -229,8 +245,8 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                 height: 24,
                 color: AppColors.schneiderGreen,
               ),
-              SizedBox(width: 8),
-              Text(
+              const SizedBox(width: 8),
+              const Text(
                 "Filter",
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
               ),
@@ -277,7 +293,7 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                   ),
                   const SizedBox(height: 24),
                   const Text(
-                    "% Progres Panel",
+                    "Status Panel (% Progres)",
                     style: TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 12),
@@ -357,6 +373,96 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                   ),
                   const SizedBox(height: 12),
                   const Text(
+                    "Status Busbar PCC",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: busbarStatusOptions
+                        .map(
+                          (status) => _buildOptionButton(
+                            label: status,
+                            selected: _selectedPccStatuses.contains(status),
+                            onTap: () =>
+                                _toggleSelection(_selectedPccStatuses, status),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Status Busbar MCC",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: busbarStatusOptions
+                        .map(
+                          (status) => _buildOptionButton(
+                            label: status,
+                            selected: _selectedMccStatuses.contains(status),
+                            onTap: () =>
+                                _toggleSelection(_selectedMccStatuses, status),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Status Picking Component",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: componentStatusOptions
+                        .map(
+                          (status) => _buildOptionButton(
+                            label: status,
+                            selected: _selectedComponents.contains(status),
+                            onTap: () =>
+                                _toggleSelection(_selectedComponents, status),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Status Palet",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: paletAndCorepartStatusOptions
+                        .map(
+                          (status) => _buildOptionButton(
+                            label: status,
+                            selected: _selectedPalet.contains(status),
+                            onTap: () =>
+                                _toggleSelection(_selectedPalet, status),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Status Corepart",
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    children: paletAndCorepartStatusOptions
+                        .map(
+                          (status) => _buildOptionButton(
+                            label: status,
+                            selected: _selectedCorepart.contains(status),
+                            onTap: () =>
+                                _toggleSelection(_selectedCorepart, status),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
                     "Vendor Panel (K3)",
                     style: TextStyle(fontWeight: FontWeight.w500),
                   ),
@@ -419,13 +525,14 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                         )
                         .toList(),
                   ),
+                  const SizedBox(height: 12),
                   const Text(
                     "Vendor Palet (K3)",
                     style: TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
-                    children: widget.allWHSVendors
+                    children: widget.allK3Vendors
                         .map(
                           (vendor) => _buildOptionButton(
                             label: vendor.name,
@@ -438,14 +545,14 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                         )
                         .toList(),
                   ),
-
+                  const SizedBox(height: 12),
                   const Text(
                     "Vendor Corepart (K3)",
                     style: TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
-                    children: widget.allWHSVendors
+                    children: widget.allK3Vendors
                         .map(
                           (vendor) => _buildOptionButton(
                             label: vendor.name,
@@ -460,105 +567,6 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                         )
                         .toList(),
                   ),
-
-                  // ✨ FILTER STATUS BUSBAR & KOMPONEN DIKEMBALIKAN
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Status Picking Component",
-                    style: TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    children: [
-                      _buildOptionButton(
-                        label: "Done",
-                        selected: _selectedComponents.contains("Done"),
-                        onTap: () =>
-                            _toggleSelection(_selectedComponents, "Done"),
-                      ),
-                      _buildOptionButton(
-                        label: "On Progress",
-                        selected: _selectedComponents.contains("On Progress"),
-                        onTap: () => _toggleSelection(
-                          _selectedComponents,
-                          "On Progress",
-                        ),
-                      ),
-                      _buildOptionButton(
-                        label: "Open",
-                        selected: _selectedComponents.contains("Open"),
-                        onTap: () =>
-                            _toggleSelection(_selectedComponents, "Open"),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    children: [
-                      _buildOptionButton(
-                        label: "Close",
-                        selected: _selectedPalet.contains("Close"),
-                        onTap: () => _toggleSelection(_selectedPalet, "Close"),
-                      ),
-                      _buildOptionButton(
-                        label: "Open",
-                        selected: _selectedPalet.contains("Open"),
-                        onTap: () => _toggleSelection(_selectedPalet, "Open"),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    children: [
-                      _buildOptionButton(
-                        label: "Close",
-                        selected: _selectedCorepart.contains("Close"),
-                        onTap: () =>
-                            _toggleSelection(_selectedCorepart, "Close"),
-                      ),
-                      _buildOptionButton(
-                        label: "Open",
-                        selected: _selectedCorepart.contains("Open"),
-                        onTap: () =>
-                            _toggleSelection(_selectedCorepart, "Open"),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Status Busbar",
-                    style: TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    children: [
-                      _buildOptionButton(
-                        label: "Close",
-                        selected: _selectedStatuses.contains("Close"),
-                        onTap: () =>
-                            _toggleSelection(_selectedStatuses, "Close"),
-                      ),
-                      _buildOptionButton(
-                        label: "On Progress",
-                        selected: _selectedStatuses.contains("On Progress"),
-                        onTap: () =>
-                            _toggleSelection(_selectedStatuses, "On Progress"),
-                      ),
-                      _buildOptionButton(
-                        label: "Siap 100%",
-                        selected: _selectedStatuses.contains("Siap 100%"),
-                        onTap: () =>
-                            _toggleSelection(_selectedStatuses, "Siap 100%"),
-                      ),
-                      _buildOptionButton(
-                        label: "Red Block",
-                        selected: _selectedStatuses.contains("Red Block"),
-                        onTap: () =>
-                            _toggleSelection(_selectedStatuses, "Red Block"),
-                      ),
-                    ],
-                  ),
-
                   const SizedBox(height: 12),
                   const Text(
                     "Urut Berdasarkan",
@@ -709,7 +717,7 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                   ),
                   child: const Text(
                     "Terapkan",
-                    style: TextStyle(color: AppColors.white, fontSize: 12),
+                    style: TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ),

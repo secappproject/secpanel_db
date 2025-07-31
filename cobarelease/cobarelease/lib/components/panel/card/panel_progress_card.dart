@@ -9,7 +9,8 @@ class PanelProgressCard extends StatelessWidget {
   final DateTime? startDate;
   final String progressLabel;
   final String panelTitle;
-  final String statusBusbar;
+  final String statusBusbarPcc;
+  final String statusBusbarMcc;
   final String statusComponent;
   final String statusPalet;
   final String statusCorepart;
@@ -32,7 +33,8 @@ class PanelProgressCard extends StatelessWidget {
     required this.startDate,
     required this.progressLabel,
     required this.panelTitle,
-    required this.statusBusbar,
+    required this.statusBusbarPcc,
+    required this.statusBusbarMcc,
     required this.statusComponent,
     required this.statusPalet,
     required this.statusCorepart,
@@ -149,9 +151,12 @@ class PanelProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool hasRemarks = busbarRemarks != null && busbarRemarks!.isNotEmpty;
-    final String busbarDisplayStatus = (statusBusbar == 'N/A')
-        ? 'On Progress'
-        : statusBusbar;
+
+    final String pccDisplayStatus = statusBusbarPcc ?? 'N/A';
+    final String mccDisplayStatus = statusBusbarMcc ?? 'N/A';
+    final String pccImageStatus = _getBusbarStatusImage(statusBusbarPcc);
+    final String mccImageStatus = _getBusbarStatusImage(statusBusbarMcc);
+
     final String componentDisplayStatus = (statusComponent == 'N/A')
         ? 'Open'
         : statusComponent;
@@ -224,33 +229,33 @@ class PanelProgressCard extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            const Text(
-                              "Panel",
-                              style: TextStyle(
-                                color: AppColors.gray,
-                                fontWeight: FontWeight.w400,
-                                fontSize: 10,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.grayLight,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                panelVendorName,
-                                style: const TextStyle(
-                                  color: AppColors.black,
-                                  fontWeight: FontWeight.w400,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ),
+                            // const Text(
+                            //   "Panel",
+                            //   style: TextStyle(
+                            //     color: AppColors.gray,
+                            //     fontWeight: FontWeight.w400,
+                            //     fontSize: 10,
+                            //   ),
+                            // ),
+                            // const SizedBox(width: 4),
+                            // Container(
+                            //   padding: const EdgeInsets.symmetric(
+                            //     horizontal: 4,
+                            //     vertical: 2,
+                            //   ),
+                            //   decoration: BoxDecoration(
+                            //     color: AppColors.grayLight,
+                            //     borderRadius: BorderRadius.circular(4),
+                            //   ),
+                            //   child: Text(
+                            //     panelVendorName,
+                            //     style: const TextStyle(
+                            //       color: AppColors.black,
+                            //       fontWeight: FontWeight.w400,
+                            //       fontSize: 8,
+                            //     ),
+                            //   ),
+                            // ),
                           ],
                         ),
                         const SizedBox(height: 4),
@@ -305,251 +310,275 @@ class PanelProgressCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            panelTitle,
-                            style: const TextStyle(
-                              color: AppColors.black,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                            ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  border: BoxBorder.all(
+                                    width: 1,
+                                    color: AppColors.grayLight,
+                                  ),
+                                  borderRadius: BorderRadius.all(
+                                    Radius.circular(12),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Text(
+                                          "Panel",
+                                          style: TextStyle(
+                                            color: AppColors.gray,
+                                            fontWeight: FontWeight.w400,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.grayLight,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            panelVendorName == 'N/A'
+                                                ? 'No Vendor'
+                                                : panelVendorName,
+                                            style: const TextStyle(
+                                              color: AppColors.black,
+                                              fontWeight: FontWeight.w400,
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Row(
+                                      children: [
+                                        const Text(
+                                          "Busbar",
+                                          style: TextStyle(
+                                            color: AppColors.gray,
+                                            fontWeight: FontWeight.w400,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.grayLight,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            busbarVendorName == 'N/A'
+                                                ? 'No Vendor'
+                                                : busbarVendorName,
+                                            style: const TextStyle(
+                                              color: AppColors.black,
+                                              fontWeight: FontWeight.w400,
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        if (hasRemarks) ...[
+                                          InkWell(
+                                            onTap: () =>
+                                                _showRemarksBottomSheet(
+                                                  context,
+                                                  busbarRemarks!,
+                                                ),
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(4),
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                                border: Border.all(
+                                                  color: AppColors.grayLight,
+                                                  width: 1,
+                                                ),
+                                              ),
+                                              child: Image.asset(
+                                                'assets/images/remarks.png',
+                                                height: 16,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                panelTitle,
+                                style: const TextStyle(
+                                  color: AppColors.black,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           Column(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
+                              Column(
                                 children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Text(
-                                              "Busbar",
-                                              style: TextStyle(
-                                                color: AppColors.gray,
-                                                fontWeight: FontWeight.w400,
-                                                fontSize: 10,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 4,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.grayLight,
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                busbarVendorName == 'N/A'
-                                                    ? 'Open Vendor'
-                                                    : busbarVendorName,
-                                                style: const TextStyle(
-                                                  color: AppColors.black,
-                                                  fontWeight: FontWeight.w400,
-                                                  fontSize: 10,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Column(
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
                                             Row(
                                               children: [
-                                                Text(
-                                                  busbarDisplayStatus,
-                                                  style: const TextStyle(
-                                                    color: AppColors.black,
+                                                const Text(
+                                                  "Busbar Pcc",
+                                                  style: TextStyle(
+                                                    color: AppColors.gray,
                                                     fontWeight: FontWeight.w400,
                                                     fontSize: 10,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 4),
-                                                Image.asset(
-                                                  _getBusbarStatusImage(
-                                                    statusBusbar,
-                                                  ),
-                                                  height: 12,
-                                                ),
                                               ],
                                             ),
                                             const SizedBox(height: 4),
-                                            if (hasRemarks) ...[
-                                              InkWell(
-                                                onTap: () =>
-                                                    _showRemarksBottomSheet(
-                                                      context,
-                                                      busbarRemarks!,
+                                            Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      pccDisplayStatus == 'N/A'
+                                                          ? 'On Progress'
+                                                          : pccDisplayStatus,
+                                                      style: const TextStyle(
+                                                        color: AppColors.black,
+                                                        fontWeight:
+                                                            FontWeight.w400,
+                                                        fontSize: 10,
+                                                      ),
                                                     ),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                child: Container(
-                                                  padding: const EdgeInsets.all(
-                                                    4,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          16,
-                                                        ),
-                                                    border: Border.all(
-                                                      color:
-                                                          AppColors.grayLight,
-                                                      width: 1,
+                                                    const SizedBox(width: 4),
+                                                    Image.asset(
+                                                      _getBusbarStatusImage(
+                                                        statusBusbarPcc,
+                                                      ),
+                                                      height: 12,
                                                     ),
-                                                  ),
-                                                  child: Image.asset(
-                                                    'assets/images/remarks.png',
-                                                    height: 16,
-                                                  ),
+                                                  ],
                                                 ),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Text(
-                                              "Busbar",
-                                              style: TextStyle(
-                                                color: AppColors.gray,
-                                                fontWeight: FontWeight.w400,
-                                                fontSize: 10,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 4,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.grayLight,
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                busbarVendorName == 'N/A'
-                                                    ? 'Open Vendor'
-                                                    : busbarVendorName,
-                                                style: const TextStyle(
-                                                  color: AppColors.black,
-                                                  fontWeight: FontWeight.w400,
-                                                  fontSize: 10,
-                                                ),
-                                              ),
+                                              ],
                                             ),
                                           ],
                                         ),
-                                        const SizedBox(height: 4),
-                                        Column(
+                                      ),
+                                      Expanded(
+                                        child: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
                                             Row(
                                               children: [
-                                                Text(
-                                                  busbarDisplayStatus,
-                                                  style: const TextStyle(
-                                                    color: AppColors.black,
+                                                const Text(
+                                                  "Busbar Mcc",
+                                                  style: TextStyle(
+                                                    color: AppColors.gray,
                                                     fontWeight: FontWeight.w400,
                                                     fontSize: 10,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 4),
-                                                Image.asset(
-                                                  _getBusbarStatusImage(
-                                                    statusBusbar,
-                                                  ),
-                                                  height: 12,
-                                                ),
                                               ],
                                             ),
                                             const SizedBox(height: 4),
-                                            if (hasRemarks) ...[
-                                              InkWell(
-                                                onTap: () =>
-                                                    _showRemarksBottomSheet(
-                                                      context,
-                                                      busbarRemarks!,
+                                            Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      mccDisplayStatus == 'N/A'
+                                                          ? 'On Progress'
+                                                          : mccDisplayStatus,
+                                                      style: const TextStyle(
+                                                        color: AppColors.black,
+                                                        fontWeight:
+                                                            FontWeight.w400,
+                                                        fontSize: 10,
+                                                      ),
                                                     ),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                child: Container(
-                                                  padding: const EdgeInsets.all(
-                                                    4,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          16,
-                                                        ),
-                                                    border: Border.all(
-                                                      color:
-                                                          AppColors.grayLight,
-                                                      width: 1,
+                                                    const SizedBox(width: 4),
+                                                    Image.asset(
+                                                      _getBusbarStatusImage(
+                                                        statusBusbarMcc,
+                                                      ),
+                                                      height: 12,
                                                     ),
-                                                  ),
-                                                  child: Image.asset(
-                                                    'assets/images/remarks.png',
-                                                    height: 16,
-                                                  ),
+                                                  ],
                                                 ),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ],
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    width: 60,
-                                    child: Container(
-                                      alignment: Alignment.centerRight,
-                                      child: Container(
-                                        child: InkWell(
-                                          onTap: onEdit,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
+                                      ),
+                                      Container(
+                                        alignment: Alignment.centerRight,
+                                        width: 60,
+                                        child: Container(
+                                          alignment: Alignment.centerRight,
                                           child: Container(
-                                            padding: const EdgeInsets.all(8),
-                                            decoration: BoxDecoration(
+                                            child: InkWell(
+                                              onTap: onEdit,
                                               borderRadius:
                                                   BorderRadius.circular(8),
-                                              border: Border.all(
-                                                color: AppColors.grayLight,
-                                                width: 1,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  8,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  border: Border.all(
+                                                    color: AppColors.grayLight,
+                                                    width: 1,
+                                                  ),
+                                                ),
+                                                child: Image.asset(
+                                                  'assets/images/edit-green.png',
+                                                  height: 20,
+                                                ),
                                               ),
-                                            ),
-                                            child: Image.asset(
-                                              'assets/images/edit-green.png',
-                                              height: 20,
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -712,7 +741,7 @@ class PanelProgressCard extends StatelessWidget {
                           style: TextStyle(
                             color: AppColors.gray,
                             fontWeight: FontWeight.w300,
-                            fontSize: 12,
+                            fontSize: 10,
                           ),
                         ),
                         Text(
@@ -720,7 +749,7 @@ class PanelProgressCard extends StatelessWidget {
                           style: const TextStyle(
                             color: AppColors.gray,
                             fontWeight: FontWeight.w400,
-                            fontSize: 12,
+                            fontSize: 10,
                           ),
                         ),
                       ],
@@ -734,7 +763,7 @@ class PanelProgressCard extends StatelessWidget {
                           style: TextStyle(
                             color: AppColors.gray,
                             fontWeight: FontWeight.w300,
-                            fontSize: 12,
+                            fontSize: 10,
                           ),
                         ),
                         Text(
@@ -742,7 +771,7 @@ class PanelProgressCard extends StatelessWidget {
                           style: const TextStyle(
                             color: AppColors.gray,
                             fontWeight: FontWeight.w400,
-                            fontSize: 12,
+                            fontSize: 10,
                           ),
                         ),
                       ],

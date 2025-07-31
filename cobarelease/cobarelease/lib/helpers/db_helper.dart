@@ -30,10 +30,10 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'app_database39.db');
+    String path = join(documentsDirectory.path, 'app_database41.db');
     return await openDatabase(
       path,
-      version: 12,
+      version: 13,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -47,7 +47,6 @@ class DatabaseHelper {
         batch.execute('DROP TABLE IF EXISTS panels');
         batch.execute('DROP TABLE IF EXISTS company_accounts');
         batch.execute('DROP TABLE IF EXISTS companies');
-        batch.execute('DROP TABLE IF EXISTS company');
         await batch.commit();
         await _onCreate(db, newVersion);
       },
@@ -58,28 +57,30 @@ class DatabaseHelper {
     var batch = db.batch();
 
     batch.execute('''
-    CREATE TABLE companies (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      role TEXT NOT NULL
-    )
-  ''');
+      CREATE TABLE companies (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL
+      )
+    ''');
     batch.execute('''
-    CREATE TABLE company_accounts (
-      username TEXT PRIMARY KEY,
-      password TEXT NOT NULL,
-      company_id TEXT NOT NULL,
-      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  ''');
+      CREATE TABLE company_accounts (
+        username TEXT PRIMARY KEY,
+        password TEXT NOT NULL,
+        company_id TEXT NOT NULL,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE ON UPDATE CASCADE
+      )
+    ''');
+
     batch.execute('''
     CREATE TABLE panels (
       no_pp TEXT PRIMARY KEY, 
-      no_panel TEXT NOT NULL UNIQUE, -- Tambahkan UNIQUE di sini juga untuk mencegah duplikasi nama panel
+      no_panel TEXT NOT NULL UNIQUE,
       no_wbs TEXT NOT NULL,
       percent_progress REAL, 
       start_date TEXT, 
-      status_busbar TEXT,
+      status_busbar_pcc TEXT, -- DIUBAH
+      status_busbar_mcc TEXT, -- DIUBAH
       status_component TEXT, 
       status_palet TEXT,  
       status_corepart TEXT, 
@@ -91,7 +92,7 @@ class DatabaseHelper {
       FOREIGN KEY (created_by) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
       FOREIGN KEY (vendor_id) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE
     )
-  ''');
+    ''');
 
     batch.execute('''
     CREATE TABLE busbars (
@@ -99,42 +100,37 @@ class DatabaseHelper {
       panel_no_pp TEXT NOT NULL,
       vendor TEXT NOT NULL, 
       remarks TEXT,
-      FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
       FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
-      UNIQUE(panel_no_pp, vendor) -- Aturan ini mencegah duplikasi
+      UNIQUE(panel_no_pp, vendor)
     )
-  ''');
-
+    ''');
     batch.execute('''
-    CREATE TABLE components (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, 
-      panel_no_pp TEXT NOT NULL,
-      vendor TEXT NOT NULL,
-      FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
-      FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
-      UNIQUE(panel_no_pp, vendor) -- Aturan ini mencegah duplikasi
-    )
-  ''');
+      CREATE TABLE components (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        panel_no_pp TEXT NOT NULL,
+        vendor TEXT NOT NULL,
+        FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
+        UNIQUE(panel_no_pp, vendor)
+      )
+    ''');
     batch.execute('''
-    CREATE TABLE palet (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, 
-      panel_no_pp TEXT NOT NULL,
-      vendor TEXT NOT NULL,
-      FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
-      FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
-      UNIQUE(panel_no_pp, vendor) -- Aturan ini mencegah duplikasi
-    )
-  ''');
+      CREATE TABLE palet (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        panel_no_pp TEXT NOT NULL,
+        vendor TEXT NOT NULL,
+        FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
+        UNIQUE(panel_no_pp, vendor)
+      )
+    ''');
     batch.execute('''
-    CREATE TABLE corepart (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, 
-      panel_no_pp TEXT NOT NULL,
-      vendor TEXT NOT NULL,
-      FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
-      FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
-      UNIQUE(panel_no_pp, vendor) -- Aturan ini mencegah duplikasi
-    )
-  ''');
+      CREATE TABLE corepart (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        panel_no_pp TEXT NOT NULL,
+        vendor TEXT NOT NULL,
+        FOREIGN KEY (vendor) REFERENCES companies(id) ON DELETE SET NULL ON UPDATE CASCADE,
+        UNIQUE(panel_no_pp, vendor)
+      )
+    ''');
 
     await _createDummyData(batch);
     await batch.commit(noResult: true);
@@ -184,7 +180,8 @@ class DatabaseHelper {
         noWbs: 'WBS-A-001',
         percentProgress: 100,
         startDate: now.subtract(const Duration(days: 30)),
-        statusBusbar: 'Close',
+        statusBusbarPcc: 'Close',
+        statusBusbarMcc: 'Close',
         statusComponent: 'Done',
         statusPalet: 'Close',
         statusCorepart: 'Close',
@@ -199,7 +196,8 @@ class DatabaseHelper {
         noWbs: 'WBS-B-002',
         percentProgress: 75,
         startDate: now.subtract(const Duration(days: 5)),
-        statusBusbar: 'On Progress',
+        statusBusbarPcc: 'On Progress',
+        statusBusbarMcc: 'On Progress',
         statusComponent: 'On Progress',
         statusPalet: 'Close',
         statusCorepart: 'Close',
@@ -213,7 +211,8 @@ class DatabaseHelper {
         noWbs: 'WBS-C-003',
         percentProgress: 10,
         startDate: now.subtract(const Duration(days: 1)),
-        statusBusbar: null,
+        statusBusbarPcc: null,
+        statusBusbarMcc: null,
         statusComponent: null,
         statusPalet: 'Close',
         statusCorepart: 'Close',
@@ -227,7 +226,8 @@ class DatabaseHelper {
         noWbs: 'WBS-A-004',
         percentProgress: 60,
         startDate: now.subtract(const Duration(days: 15)),
-        statusBusbar: 'Red Block',
+        statusBusbarPcc: 'Red Block',
+        statusBusbarMcc: 'On Progress',
         statusComponent: 'On Progress',
         statusPalet: 'Close',
         statusCorepart: 'Close',
@@ -241,65 +241,9 @@ class DatabaseHelper {
         noWbs: 'WBS-D-005',
         percentProgress: 100,
         startDate: now.subtract(const Duration(days: 20)),
-        statusBusbar: 'Siap 100%',
+        statusBusbarPcc: 'Siap 100%',
+        statusBusbarMcc: 'Siap 100%',
         statusComponent: 'Done',
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'abacus',
-        isClosed: false,
-      ),
-      Panel(
-        noPp: 'J-2311.02-E01-06',
-        noPanel: 'MCC-Pompa-Area5',
-        noWbs: 'WBS-E-006',
-        percentProgress: 25,
-        startDate: now.subtract(const Duration(hours: 48)),
-        statusBusbar: 'On Progress',
-        statusComponent: 'Open',
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'gaa',
-        isClosed: false,
-      ),
-      Panel(
-        noPp: 'J-2001.01-F01-07',
-        noPanel: 'OLD-PANEL-01',
-        noWbs: 'WBS-F-007',
-        percentProgress: 100,
-        startDate: now.subtract(const Duration(days: 90)),
-        statusBusbar: 'Close',
-        statusComponent: 'Done',
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'abacus',
-        isClosed: true,
-        closedDate: now.subtract(const Duration(days: 5)),
-      ),
-      Panel(
-        noPp: 'J-2312.01-G01-08',
-        noPanel: 'SUB-PANEL-G08',
-        noWbs: 'WBS-G-008',
-        percentProgress: 30,
-        startDate: now.subtract(const Duration(days: 2)),
-        statusBusbar: null,
-        statusComponent: 'On Progress',
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'gaa',
-        isClosed: false,
-      ),
-      Panel(
-        noPp: 'J-2401.01-H01-09',
-        noPanel: 'LIGHTING-PANEL-H09',
-        noWbs: 'WBS-H-009',
-        percentProgress: 35,
-        startDate: now.subtract(const Duration(days: 3)),
-        statusBusbar: 'On Progress',
-        statusComponent: null,
         statusPalet: 'Close',
         statusCorepart: 'Close',
         createdBy: 'admin',
@@ -433,12 +377,12 @@ class DatabaseHelper {
     } else {
       panelIdsSubQuery = 'SELECT no_pp FROM panels';
     }
-
     final String finalQuery =
         '''
       SELECT
         p.no_pp, p.no_panel, p.no_wbs, p.percent_progress, p.start_date,
-        p.status_busbar, p.status_component, p.status_palet, p.status_corepart, p.logs, p.created_by, p.vendor_id,
+        p.status_busbar_pcc, p.status_busbar_mcc, -- DIUBAH
+        p.status_component, p.status_palet, p.status_corepart, p.logs, p.created_by, p.vendor_id,
         p.is_closed, p.closed_date,
         pu.name as panel_vendor_name,
         (SELECT GROUP_CONCAT(name) FROM companies WHERE id IN (SELECT vendor FROM busbars WHERE panel_no_pp = p.no_pp)) as busbar_vendor_names,
@@ -457,7 +401,6 @@ class DatabaseHelper {
     ''';
 
     final result = await db.rawQuery(finalQuery, whereArgs);
-
     return result.map((map) {
       List<String> cleanIds(String? rawIds) {
         if (rawIds == null || rawIds.isEmpty) return [];
@@ -544,14 +487,12 @@ class DatabaseHelper {
       await txn.insert(
         'companies',
         company.toMap(),
-        conflictAlgorithm:
-            ConflictAlgorithm.ignore, // Use ignore to prevent overwrite
+        conflictAlgorithm: ConflictAlgorithm.ignore,
       );
       await txn.insert(
         'company_accounts',
         account.toMap(),
-        conflictAlgorithm:
-            ConflictAlgorithm.replace, // A user account can be replaced
+        conflictAlgorithm: ConflictAlgorithm.replace,
       );
     });
   }
@@ -845,11 +786,6 @@ class DatabaseHelper {
       List<String> relevantPanelIds = [];
       String companyId = currentUser.id;
 
-      // ************ PERUBAHAN UTAMA DIMULAI DI SINI ************
-      // Untuk peran non-admin, hanya sertakan perusahaan mereka sendiri
-      // dan akun-akun yang terkait dengan perusahaan mereka.
-      // Ini memastikan mereka tidak melihat perusahaan/akun lain.
-
       final currentUserCompany = await getCompanyById(currentUser.id);
       if (currentUserCompany != null) {
         companies.add(currentUserCompany);
@@ -1063,7 +999,8 @@ class DatabaseHelper {
         TextCellValue('no_wbs'),
         TextCellValue('percent_progress'),
         TextCellValue('start_date'),
-        TextCellValue('status_busbar'),
+        TextCellValue('status_busbar_pcc'), // DIUBAH
+        TextCellValue('status_busbar_mcc'), // DIUBAH
         TextCellValue('status_component'),
         TextCellValue('status_palet'),
         TextCellValue('status_corepart'),
@@ -1079,7 +1016,8 @@ class DatabaseHelper {
           _toCellValue(p.noWbs),
           _toCellValue(p.percentProgress),
           _toCellValue(p.startDate?.toIso8601String()),
-          _toCellValue(p.statusBusbar),
+          _toCellValue(p.statusBusbarPcc),
+          _toCellValue(p.statusBusbarMcc),
           _toCellValue(p.statusComponent),
           _toCellValue(p.statusPalet),
           _toCellValue(p.statusCorepart),
@@ -1158,7 +1096,8 @@ class DatabaseHelper {
               'no_wbs': p.noWbs,
               'percent_progress': p.percentProgress,
               'start_date': p.startDate?.toIso8601String(),
-              'status_busbar': p.statusBusbar,
+              'status_busbar_pcc': p.statusBusbarPcc,
+              'status_busbar_mcc': p.statusBusbarMcc,
               'status_component': p.statusComponent,
               'status_palet': p.statusPalet,
               'status_corepart': p.statusCorepart,

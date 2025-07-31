@@ -34,7 +34,9 @@ class EditStatusBottomSheet extends StatefulWidget {
 }
 
 class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
-  late String? _selectedStatus;
+  late String? _selectedPccStatus;
+  late String? _selectedMccStatus;
+  late String? _selectedComponentStatus;
   late final TextEditingController _remarkController;
   bool _isLoading = false;
 
@@ -57,9 +59,13 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
     );
 
     if (_isK5) {
-      _selectedStatus = widget.panelData.panel.statusBusbar ?? "On Progress";
+      _selectedPccStatus =
+          widget.panelData.panel.statusBusbarPcc ?? "On Progress";
+      _selectedMccStatus =
+          widget.panelData.panel.statusBusbarMcc ?? "On Progress";
     } else if (_isWHS) {
-      _selectedStatus = widget.panelData.panel.statusComponent ?? "Open";
+      _selectedComponentStatus =
+          widget.panelData.panel.statusComponent ?? "Open";
     }
   }
 
@@ -80,9 +86,8 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
           final bool wasBusbarUnassigned =
               widget.panelData.busbarVendorIds.isEmpty;
 
-          panelToUpdate.statusBusbar = wasBusbarUnassigned
-              ? 'On Progress'
-              : _selectedStatus;
+          panelToUpdate.statusBusbarPcc = _selectedPccStatus;
+          panelToUpdate.statusBusbarMcc = _selectedMccStatus;
 
           await DatabaseHelper.instance.updatePanel(panelToUpdate);
           await DatabaseHelper.instance.upsertBusbarRemarkandVendor(
@@ -91,7 +96,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
             newRemark: _remarkController.text,
           );
         } else if (_isWHS) {
-          panelToUpdate.statusComponent = _selectedStatus;
+          panelToUpdate.statusComponent = _selectedComponentStatus;
           await DatabaseHelper.instance.updatePanel(panelToUpdate);
         }
       }
@@ -331,7 +336,30 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                _buildStatusOptionsList(),
+                if (_isK5) ...[
+                  _buildStatusOptionsList(
+                    title: "Status Busbar PCC",
+                    selectedValue: _selectedPccStatus,
+                    onChanged: (newValue) {
+                      setState(() => _selectedPccStatus = newValue);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  _buildStatusOptionsList(
+                    title: "Status Busbar MCC",
+                    selectedValue: _selectedMccStatus,
+                    onChanged: (newValue) {
+                      setState(() => _selectedMccStatus = newValue);
+                    },
+                  ),
+                ] else if (_isWHS)
+                  _buildStatusOptionsList(
+                    title: "Status Picking Component",
+                    selectedValue: _selectedComponentStatus,
+                    onChanged: (newValue) {
+                      setState(() => _selectedComponentStatus = newValue);
+                    },
+                  ),
                 const Divider(height: 24, color: AppColors.grayLight),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -362,8 +390,14 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
     );
   }
 
-  Widget _buildStatusOptionsList() {
+  Widget _buildStatusOptionsList({
+    required String title,
+    required String? selectedValue,
+    required ValueChanged<String?> onChanged,
+  }) {
+    // Logika untuk warehouse tetap di sini jika diperlukan
     final options = _isK5 ? _busbarStatusOptions : _componentStatusOptions;
+
     final title = _isK5 ? "Status Busbar" : "Status Picking Component";
 
     return Column(
@@ -400,20 +434,26 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
           ],
         ),
         const SizedBox(height: 8),
-        ...options.map((status) => _buildStatusOptionRow(status)),
+        ...options.map(
+          (status) => _buildStatusOptionRow(
+            status: status,
+            groupValue: selectedValue,
+            onChanged: onChanged,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildStatusOptionRow(String status) {
+  Widget _buildStatusOptionRow({
+    required String status,
+    required String? groupValue,
+    required ValueChanged<String?> onChanged,
+  }) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {
-          setState(() {
-            _selectedStatus = status;
-          });
-        },
+        onTap: () => onChanged(status),
         borderRadius: BorderRadius.circular(4),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6.0),
@@ -438,11 +478,11 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                 height: 24,
                 width: 24,
                 child: Checkbox(
-                  value: _selectedStatus == status,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedStatus = status;
-                    });
+                  value: groupValue == status,
+                  onChanged: (bool? value) {
+                    if (value == true) {
+                      onChanged(status);
+                    }
                   },
                   activeColor: AppColors.schneiderGreen,
                 ),

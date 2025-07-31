@@ -6,11 +6,11 @@ class Panel {
   String noWbs;
   double? percentProgress;
   DateTime? startDate;
-  String? statusBusbar;
+  String? statusBusbarPcc;
+  String? statusBusbarMcc;
   String? statusComponent;
   String? statusPalet;
   String? statusCorepart;
-
   List<Map<String, dynamic>>? logs;
   String createdBy;
   String? vendorId;
@@ -23,7 +23,8 @@ class Panel {
     required this.noWbs,
     this.percentProgress,
     this.startDate,
-    this.statusBusbar,
+    this.statusBusbarPcc,
+    this.statusBusbarMcc,
     this.statusComponent,
     this.statusCorepart,
     this.statusPalet,
@@ -41,7 +42,8 @@ class Panel {
       'no_wbs': noWbs,
       'percent_progress': percentProgress,
       'start_date': startDate?.toIso8601String(),
-      'status_busbar': statusBusbar,
+      'status_busbar_pcc': statusBusbarPcc,
+      'status_busbar_mcc': statusBusbarMcc,
       'status_component': statusComponent,
       'status_palet': statusPalet,
       'status_corepart': statusCorepart,
@@ -62,7 +64,8 @@ class Panel {
       startDate: map['start_date'] != null
           ? DateTime.parse(map['start_date'])
           : null,
-      statusBusbar: map['status_busbar'],
+      statusBusbarPcc: map['status_busbar_pcc'],
+      statusBusbarMcc: map['status_busbar_mcc'],
       statusComponent: map['status_component'],
       statusPalet: map['status_palet'],
       statusCorepart: map['status_corepart'],
