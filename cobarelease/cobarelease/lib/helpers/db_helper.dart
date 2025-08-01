@@ -29,7 +29,7 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'app_database_final_4.db');
+    String path = join(documentsDirectory.path, 'app_database_final_5.db');
     return await openDatabase(
       path,
       version: 2,
@@ -85,7 +85,9 @@ class DatabaseHelper {
       status_palet TEXT,  
       status_corepart TEXT,
       ao_busbar_pcc TEXT,
+      eta_busbar_pcc TEXT,
       ao_busbar_mcc TEXT,
+      eta_busbar_mcc TEXT,
       logs TEXT, 
       created_by TEXT NOT NULL,
       vendor_id TEXT, 
@@ -181,82 +183,93 @@ class DatabaseHelper {
     }
 
     final now = DateTime.now();
-    final panels = [
-      Panel(
-        noPp: 'J-2101.01-A01-01',
-        noPanel: 'MDP-01-GedungA',
-        noWbs: 'WBS-A-001',
-        percentProgress: 100,
-        startDate: now.subtract(const Duration(days: 30)),
-        targetDelivery: now.subtract(const Duration(days: 15)),
-        statusBusbarPcc: 'Close',
-        statusBusbarMcc: 'Close',
-        statusComponent: 'Done',
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'abacus',
-        isClosed: true,
-        closedDate: now.subtract(const Duration(days: 10)),
-      ),
-      Panel(
-        noPp: 'J-2205.15-B02-02',
-        noPanel: 'SDP-03-Lantai2',
-        noWbs: 'WBS-B-002',
-        percentProgress: 75,
-        startDate: now.subtract(const Duration(days: 5)),
-        targetDelivery: now.add(const Duration(days: 1)),
-        statusBusbarPcc: 'On Progress',
-        statusBusbarMcc: 'On Progress',
-        statusComponent: 'On Progress',
-        statusPalet: 'Close',
-        statusCorepart: 'Close',
-        createdBy: 'admin',
-        vendorId: 'gaa',
-        isClosed: false,
-      ),
-      Panel(
-        noPp: 'J-2310.01-C11-03',
-        noPanel: 'LVP-Gudang-Baru',
-        noWbs: 'WBS-C-003',
-        percentProgress: 10,
-        startDate: now.subtract(const Duration(days: 1)),
-        targetDelivery: now.add(const Duration(days: 10)),
-        createdBy: 'admin',
-        vendorId: 'abacus',
-        isClosed: false,
-      ),
-    ];
+    // final panels = [
+    //   Panel(
+    //     noPp: 'J-2101.01-A01-01',
+    //     noPanel: 'MDP-01-GedungA',
+    //     noWbs: 'WBS-A-001',
+    //     percentProgress: 100,
+    //     startDate: now.subtract(const Duration(days: 30)),
+    //     targetDelivery: now.subtract(const Duration(days: 15)),
+    //     statusBusbarPcc: 'Close',
+    //     statusBusbarMcc: 'Close',
+    //     statusComponent: 'Done',
+    //     statusPalet: 'Close',
+    //     statusCorepart: 'Close',
+    //     createdBy: 'admin',
+    //     vendorId: 'abacus',
+    //     isClosed: true,
+    //     closedDate: now.subtract(const Duration(days: 10)),
+    //   ),
+    //   Panel(
+    //     noPp: 'J-2205.15-B02-02',
+    //     noPanel: 'SDP-03-Lantai2',
+    //     noWbs: 'WBS-B-002',
+    //     percentProgress: 75,
+    //     startDate: now.subtract(const Duration(days: 5)),
+    //     targetDelivery: now.add(const Duration(days: 1)),
+    //     statusBusbarPcc: 'On Progress',
+    //     statusBusbarMcc: 'On Progress',
+    //     statusComponent: 'On Progress',
+    //     statusPalet: 'Close',
+    //     statusCorepart: 'Close',
+    //     createdBy: 'admin',
+    //     vendorId: 'gaa',
+    //     isClosed: false,
+    //   ),
+    //   Panel(
+    //     noPp: 'J-2310.01-C11-03',
+    //     noPanel: 'LVP-Gudang-Baru',
+    //     noWbs: 'WBS-C-003',
+    //     percentProgress: 10,
+    //     startDate: now.subtract(const Duration(days: 1)),
+    //     targetDelivery: now.add(const Duration(days: 10)),
+    //     createdBy: 'admin',
+    //     vendorId: 'abacus',
+    //     isClosed: false,
+    //   ),
+    //   Panel(
+    //     noPp: 'J-2412.01-D01-04',
+    //     noPanel: 'LVP-Gudang-Belakang',
+    //     noWbs: 'WBS-D-004',
+    //     percentProgress: 0,
+    //     startDate: now.add(const Duration(days: 2)),
+    //     targetDelivery: now.add(const Duration(days: 20)),
+    //     createdBy: 'admin',
+    //     vendorId: null,
+    //     isClosed: false,
+    //   ),
+    // ];
 
-    for (final p in panels) {
-      batch.insert('panels', p.toMap());
-      if (p.statusPalet == 'Close' && p.vendorId != null) {
-        batch.insert('palet', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
-      }
-      if (p.statusCorepart == 'Close' && p.vendorId != null) {
-        batch.insert('corepart', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
-      }
-    }
+    // for (final p in panels) {
+    //   batch.insert('panels', p.toMap());
+    //   if (p.statusPalet == 'Close' && p.vendorId != null) {
+    //     batch.insert('palet', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
+    //   }
+    //   if (p.statusCorepart == 'Close' && p.vendorId != null) {
+    //     batch.insert('corepart', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
+    //   }
+    // }
 
-    batch.insert('busbars', {
-      'panel_no_pp': 'J-2101.01-A01-01',
-      'vendor': 'gpe',
-      'remarks': 'Selesai',
-    });
-    batch.insert('components', {
-      'panel_no_pp': 'J-2101.01-A01-01',
-      'vendor': 'warehouse',
-    });
+    // batch.insert('busbars', {
+    //   'panel_no_pp': 'J-2101.01-A01-01',
+    //   'vendor': 'gpe',
+    //   'remarks': 'Selesai',
+    // });
+    // batch.insert('components', {
+    //   'panel_no_pp': 'J-2101.01-A01-01',
+    //   'vendor': 'warehouse',
+    // });
 
-    batch.insert('busbars', {
-      'panel_no_pp': 'J-2205.15-B02-02',
-      'vendor': 'dsm',
-      'remarks': '',
-    });
-    batch.insert('components', {
-      'panel_no_pp': 'J-2205.15-B02-02',
-      'vendor': 'warehouse',
-    });
+    // batch.insert('busbars', {
+    //   'panel_no_pp': 'J-2205.15-B02-02',
+    //   'vendor': 'dsm',
+    //   'remarks': '',
+    // });
+    // batch.insert('components', {
+    //   'panel_no_pp': 'J-2205.15-B02-02',
+    //   'vendor': 'warehouse',
+    // });
   }
 
   Future<List<PanelDisplayData>> getAllPanelsForDisplay(
@@ -277,17 +290,27 @@ class DatabaseHelper {
             SELECT panel_no_pp FROM palet WHERE vendor = ?
             UNION
             SELECT panel_no_pp FROM corepart WHERE vendor = ?
+            UNION
+            SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM palet)
+            UNION
+            SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM corepart)
           ''';
           whereArgs.addAll([currentUser.id, currentUser.id, currentUser.id]);
           break;
         case AppRole.k5:
-          panelIdsSubQuery =
-              'SELECT no_pp FROM panels WHERE no_pp IN (SELECT panel_no_pp FROM busbars WHERE vendor = ?)';
+          panelIdsSubQuery = '''
+            SELECT panel_no_pp FROM busbars WHERE vendor = ?
+            UNION
+            SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)
+          ''';
           whereArgs.add(currentUser.id);
           break;
         case AppRole.warehouse:
-          panelIdsSubQuery =
-              'SELECT no_pp FROM panels WHERE no_pp IN (SELECT panel_no_pp FROM components WHERE vendor = ?)';
+          panelIdsSubQuery = '''
+            SELECT panel_no_pp FROM components WHERE vendor = ?
+            UNION
+            SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM components)
+          ''';
           whereArgs.add(currentUser.id);
           break;
         default:
@@ -909,11 +932,7 @@ class DatabaseHelper {
         TextCellValue('status_palet'),
         TextCellValue('status_corepart'),
         TextCellValue('ao_busbar_pcc'),
-        // TextCellValue('eta_busbar_pcc'),
         TextCellValue('ao_busbar_mcc'),
-        // TextCellValue('eta_busbar_mcc'),
-        // TextCellValue('ao_component'),
-        // TextCellValue('eta_component'),
         TextCellValue('created_by'),
         TextCellValue('vendor_id'),
         TextCellValue('is_closed'),
@@ -933,11 +952,7 @@ class DatabaseHelper {
           _toCellValue(p.statusPalet),
           _toCellValue(p.statusCorepart),
           _toCellValue(p.aoBusbarPcc?.toIso8601String()),
-          // _toCellValue(p.etaBusbarPcc?.toIso8601String()),
           _toCellValue(p.aoBusbarMcc?.toIso8601String()),
-          // _toCellValue(p.etaBusbarMcc?.toIso8601String()),
-          // _toCellValue(p.aoComponent?.toIso8601String()),
-          // _toCellValue(p.etaComponent?.toIso8601String()),
           _toCellValue(p.createdBy),
           _toCellValue(p.vendorId),
           _toCellValue(p.isClosed),
@@ -1175,11 +1190,7 @@ class DatabaseHelper {
           'status_palet': 'Open',
           'status_corepart': 'Open',
           'ao_busbar_pcc': now,
-          // 'eta_busbar_pcc': now,
           'ao_busbar_mcc': now,
-          // 'eta_busbar_mcc': now,
-          // 'ao_component': now,
-          // 'eta_component': now,
           'created_by': 'admin',
           'vendor_id': 'vendor_k3_contoh',
           'is_closed': 0,
@@ -1258,11 +1269,7 @@ class DatabaseHelper {
         TextCellValue('status_palet'),
         TextCellValue('status_corepart'),
         TextCellValue('ao_busbar_pcc'),
-        // TextCellValue('eta_busbar_pcc'),
         TextCellValue('ao_busbar_mcc'),
-        // TextCellValue('eta_busbar_mcc'),
-        // TextCellValue('ao_component'),
-        // TextCellValue('eta_component'),
         TextCellValue('created_by'),
         TextCellValue('vendor_id'),
         TextCellValue('is_closed'),

@@ -304,7 +304,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                     Row(
                       children: [
                         Container(
-                          width: MediaQuery.of(context).size.width - 244,
+                          width: MediaQuery.of(context).size.width - 280,
                           height: 11,
                           decoration: BoxDecoration(
                             color: AppColors.gray.withOpacity(0.3),
