@@ -299,149 +299,220 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 16),
-
-                // --- KONTEN YANG SEBELUMNYA DI TAB ---
-                _buildSectionHeader("Data Panel"),
-                if (_isAdmin || _isK3) ...[
-                  _buildMarkAsSent(),
-                  const SizedBox(height: 16),
-                ],
-                _buildTextField(
-                  controller: _noPanelController,
-                  label: "No. Panel",
-                ),
-                const SizedBox(height: 16),
-                _buildTextField(controller: _noWbsController, label: "No. WBS"),
-                const SizedBox(height: 16),
-                _buildTextField(controller: _noPpController, label: "No. PP"),
-                const SizedBox(height: 16),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 1,
-                      child: _buildTextField(
-                        controller: _progressController,
-                        label: "Progress",
-                        isNumber: true,
-                        suffixText: "%",
+                SizedBox(height: 12),
+                Container(
+                  width: MediaQuery.of(context).size.width,
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: BoxBorder.all(color: AppColors.grayLight, width: 1),
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionHeader("Panel"),
+                      if (_isAdmin || _isK3) ...[
+                        _buildMarkAsSent(),
+                        const SizedBox(height: 16),
+                      ],
+                      _buildTextField(
+                        controller: _noPanelController,
+                        label: "No. Panel",
                       ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(flex: 2, child: _buildDateTimePicker()),
-                  ],
+                      const SizedBox(height: 16),
+                      _buildTextField(
+                        controller: _noWbsController,
+                        label: "No. WBS",
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTextField(
+                        controller: _noPpController,
+                        label: "No. PP",
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: _buildTextField(
+                              controller: _progressController,
+                              label: "Progress",
+                              isNumber: true,
+                              suffixText: "%",
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(flex: 2, child: _buildDateTimePicker()),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTargetDeliveryPicker(),
+                      const SizedBox(height: 16),
+                      if (_isAdmin)
+                        _buildAdminVendorPicker()
+                      else if (_isK3)
+                        _buildK3VendorDisplay(),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _buildTargetDeliveryPicker(),
-                const SizedBox(height: 16),
-                if (_isAdmin)
-                  _buildAdminVendorPicker()
-                else if (_isK3)
-                  _buildK3VendorDisplay(),
 
                 if (_isAdmin) ...[
-                  _buildSectionDivider(),
-                  _buildSectionHeader("Data Busbar"),
-                  _buildSelectorSection(
-                    label: "Vendor Busbar (K5)",
-                    options: Map.fromEntries(
-                      _k5Vendors.map((v) => MapEntry(v.id, v.name)),
+                  SizedBox(height: 12),
+                  Container(
+                    width: MediaQuery.of(context).size.width,
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: BoxBorder.all(
+                        color: AppColors.grayLight,
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
                     ),
-                    selectedValue: _selectedBusbarVendorId,
-                    onTap: (val) =>
-                        setState(() => _selectedBusbarVendorId = val),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSelectorSection(
-                    label: "Status Busbar PCC",
-                    options: Map.fromEntries(
-                      busbarStatusOptions.map((s) => MapEntry(s, s)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionHeader("Busbar"),
+                        _buildSelectorSection(
+                          label: "Vendor Busbar (K5)",
+                          options: Map.fromEntries(
+                            _k5Vendors.map((v) => MapEntry(v.id, v.name)),
+                          ),
+                          selectedValue: _selectedBusbarVendorId,
+                          onTap: (val) =>
+                              setState(() => _selectedBusbarVendorId = val),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildSelectorSection(
+                          label: "Status Busbar PCC",
+                          options: Map.fromEntries(
+                            busbarStatusOptions.map((s) => MapEntry(s, s)),
+                          ),
+                          selectedValue: _selectedBusbarPccStatus,
+                          onTap: (val) => setState(() {
+                            _selectedBusbarPccStatus = val;
+                            _updateCanMarkAsSent();
+                          }),
+                          isEnabled: _selectedBusbarVendorId != null,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildDatePickerField(
+                          label: "Acknowledgement Order PCC",
+                          selectedDate: _aoBusbarPcc,
+                          onDateChanged: (date) =>
+                              setState(() => _aoBusbarPcc = date),
+                          icon: Icons.assignment_turned_in_outlined,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildSelectorSection(
+                          label: "Status Busbar MCC",
+                          options: Map.fromEntries(
+                            busbarStatusOptions.map((s) => MapEntry(s, s)),
+                          ),
+                          selectedValue: _selectedBusbarMccStatus,
+                          onTap: (val) => setState(() {
+                            _selectedBusbarMccStatus = val;
+                            _updateCanMarkAsSent();
+                          }),
+                          isEnabled: _selectedBusbarVendorId != null,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildDatePickerField(
+                          label: "Acknowledgement Order MCC",
+                          selectedDate: _aoBusbarMcc,
+                          onDateChanged: (date) =>
+                              setState(() => _aoBusbarMcc = date),
+                          icon: Icons.assignment_turned_in_outlined,
+                        ),
+                      ],
                     ),
-                    selectedValue: _selectedBusbarPccStatus,
-                    onTap: (val) => setState(() {
-                      _selectedBusbarPccStatus = val;
-                      _updateCanMarkAsSent();
-                    }),
-                    isEnabled: _selectedBusbarVendorId != null,
                   ),
-                  const SizedBox(height: 16),
-                  _buildDatePickerField(
-                    label: "Acknowledgement Order PCC",
-                    selectedDate: _aoBusbarPcc,
-                    onDateChanged: (date) =>
-                        setState(() => _aoBusbarPcc = date),
-                    icon: Icons.assignment_turned_in_outlined,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSelectorSection(
-                    label: "Status Busbar MCC",
-                    options: Map.fromEntries(
-                      busbarStatusOptions.map((s) => MapEntry(s, s)),
+                  SizedBox(height: 12),
+                  Container(
+                    width: MediaQuery.of(context).size.width,
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: BoxBorder.all(
+                        color: AppColors.grayLight,
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
                     ),
-                    selectedValue: _selectedBusbarMccStatus,
-                    onTap: (val) => setState(() {
-                      _selectedBusbarMccStatus = val;
-                      _updateCanMarkAsSent();
-                    }),
-                    isEnabled: _selectedBusbarVendorId != null,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDatePickerField(
-                    label: "Acknowledgement Order MCC",
-                    selectedDate: _aoBusbarMcc,
-                    onDateChanged: (date) =>
-                        setState(() => _aoBusbarMcc = date),
-                    icon: Icons.assignment_turned_in_outlined,
-                  ),
-
-                  _buildSectionDivider(),
-                  _buildSectionHeader("Data Komponen"),
-                  _buildSelectorSection(
-                    label: "Status Komponen",
-                    options: Map.fromEntries(
-                      componentStatusOptions.map((s) => MapEntry(s, s)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionHeader("Komponen"),
+                        _buildSelectorSection(
+                          label: "Status Komponen",
+                          options: Map.fromEntries(
+                            componentStatusOptions.map((s) => MapEntry(s, s)),
+                          ),
+                          selectedValue: _selectedComponentStatus,
+                          onTap: (val) => setState(() {
+                            _selectedComponentStatus = val;
+                            _updateCanMarkAsSent();
+                          }),
+                          isEnabled: _selectedComponentVendorId != null,
+                        ),
+                      ],
                     ),
-                    selectedValue: _selectedComponentStatus,
-                    onTap: (val) => setState(() {
-                      _selectedComponentStatus = val;
-                      _updateCanMarkAsSent();
-                    }),
-                    isEnabled: _selectedComponentVendorId != null,
                   ),
                 ],
-
-                _buildSectionDivider(),
-                _buildSectionHeader("Data Palet"),
-                _buildSelectorSection(
-                  label: "Status Palet",
-                  options: Map.fromEntries(
-                    paletCorepartStatusOptions.map((s) => MapEntry(s, s)),
+                SizedBox(height: 12),
+                Container(
+                  width: MediaQuery.of(context).size.width,
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: BoxBorder.all(color: AppColors.grayLight, width: 1),
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
                   ),
-                  selectedValue: _selectedPaletStatus,
-                  onTap: (val) => setState(() {
-                    _selectedPaletStatus = val;
-                    _updateCanMarkAsSent();
-                  }),
-                  isEnabled: _selectedPaletVendorId != null,
-                ),
-
-                _buildSectionDivider(),
-                _buildSectionHeader("Data Corepart"),
-                _buildSelectorSection(
-                  label: "Status Corepart",
-                  options: Map.fromEntries(
-                    paletCorepartStatusOptions.map((s) => MapEntry(s, s)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionHeader("Palet"),
+                      _buildSelectorSection(
+                        label: "Status Palet",
+                        options: Map.fromEntries(
+                          paletCorepartStatusOptions.map((s) => MapEntry(s, s)),
+                        ),
+                        selectedValue: _selectedPaletStatus,
+                        onTap: (val) => setState(() {
+                          _selectedPaletStatus = val;
+                          _updateCanMarkAsSent();
+                        }),
+                        isEnabled: _selectedPaletVendorId != null,
+                      ),
+                    ],
                   ),
-                  selectedValue: _selectedCorepartStatus,
-                  onTap: (val) => setState(() {
-                    _selectedCorepartStatus = val;
-                    _updateCanMarkAsSent();
-                  }),
-                  isEnabled: _selectedCorepartVendorId != null,
                 ),
-
-                const SizedBox(height: 24),
+                SizedBox(height: 12),
+                Container(
+                  width: MediaQuery.of(context).size.width,
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: BoxBorder.all(color: AppColors.grayLight, width: 1),
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionHeader("Corepart"),
+                      _buildSelectorSection(
+                        label: "Status Corepart",
+                        options: Map.fromEntries(
+                          paletCorepartStatusOptions.map((s) => MapEntry(s, s)),
+                        ),
+                        selectedValue: _selectedCorepartStatus,
+                        onTap: (val) => setState(() {
+                          _selectedCorepartStatus = val;
+                          _updateCanMarkAsSent();
+                        }),
+                        isEnabled: _selectedCorepartVendorId != null,
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 12),
                 _buildActionButtons(),
               ],
             ),
@@ -460,8 +531,8 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
         title,
         style: const TextStyle(
           fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: AppColors.schneiderGreen,
+          fontWeight: FontWeight.w500,
+          color: AppColors.black,
         ),
       ),
     );
