@@ -66,11 +66,11 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   String? _selectedCorepartStatus;
 
   DateTime? _aoBusbarPcc;
-  DateTime? _etaBusbarPcc;
+  // DateTime? _etaBusbarPcc;
   DateTime? _aoBusbarMcc;
-  DateTime? _etaBusbarMcc;
-  DateTime? _aoComponent;
-  DateTime? _etaComponent;
+  // DateTime? _etaBusbarMcc;
+  // DateTime? _aoComponent;
+  // DateTime? _etaComponent;
 
   final List<String> busbarStatusOptions = [
     "On Progress",
@@ -104,11 +104,11 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     _selectedCorepartStatus = _panel.statusCorepart;
 
     _aoBusbarPcc = _panel.aoBusbarPcc;
-    _etaBusbarPcc = _panel.etaBusbarPcc;
+    // _etaBusbarPcc = _panel.etaBusbarPcc;
     _aoBusbarMcc = _panel.aoBusbarMcc;
-    _etaBusbarMcc = _panel.etaBusbarMcc;
-    _aoComponent = _panel.aoComponent;
-    _etaComponent = _panel.etaComponent;
+    // _etaBusbarMcc = _panel.etaBusbarMcc;
+    // _aoComponent = _panel.aoComponent;
+    // _etaComponent = _panel.etaComponent;
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _updateCanMarkAsSent());
     _progressController.addListener(_updateCanMarkAsSent);
@@ -194,11 +194,11 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
         _panel.statusCorepart = _selectedCorepartStatus;
 
         _panel.aoBusbarPcc = _aoBusbarPcc;
-        _panel.etaBusbarPcc = _etaBusbarPcc;
+        // _panel.etaBusbarPcc = _etaBusbarPcc;
         _panel.aoBusbarMcc = _aoBusbarMcc;
-        _panel.etaBusbarMcc = _etaBusbarMcc;
-        _panel.aoComponent = _aoComponent;
-        _panel.etaComponent = _etaComponent;
+        // _panel.etaBusbarMcc = _etaBusbarMcc;
+        // _panel.aoComponent = _aoComponent;
+        // _panel.etaComponent = _etaComponent;
       }
 
       if (_isSent && _panel.closedDate == null) {
@@ -515,13 +515,13 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
           onDateChanged: (date) => setState(() => _aoBusbarPcc = date),
           icon: Icons.assignment_turned_in_outlined,
         ),
-        const SizedBox(height: 16),
-        _buildDatePickerField(
-          label: "Estimation Arrival PCC",
-          selectedDate: _etaBusbarPcc,
-          onDateChanged: (date) => setState(() => _etaBusbarPcc = date),
-          icon: Icons.local_shipping_outlined,
-        ),
+        // const SizedBox(height: 16),
+        // _buildDatePickerField(
+        //   label: "Estimation Arrival PCC",
+        //   selectedDate: _etaBusbarPcc,
+        //   onDateChanged: (date) => setState(() => _etaBusbarPcc = date),
+        //   icon: Icons.local_shipping_outlined,
+        // ),
         const SizedBox(height: 16),
         _buildSelectorSection(
           label: "Status Busbar MCC",
@@ -542,13 +542,13 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
           onDateChanged: (date) => setState(() => _aoBusbarMcc = date),
           icon: Icons.assignment_turned_in_outlined,
         ),
-        const SizedBox(height: 16),
-        _buildDatePickerField(
-          label: "Estimation Arrival MCC",
-          selectedDate: _etaBusbarMcc,
-          onDateChanged: (date) => setState(() => _etaBusbarMcc = date),
-          icon: Icons.local_shipping_outlined,
-        ),
+        // const SizedBox(height: 16),
+        // _buildDatePickerField(
+        //   label: "Estimation Arrival MCC",
+        //   selectedDate: _etaBusbarMcc,
+        //   onDateChanged: (date) => setState(() => _etaBusbarMcc = date),
+        //   icon: Icons.local_shipping_outlined,
+        // ),
       ],
     );
   }
@@ -557,15 +557,15 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 16),
       children: [
-        _buildSelectorSection(
-          label: "Vendor Komponen (WHS)",
-          options: Map.fromEntries(
-            _whsVendors.map((v) => MapEntry(v.id, v.name)),
-          ),
-          selectedValue: _selectedComponentVendorId,
-          onTap: (val) => setState(() => _selectedComponentVendorId = val),
-        ),
-        const SizedBox(height: 16),
+        // _buildSelectorSection(
+        //   label: "Vendor Komponen (WHS)",
+        //   options: Map.fromEntries(
+        //     _whsVendors.map((v) => MapEntry(v.id, v.name)),
+        //   ),
+        //   selectedValue: _selectedComponentVendorId,
+        //   onTap: (val) => setState(() => _selectedComponentVendorId = val),
+        // ),
+        // const SizedBox(height: 16),
         _buildSelectorSection(
           label: "Status Komponen",
           options: Map.fromEntries(
@@ -579,19 +579,19 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
           isEnabled: _selectedComponentVendorId != null,
         ),
         const SizedBox(height: 16),
-        _buildDatePickerField(
-          label: "Acknowledgement Order Component",
-          selectedDate: _aoComponent,
-          onDateChanged: (date) => setState(() => _aoComponent = date),
-          icon: Icons.assignment_turned_in_outlined,
-        ),
-        const SizedBox(height: 16),
-        _buildDatePickerField(
-          label: "Estimation Arrival Component",
-          selectedDate: _etaComponent,
-          onDateChanged: (date) => setState(() => _etaComponent = date),
-          icon: Icons.local_shipping_outlined,
-        ),
+        // _buildDatePickerField(
+        //   label: "Acknowledgement Order Component",
+        //   selectedDate: _aoComponent,
+        //   onDateChanged: (date) => setState(() => _aoComponent = date),
+        //   icon: Icons.assignment_turned_in_outlined,
+        // ),
+        // const SizedBox(height: 16),
+        // _buildDatePickerField(
+        //   label: "Estimation Arrival Component",
+        //   selectedDate: _etaComponent,
+        //   onDateChanged: (date) => setState(() => _etaComponent = date),
+        //   icon: Icons.local_shipping_outlined,
+        // ),
       ],
     );
   }
@@ -600,15 +600,15 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 16),
       children: [
-        _buildSelectorSection(
-          label: "Vendor Palet (K3)",
-          options: Map.fromEntries(
-            widget.k3Vendors.map((v) => MapEntry(v.id, v.name)),
-          ),
-          selectedValue: _selectedPaletVendorId,
-          onTap: (val) => setState(() => _selectedPaletVendorId = val),
-        ),
-        const SizedBox(height: 16),
+        // _buildSelectorSection(
+        //   label: "Vendor Palet (K3)",
+        //   options: Map.fromEntries(
+        //     widget.k3Vendors.map((v) => MapEntry(v.id, v.name)),
+        //   ),
+        //   selectedValue: _selectedPaletVendorId,
+        //   onTap: (val) => setState(() => _selectedPaletVendorId = val),
+        // ),
+        // const SizedBox(height: 16),
         _buildSelectorSection(
           label: "Status Palet",
           options: Map.fromEntries(
@@ -629,15 +629,15 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 16),
       children: [
-        _buildSelectorSection(
-          label: "Vendor Corepart (K3)",
-          options: Map.fromEntries(
-            widget.k3Vendors.map((v) => MapEntry(v.id, v.name)),
-          ),
-          selectedValue: _selectedCorepartVendorId,
-          onTap: (val) => setState(() => _selectedCorepartVendorId = val),
-        ),
-        const SizedBox(height: 16),
+        // _buildSelectorSection(
+        //   label: "Vendor Corepart (K3)",
+        //   options: Map.fromEntries(
+        //     widget.k3Vendors.map((v) => MapEntry(v.id, v.name)),
+        //   ),
+        //   selectedValue: _selectedCorepartVendorId,
+        //   onTap: (val) => setState(() => _selectedCorepartVendorId = val),
+        // ),
+        // const SizedBox(height: 16),
         _buildSelectorSection(
           label: "Status Corepart",
           options: Map.fromEntries(

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:secpanel/helpers/db_helper.dart';
 import 'package:secpanel/models/approles.dart';
+import 'package:secpanel/models/component.dart';
+import 'package:secpanel/models/corepart.dart';
+import 'package:secpanel/models/palet.dart';
 import 'package:secpanel/models/panels.dart';
 import 'package:secpanel/models/company.dart';
 import 'package:secpanel/theme/colors.dart';
@@ -190,12 +193,12 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
     });
   }
 
+  // Ganti seluruh fungsi _savePanel Anda dengan yang ini
+  // Ganti seluruh fungsi _savePanel Anda dengan yang ini
   Future<void> _savePanel() async {
-    // 1. Hentikan jika form tidak valid atau sedang loading
     if (_isLoading || _isSuccess) return;
     if (!_formKey.currentState!.validate()) return;
 
-    // Validasi tambahan untuk admin
     if (_isAdmin && _selectedK3VendorId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -209,10 +212,8 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
     setState(() => _isLoading = true);
     final noPanel = _noPanelController.text.trim();
 
-    // 2. Cek keunikan No. Panel ke database
     final isUnique = await DatabaseHelper.instance.isPanelNumberUnique(noPanel);
 
-    // 3. Jika tidak unik, tampilkan error dan berhenti
     if (!isUnique) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -223,14 +224,13 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
         );
         setState(() => _isLoading = false);
       }
-      return; // Hentikan proses
+      return;
     }
 
-    // 4. Jika unik, lanjutkan proses penyimpanan
     try {
       final newPanel = Panel(
         noPp: _noPpController.text.trim(),
-        noPanel: noPanel, // Gunakan noPanel yang sudah divalidasi
+        noPanel: noPanel,
         noWbs: _noWbsController.text.trim(),
         percentProgress:
             double.tryParse(_progressController.text.trim()) ?? 0.0,
@@ -242,7 +242,33 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
         statusCorepart: "Open",
       );
 
+      // 1. Simpan Panel utama ke database
       await DatabaseHelper.instance.insertPanel(newPanel);
+
+      // 2. Assign Palet dan Corepart ke vendor K3 yang dipilih
+      if (_selectedK3VendorId != null) {
+        final newPalet = Palet(
+          panelNoPp: newPanel.noPp,
+          vendor: _selectedK3VendorId!,
+        );
+        await DatabaseHelper.instance.upsertPalet(newPalet);
+
+        final newCorepart = Corepart(
+          panelNoPp: newPanel.noPp,
+          vendor: _selectedK3VendorId!,
+        );
+        await DatabaseHelper.instance.upsertCorepart(newCorepart);
+      }
+
+      // ---- LOGIKA BARU: AUTO-ASSIGN KE WAREHOUSE ----
+      // 3. Otomatis assign Component ke Warehouse
+      final componentForWarehouse = Component(
+        panelNoPp: newPanel.noPp,
+        vendor: 'warehouse', // ID warehouse sesuai db_helper.dart
+      );
+      await DatabaseHelper.instance.upsertComponent(componentForWarehouse);
+      // ---- LOGIKA BARU SELESAI ----
+
       setState(() {
         _isLoading = false;
         _isSuccess = true;
@@ -258,7 +284,7 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal menyimpan: ${e.toString()}'),
+            content: Text('Gagal menyimpan data turunan: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );

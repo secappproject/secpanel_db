@@ -42,11 +42,11 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
   bool _isLoading = false;
 
   late DateTime? _aoBusbarPcc;
-  late DateTime? _etaBusbarPcc;
+  // late DateTime? _etaBusbarPcc;
   late DateTime? _aoBusbarMcc;
-  late DateTime? _etaBusbarMcc;
-  late DateTime? _aoComponent;
-  late DateTime? _etaComponent;
+  // late DateTime? _etaBusbarMcc;
+  // late DateTime? _aoComponent;
+  // late DateTime? _etaComponent;
 
   bool get _isK5 => widget.currentCompany.role == AppRole.k5;
   bool get _isWHS => widget.currentCompany.role == AppRole.warehouse;
@@ -72,13 +72,13 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
       _selectedPccStatus = panel.statusBusbarPcc ?? "On Progress";
       _selectedMccStatus = panel.statusBusbarMcc ?? "On Progress";
       _aoBusbarPcc = panel.aoBusbarPcc;
-      _etaBusbarPcc = panel.etaBusbarPcc;
+      // _etaBusbarPcc = panel.etaBusbarPcc;
       _aoBusbarMcc = panel.aoBusbarMcc;
-      _etaBusbarMcc = panel.etaBusbarMcc;
+      // _etaBusbarMcc = panel.etaBusbarMcc;
     } else if (_isWHS) {
       _selectedComponentStatus = panel.statusComponent ?? "Open";
-      _aoComponent = panel.aoComponent;
-      _etaComponent = panel.etaComponent;
+      // _aoComponent = panel.aoComponent;
+      // _etaComponent = panel.etaComponent;
     }
   }
 
@@ -99,9 +99,9 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
           panelToUpdate.statusBusbarPcc = _selectedPccStatus;
           panelToUpdate.statusBusbarMcc = _selectedMccStatus;
           panelToUpdate.aoBusbarPcc = _aoBusbarPcc;
-          panelToUpdate.etaBusbarPcc = _etaBusbarPcc;
+          // panelToUpdate.etaBusbarPcc = _etaBusbarPcc;
           panelToUpdate.aoBusbarMcc = _aoBusbarMcc;
-          panelToUpdate.etaBusbarMcc = _etaBusbarMcc;
+          // panelToUpdate.etaBusbarMcc = _etaBusbarMcc;
 
           await DatabaseHelper.instance.updatePanel(panelToUpdate);
           await DatabaseHelper.instance.upsertBusbarRemarkandVendor(
@@ -111,8 +111,8 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
           );
         } else if (_isWHS) {
           panelToUpdate.statusComponent = _selectedComponentStatus;
-          panelToUpdate.aoComponent = _aoComponent;
-          panelToUpdate.etaComponent = _etaComponent;
+          // panelToUpdate.aoComponent = _aoComponent;
+          // panelToUpdate.etaComponent = _etaComponent;
           await DatabaseHelper.instance.updatePanel(panelToUpdate);
         }
       }
@@ -366,11 +366,11 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                     _aoBusbarPcc,
                     (date) => setState(() => _aoBusbarPcc = date),
                   ),
-                  _buildETADatePicker(
-                    "ETA Busbar PCC",
-                    _etaBusbarPcc,
-                    (date) => setState(() => _etaBusbarPcc = date),
-                  ),
+                  // _buildETADatePicker(
+                  //   "ETA Busbar PCC",
+                  //   _etaBusbarPcc,
+                  //   (date) => setState(() => _etaBusbarPcc = date),
+                  // ),
                   const SizedBox(height: 20),
                   _buildStatusOptionsList(
                     title: "Status Busbar MCC",
@@ -384,11 +384,11 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                     _aoBusbarMcc,
                     (date) => setState(() => _aoBusbarMcc = date),
                   ),
-                  _buildETADatePicker(
-                    "ETA Busbar MCC",
-                    _etaBusbarMcc,
-                    (date) => setState(() => _etaBusbarMcc = date),
-                  ),
+                  // _buildETADatePicker(
+                  //   "ETA Busbar MCC",
+                  //   _etaBusbarMcc,
+                  //   (date) => setState(() => _etaBusbarMcc = date),
+                  // ),
                 ] else if (_isWHS) ...[
                   _buildStatusOptionsList(
                     title: "Status Picking Component",
@@ -397,16 +397,16 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                       setState(() => _selectedComponentStatus = newValue);
                     },
                   ),
-                  _buildAODatePicker(
-                    "AO Component",
-                    _aoComponent,
-                    (date) => setState(() => _aoComponent = date),
-                  ),
-                  _buildETADatePicker(
-                    "ETA Component",
-                    _etaComponent,
-                    (date) => setState(() => _etaComponent = date),
-                  ),
+                  // _buildAODatePicker(
+                  //   "AO Component",
+                  //   _aoComponent,
+                  //   (date) => setState(() => _aoComponent = date),
+                  // ),
+                  // _buildETADatePicker(
+                  //   "ETA Component",
+                  //   _etaComponent,
+                  //   (date) => setState(() => _etaComponent = date),
+                  // ),
                 ],
                 const Divider(height: 24, color: AppColors.grayLight),
                 Row(

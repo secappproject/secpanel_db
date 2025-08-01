@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:secpanel/components/alert_box.dart';
 import 'package:secpanel/components/panel/card/remarks_bottom_sheet.dart';
 import 'package:secpanel/models/approles.dart';
@@ -66,12 +67,6 @@ class PanelProgressCard extends StatelessWidget {
       ),
       builder: (_) => RemarksBottomSheet(remarks: remarks),
     );
-  }
-
-  int _extractDays(String durasi) {
-    final hariMatch = RegExp(r'(\d+)\s*hari').firstMatch(durasi.toLowerCase());
-    int hari = hariMatch != null ? int.parse(hariMatch.group(1)!) : 0;
-    return hari;
   }
 
   bool _shouldShowAlert() {
@@ -163,8 +158,6 @@ class PanelProgressCard extends StatelessWidget {
 
     final String pccDisplayStatus = statusBusbarPcc;
     final String mccDisplayStatus = statusBusbarMcc;
-    final String pccImageStatus = _getBusbarStatusImage(statusBusbarPcc);
-    final String mccImageStatus = _getBusbarStatusImage(statusBusbarMcc);
 
     final String componentDisplayStatus = (statusComponent == 'N/A')
         ? 'Open'
@@ -236,9 +229,7 @@ class PanelProgressCard extends StatelessWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Row(children: [
-                          ],
-                        ),
+                        const Row(children: []),
                         const SizedBox(height: 4),
                         Row(
                           children: [
@@ -529,18 +520,11 @@ class PanelProgressCard extends StatelessWidget {
                                         ),
                                       ),
                                       if (currentUserRole == AppRole.viewer)
-                                        Container(
-                                          alignment: Alignment.centerRight,
-                                          width: 60,
-                                          child: Container(
-                                            alignment: Alignment.centerRight,
-                                          ),
-                                        ),
+                                        const SizedBox(width: 60),
                                       if (currentUserRole != AppRole.viewer)
-                                        Container(
-                                          alignment: Alignment.centerRight,
+                                        SizedBox(
                                           width: 60,
-                                          child: Container(
+                                          child: Align(
                                             alignment: Alignment.centerRight,
                                             child: InkWell(
                                               onTap: onEdit,
@@ -715,6 +699,17 @@ class PanelProgressCard extends StatelessWidget {
                 const AlertBox(
                   title: "Perlu Dikejar",
                   description: "Kurang dari 2 hari menuju target delivery!",
+                )
+              else if (targetDelivery != null)
+                AlertBox(
+                  title: "Target Delivery",
+                  description: DateFormat(
+                    'd MMMM yyyy',
+                  ).format(targetDelivery!),
+                  imagePath: 'assets/images/alert-progress.png',
+                  backgroundColor: const Color.fromARGB(30, 120, 175, 231),
+                  borderColor: AppColors.blue,
+                  textColor: AppColors.blue,
                 ),
               Container(
                 padding: const EdgeInsets.all(12),

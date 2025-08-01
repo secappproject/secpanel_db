@@ -575,12 +575,12 @@ class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
                       style: cellStyle,
                     ),
                   ),
-                  DataCell(
-                    Text(
-                      panel.etaBusbarPcc?.toString() ?? 'N/A',
-                      style: cellStyle,
-                    ),
-                  ),
+                  // DataCell(
+                  //   Text(
+                  //     panel.etaBusbarPcc?.toString() ?? 'N/A',
+                  //     style: cellStyle,
+                  //   ),
+                  // ),
                 ],
               ),
             )
