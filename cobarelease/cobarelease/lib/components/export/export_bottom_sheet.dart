@@ -1,12 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:secpanel/helpers/db_helper.dart';
-import 'package:secpanel/models/approles.dart';
-import 'package:secpanel/models/busbar.dart';
-import 'package:secpanel/models/companyaccount.dart';
-import 'package:secpanel/models/component.dart';
-import 'package:secpanel/models/palet.dart';
-import 'package:secpanel/models/corepart.dart';
-import 'package:secpanel/models/panels.dart';
 import 'package:secpanel/models/company.dart';
 import 'package:secpanel/theme/colors.dart';
 
@@ -20,135 +12,11 @@ class PreviewBottomSheet extends StatefulWidget {
 }
 
 class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
-  bool _isLoading = true;
-  late List<Company> _companies;
-  late List<CompanyAccount> _companyAccounts;
-  late List<Panel> _panels;
-  late List<Busbar> _busbars;
-  late List<Component> _components;
-  late List<Palet> _palet;
-  late List<Corepart> _corepart;
-
-  final Map<String, bool> _selectedTables = {
-    'Companies': false,
-    'Company Accounts': false,
-    'Panels': false,
-    'Busbars': false,
-    'Components': false,
-    'Palet': false,
-    'Corepart': false,
-  };
-
-  final List<String> _availableTableNames = [];
+  // --- [PERUBAHAN] State disederhanakan ---
+  bool _exportPanelData = true;
+  bool _exportUserData = true;
   String _selectedFormat = 'Excel';
-
-  @override
-  void initState() {
-    super.initState();
-    _setAvailableTablesBasedOnRole();
-    _loadAllData();
-  }
-
-  void _setAvailableTablesBasedOnRole() {
-    _availableTableNames.clear();
-
-    _availableTableNames.add('Companies');
-    _availableTableNames.add('Company Accounts');
-
-    _selectedTables['Companies'] = true;
-    _selectedTables['Company Accounts'] = true;
-
-    switch (widget.currentUser.role) {
-      case AppRole.admin:
-      case AppRole.viewer:
-        _availableTableNames.add('Panels');
-        _availableTableNames.add('Busbars');
-        _availableTableNames.add('Components');
-        _availableTableNames.add('Palet');
-        _availableTableNames.add('Corepart');
-        _selectedTables['Panels'] = true;
-        _selectedTables['Busbars'] = true;
-        _selectedTables['Components'] = true;
-        _selectedTables['Palet'] = true;
-        _selectedTables['Corepart'] = true;
-        break;
-      case AppRole.k3:
-        _availableTableNames.add('Panels');
-        _availableTableNames.add('Busbars');
-        _availableTableNames.add('Components');
-        _availableTableNames.add('Palet');
-        _availableTableNames.add('Corepart');
-        _selectedTables['Panels'] = true;
-        _selectedTables['Busbars'] = true;
-        _selectedTables['Components'] = true;
-        _selectedTables['Palet'] = true;
-        _selectedTables['Corepart'] = true;
-        break;
-      case AppRole.k5:
-        _availableTableNames.add('Panels');
-        _availableTableNames.add('Busbars');
-        _selectedTables['Panels'] = true;
-        _selectedTables['Busbars'] = true;
-        _selectedTables['Components'] = false;
-        _selectedTables['Palet'] = false;
-        _selectedTables['Corepart'] = false;
-        break;
-      case AppRole.warehouse:
-        _availableTableNames.add('Components');
-        _selectedTables['Panels'] = false;
-        _selectedTables['Busbars'] = false;
-        _selectedTables['Components'] = true;
-        _selectedTables['Palet'] = false;
-        _selectedTables['Corepart'] = false;
-        break;
-      default:
-        break;
-    }
-  }
-
-  Future<void> _loadAllData() async {
-    final db = DatabaseHelper.instance;
-    final filteredData = await db.getFilteredDataForExport(widget.currentUser);
-
-    _companies = filteredData['companies'] as List<Company>;
-    _companyAccounts = filteredData['companyAccounts'] as List<CompanyAccount>;
-    _panels = filteredData['panels'] as List<Panel>;
-    _busbars = filteredData['busbars'] as List<Busbar>;
-    _components = filteredData['components'] as List<Component>;
-    _palet = filteredData['palet'] as List<Palet>;
-    _corepart = filteredData['corepart'] as List<Corepart>;
-
-    if (mounted) {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  void _showPreview() {
-    if (_isLoading) return;
-
-    final List<String> tablesToShowInPreview = _availableTableNames
-        .where((name) => _selectedTables[name] == true)
-        .toList();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => _DataPreviewerSheet(
-        companies: _companies,
-        companyAccounts: _companyAccounts,
-        panels: _panels,
-        busbars: _busbars,
-        components: _components,
-        palet: _palet,
-        corepart: _corepart,
-        tableNames: tablesToShowInPreview,
-      ),
-    );
-  }
+  // --- [AKHIR PERUBAHAN] ---
 
   Widget _buildSectionTitle(String title) {
     return Padding(
@@ -164,14 +32,14 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
     );
   }
 
-  Widget _buildMultiSelectOption(String label) {
-    final bool isSelected = _selectedTables[label] ?? false;
+  // --- [PERUBAHAN] Widget baru untuk opsi on/off ---
+  Widget _buildToggleOption({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedTables[label] = !isSelected;
-        });
-      },
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         margin: const EdgeInsets.only(right: 8, bottom: 12),
@@ -184,13 +52,25 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
           ),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w400, fontSize: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? Icons.check_box : Icons.check_box_outline_blank,
+              color: isSelected ? AppColors.schneiderGreen : AppColors.gray,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w400, fontSize: 12),
+            ),
+          ],
         ),
       ),
     );
   }
+  // --- [AKHIR PERUBAHAN] ---
 
   Widget _buildSingleSelectOption(String format) {
     final bool isSelected = _selectedFormat == format;
@@ -222,9 +102,8 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isAnyTableSelected = _selectedTables.values.any(
-      (isSelected) => isSelected,
-    );
+    // --- [PERUBAHAN] Kondisi untuk menonaktifkan tombol ekspor ---
+    final bool isAnyDataSelected = _exportPanelData || _exportUserData;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -257,37 +136,32 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildSectionTitle("Pilih Tabel untuk Diekspor"),
+                  // --- [PERUBAHAN] Opsi ekspor yang baru ---
+                  _buildSectionTitle("Pilih Data untuk Diekspor"),
                   Wrap(
-                    children: _availableTableNames
-                        .map((name) => _buildMultiSelectOption(name))
-                        .toList(),
+                    children: [
+                      _buildToggleOption(
+                        label: "Data Panel & Relasi",
+                        isSelected: _exportPanelData,
+                        onTap: () {
+                          setState(() => _exportPanelData = !_exportPanelData);
+                        },
+                      ),
+                      _buildToggleOption(
+                        label: "Data User & Relasi",
+                        isSelected: _exportUserData,
+                        onTap: () {
+                          setState(() => _exportUserData = !_exportUserData);
+                        },
+                      ),
+                    ],
                   ),
+                  // --- [AKHIR PERUBAHAN] ---
                   _buildSectionTitle("Pilih Format File"),
                   Wrap(
                     children: ['Excel', 'JSON']
                         .map((format) => _buildSingleSelectOption(format))
                         .toList(),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.visibility_outlined, size: 18),
-                      label: const Text(
-                        "Lihat Pratinjau Data",
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 12,
-                        ),
-                      ),
-                      onPressed: _showPreview,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.schneiderGreen,
-                        side: const BorderSide(color: AppColors.grayLight),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -328,11 +202,13 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: !isAnyTableSelected
+                  // --- [PERUBAHAN] Logika onPressed disesuaikan ---
+                  onPressed: !isAnyDataSelected
                       ? null
                       : () {
                           Navigator.of(context).pop({
-                            'tables': _selectedTables,
+                            'exportPanel': _exportPanelData,
+                            'exportUser': _exportUserData,
                             'format': _selectedFormat,
                           });
                         },
@@ -342,333 +218,6 @@ class _PreviewBottomSheetState extends State<PreviewBottomSheet> {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _DataPreviewerSheet extends StatefulWidget {
-  final List<Company> companies;
-  final List<CompanyAccount> companyAccounts;
-  final List<Panel> panels;
-  final List<Busbar> busbars;
-  final List<Component> components;
-  final List<Palet> palet;
-  final List<Corepart> corepart;
-  final List<String> tableNames;
-
-  const _DataPreviewerSheet({
-    required this.companies,
-    required this.companyAccounts,
-    required this.panels,
-    required this.busbars,
-    required this.components,
-    required this.palet,
-    required this.corepart,
-    required this.tableNames,
-  });
-
-  @override
-  State<_DataPreviewerSheet> createState() => _DataPreviewerSheetState();
-}
-
-class _DataPreviewerSheetState extends State<_DataPreviewerSheet>
-    with TickerProviderStateMixin {
-  late final TabController _tabController;
-
-  final TextStyle headerStyle = const TextStyle(
-    fontFamily: 'Lexend',
-    fontWeight: FontWeight.w600,
-    color: AppColors.black,
-    fontSize: 12,
-  );
-
-  final TextStyle cellStyle = const TextStyle(
-    fontFamily: 'Lexend',
-    fontWeight: FontWeight.w400,
-    color: AppColors.gray,
-    fontSize: 12,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(
-      length: widget.tableNames.length,
-      vsync: this,
-    );
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Map<String, Widget Function()> tableBuilders = {
-      'Companies': _buildCompaniesTable,
-      'Company Accounts': _buildCompanyAccountsTable,
-      'Panels': _buildPanelsTable,
-      'Busbars': _buildBusbarsTable,
-      'Components': _buildComponentsTable,
-      'Palet': _buildPaletTable,
-      'Corepart': _buildCorepartTable,
-    };
-
-    List<Widget> tabViews = widget.tableNames
-        .map((tableName) => tableBuilders[tableName]!())
-        .toList();
-
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.85,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 20, right: 20, top: 16),
-        child: Column(
-          children: [
-            Center(
-              child: Container(
-                height: 5,
-                width: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.grayLight,
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              "Pratinjau Data",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w400),
-            ),
-            const SizedBox(height: 16),
-            TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              labelColor: AppColors.black,
-              unselectedLabelColor: AppColors.gray,
-              indicatorColor: AppColors.schneiderGreen,
-              indicatorWeight: 2.5,
-              tabAlignment: TabAlignment.start,
-              padding: EdgeInsets.zero,
-              tabs: widget.tableNames.map((name) => Tab(text: name)).toList(),
-            ),
-            const Divider(height: 1, color: AppColors.grayLight),
-            Expanded(
-              child: TabBarView(controller: _tabController, children: tabViews),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTableContainer(Widget dataTable) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.only(top: 8.0, bottom: 20.0),
-      scrollDirection: Axis.vertical,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: dataTable,
-      ),
-    );
-  }
-
-  DataTable _buildStyledDataTable({
-    required List<DataColumn> columns,
-    required List<DataRow> rows,
-  }) {
-    return DataTable(
-      headingRowColor: WidgetStateProperty.all(
-        AppColors.schneiderGreen.withOpacity(0.05),
-      ),
-      headingRowHeight: 40,
-      dataRowMinHeight: 42,
-      dataRowMaxHeight: 48,
-      columnSpacing: 32,
-      border: const TableBorder(
-        horizontalInside: BorderSide(color: AppColors.grayLight, width: 1),
-        bottom: BorderSide(color: AppColors.grayLight, width: 1),
-      ),
-      columns: columns,
-      rows: rows,
-    );
-  }
-
-  Widget _buildCompaniesTable() {
-    return _buildTableContainer(
-      _buildStyledDataTable(
-        columns: [
-          DataColumn(label: Text('ID', style: headerStyle)),
-          DataColumn(label: Text('Name', style: headerStyle)),
-          DataColumn(label: Text('Role', style: headerStyle)),
-        ],
-        rows: widget.companies
-            .map(
-              (company) => DataRow(
-                cells: [
-                  DataCell(Text(company.id, style: cellStyle)),
-                  DataCell(Text(company.name, style: cellStyle)),
-                  DataCell(Text(company.role.name, style: cellStyle)),
-                ],
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildCompanyAccountsTable() {
-    return _buildTableContainer(
-      _buildStyledDataTable(
-        columns: [
-          DataColumn(label: Text('Username', style: headerStyle)),
-          DataColumn(label: Text('Password', style: headerStyle)),
-          DataColumn(label: Text('Company ID', style: headerStyle)),
-        ],
-        rows: widget.companyAccounts
-            .map(
-              (account) => DataRow(
-                cells: [
-                  DataCell(Text(account.username, style: cellStyle)),
-                  DataCell(Text('••••••••', style: cellStyle)),
-                  DataCell(Text(account.companyId, style: cellStyle)),
-                ],
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildPanelsTable() {
-    return _buildTableContainer(
-      _buildStyledDataTable(
-        columns: [
-          DataColumn(label: Text('No PP', style: headerStyle)),
-          DataColumn(label: Text('No Panel', style: headerStyle)),
-          DataColumn(label: Text('Vendor ID', style: headerStyle)),
-          DataColumn(label: Text('Status PCC', style: headerStyle)),
-          DataColumn(label: Text('Status MCC', style: headerStyle)),
-          DataColumn(label: Text('AO PCC', style: headerStyle)),
-          DataColumn(label: Text('ETA PCC', style: headerStyle)),
-        ],
-        rows: widget.panels
-            .map(
-              (panel) => DataRow(
-                cells: [
-                  DataCell(Text(panel.noPp, style: cellStyle)),
-                  DataCell(Text(panel.noPanel, style: cellStyle)),
-                  DataCell(Text(panel.vendorId ?? 'N/A', style: cellStyle)),
-                  DataCell(
-                    Text(panel.statusBusbarPcc ?? 'N/A', style: cellStyle),
-                  ),
-                  DataCell(
-                    Text(panel.statusBusbarMcc ?? 'N/A', style: cellStyle),
-                  ),
-                  DataCell(
-                    Text(
-                      panel.aoBusbarPcc?.toString() ?? 'N/A',
-                      style: cellStyle,
-                    ),
-                  ),
-                  // DataCell(
-                  //   Text(
-                  //     panel.etaBusbarPcc?.toString() ?? 'N/A',
-                  //     style: cellStyle,
-                  //   ),
-                  // ),
-                ],
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildBusbarsTable() {
-    return _buildTableContainer(
-      _buildStyledDataTable(
-        columns: [
-          DataColumn(label: Text('Panel No PP', style: headerStyle)),
-          DataColumn(label: Text('Vendor', style: headerStyle)),
-        ],
-        rows: widget.busbars
-            .map(
-              (busbar) => DataRow(
-                cells: [
-                  DataCell(Text(busbar.panelNoPp, style: cellStyle)),
-                  DataCell(Text(busbar.vendor, style: cellStyle)),
-                ],
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildComponentsTable() {
-    return _buildTableContainer(
-      _buildStyledDataTable(
-        columns: [
-          DataColumn(label: Text('Panel No PP', style: headerStyle)),
-          DataColumn(label: Text('Vendor', style: headerStyle)),
-        ],
-        rows: widget.components
-            .map(
-              (component) => DataRow(
-                cells: [
-                  DataCell(Text(component.panelNoPp, style: cellStyle)),
-                  DataCell(Text(component.vendor, style: cellStyle)),
-                ],
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildPaletTable() {
-    return _buildTableContainer(
-      _buildStyledDataTable(
-        columns: [
-          DataColumn(label: Text('Panel No PP', style: headerStyle)),
-          DataColumn(label: Text('Vendor', style: headerStyle)),
-        ],
-        rows: widget.palet
-            .map(
-              (palet) => DataRow(
-                cells: [
-                  DataCell(Text(palet.panelNoPp, style: cellStyle)),
-                  DataCell(Text(palet.vendor, style: cellStyle)),
-                ],
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildCorepartTable() {
-    return _buildTableContainer(
-      _buildStyledDataTable(
-        columns: [
-          DataColumn(label: Text('Panel No PP', style: headerStyle)),
-          DataColumn(label: Text('Vendor', style: headerStyle)),
-        ],
-        rows: widget.corepart
-            .map(
-              (corepart) => DataRow(
-                cells: [
-                  DataCell(Text(corepart.panelNoPp, style: cellStyle)),
-                  DataCell(Text(corepart.vendor, style: cellStyle)),
-                ],
-              ),
-            )
-            .toList(),
       ),
     );
   }

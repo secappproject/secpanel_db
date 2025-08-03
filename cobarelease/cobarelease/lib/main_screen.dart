@@ -1,10 +1,8 @@
-// file: main_screen.dart
-
 import 'package:flutter/material.dart';
+import 'package:secpanel/components/export/export_bottom_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:secpanel/components/panel/add/add_panel_bottom_sheet.dart';
 import 'package:secpanel/components/import/import_bottom_sheet.dart';
-import 'package:secpanel/components/export/export_bottom_sheet.dart';
 import 'package:secpanel/custom_bottom_navbar.dart';
 import 'package:secpanel/helpers/db_helper.dart';
 import 'package:secpanel/home.dart';
@@ -96,15 +94,17 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  // --- [PERUBAHAN] Fungsi ini dirombak total untuk menangani format ekspor baru ---
   Future<void> _processExport(Map<String, dynamic> exportData) async {
-    final tables = exportData['tables'] as Map<String, bool>;
+    final bool exportPanel = exportData['exportPanel'] as bool? ?? false;
+    final bool exportUser = exportData['exportUser'] as bool? ?? false;
     final format = exportData['format'] as String;
 
-    if (!tables.containsValue(true)) {
+    if (!exportPanel && !exportUser) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Tidak ada tabel yang dipilih untuk diekspor.'),
+            content: Text('Tidak ada data yang dipilih untuk diekspor.'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -144,21 +144,28 @@ class _MainScreenState extends State<MainScreen> {
       switch (format) {
         case 'Excel':
           extension = 'xlsx';
-          final excel = await DatabaseHelper.instance
-              .generateFilteredDatabaseExcel(tables, currentUser);
+          final excel = await DatabaseHelper.instance.generateCustomExportExcel(
+            includePanelData: exportPanel,
+            includeUserData: exportUser,
+            currentUser: currentUser,
+          );
           fileBytes = excel.encode();
           break;
         case 'JSON':
           extension = 'json';
           final jsonString = await DatabaseHelper.instance
-              .generateFilteredDatabaseJson(tables, currentUser);
+              .generateCustomExportJson(
+                includePanelData: exportPanel,
+                includeUserData: exportUser,
+                currentUser: currentUser,
+              );
           fileBytes = utf8.encode(jsonString);
           break;
         default:
           throw Exception("Format tidak dikenal");
       }
 
-      final fileName = "AlignmentPanelBusbarKomponen_$timestamp.$extension";
+      final fileName = "ExportDataPanel_$timestamp.$extension";
       String? selectedPath;
 
       if (!kIsWeb &&
@@ -179,9 +186,7 @@ class _MainScreenState extends State<MainScreen> {
           successMessage = "File berhasil disimpan: $fileName";
 
           if (Platform.isIOS || Platform.isMacOS) {
-            await Share.shareXFiles([
-              XFile(path),
-            ], text: 'Exported Database File');
+            await Share.shareXFiles([XFile(path)], text: 'File Ekspor Data');
           }
         } else {
           throw Exception("Gagal membuat data file.");
@@ -214,6 +219,7 @@ class _MainScreenState extends State<MainScreen> {
       }
     }
   }
+  // --- [AKHIR PERUBAHAN] ---
 
   void _refreshHomeScreen() {
     setState(() {
@@ -286,20 +292,16 @@ class _MainScreenState extends State<MainScreen> {
     final bool canAddPanel =
         _currentCompany?.role == AppRole.admin ||
         _currentCompany?.role == AppRole.k3;
-    // --- CHANGE STARTS HERE ---
-    // Import button is visible for Admin AND K3 (Panel Vendor)
     final bool canImportData =
         _currentCompany?.role == AppRole.admin ||
         _currentCompany?.role == AppRole.k3;
-    // --- CHANGE ENDS HERE ---
-    final bool canExportData = true; // All roles can export
+    final bool canExportData = true;
 
     return Scaffold(
       backgroundColor: AppColors.white,
       body: Stack(
         children: [
           IndexedStack(index: _selectedIndex, children: _pages),
-          // Always show the FloatingActionButton for Mass Data (Import/Export)
           Positioned(
             bottom: 20,
             right: 16,
@@ -314,7 +316,6 @@ class _MainScreenState extends State<MainScreen> {
               itemBuilder: (BuildContext context) {
                 List<PopupMenuEntry<String>> items = [];
                 if (canImportData) {
-                  // Only show import option if role allows
                   items.add(
                     PopupMenuItem<String>(
                       value: 'import',
@@ -342,7 +343,6 @@ class _MainScreenState extends State<MainScreen> {
                   );
                 }
                 if (canExportData) {
-                  // Always show export option
                   items.add(
                     PopupMenuItem<String>(
                       value: 'export',
@@ -381,16 +381,11 @@ class _MainScreenState extends State<MainScreen> {
                     break;
                 }
               },
-              // The child of PopupMenuButton (the FAB itself) should always be visible
-              // if any mass data action is possible.
-              // For simplicity, we make it always visible, but the menu items
-              // control the actual actions.
               child: SizedBox(
                 height: 52,
                 child: FloatingActionButton.extended(
                   heroTag: 'dataMenuFab',
-                  onPressed:
-                      null, // No direct action on FAB itself, only via menu
+                  onPressed: null,
                   backgroundColor: AppColors.white,
                   elevation: 0.0,
                   shape: const StadiumBorder(
@@ -416,8 +411,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-      floatingActionButton:
-          canAddPanel // This FAB is for adding panels
+      floatingActionButton: canAddPanel
           ? FloatingActionButton(
               heroTag: 'addPanelFab',
               onPressed: _openAddPanelSheet,

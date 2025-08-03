@@ -136,7 +136,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
 
   String _getBusbarStatusImage(String status) {
     final lower = status.toLowerCase();
-    if (lower == 'n/a' || lower.contains('on progress')) {
+    if (lower == '' || lower.contains('on progress')) {
       return 'assets/images/new-yellow.png';
     } else if (lower.contains('close')) {
       return 'assets/images/done-green.png';
@@ -150,7 +150,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
 
   String _getComponentStatusImage(String status) {
     final lower = status.toLowerCase();
-    if (lower == 'n/a' || lower.contains('open')) {
+    if (lower == '' || lower.contains('open')) {
       return 'assets/images/no-status-gray.png';
     } else if (lower.contains('done')) {
       return 'assets/images/done-green.png';
@@ -290,7 +290,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            widget.panelVendorName ?? "N/A",
+                            widget.panelVendorName ?? "",
                             style: const TextStyle(
                               color: AppColors.black,
                               fontWeight: FontWeight.w400,
@@ -343,7 +343,7 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  panel.noPanel,
+                  panel.noPanel ?? "",
                   style: const TextStyle(
                     color: AppColors.black,
                     fontWeight: FontWeight.w600,
@@ -427,7 +427,24 @@ class _EditStatusBottomSheetState extends State<EditStatusBottomSheet> {
                       "No. WBS",
                       style: TextStyle(fontSize: 12, color: AppColors.gray),
                     ),
-                    Text(panel.noWbs, style: const TextStyle(fontSize: 12)),
+                    Text(
+                      panel.noWbs ?? "",
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "Project",
+                      style: TextStyle(fontSize: 12, color: AppColors.gray),
+                    ),
+                    Text(
+                      panel.project ?? "",
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ],
                 ),
               ],

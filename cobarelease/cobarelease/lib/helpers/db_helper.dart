@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:excel/excel.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -29,15 +30,16 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'app_database_final_5.db');
+    String path = join(documentsDirectory.path, 'app_database_final_12.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 5, // Naikkan versi DB untuk trigger onUpgrade
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
       onCreate: _onCreate,
       onUpgrade: (db, oldVersion, newVersion) async {
+        // Skrip migrasi sederhana: hapus semua dan buat ulang
         var batch = db.batch();
         batch.execute('DROP TABLE IF EXISTS components');
         batch.execute('DROP TABLE IF EXISTS palet');
@@ -58,74 +60,71 @@ class DatabaseHelper {
     batch.execute('''
       CREATE TABLE companies (
         id TEXT PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL
+        name TEXT UNIQUE,
+        role TEXT
       )
     ''');
     batch.execute('''
       CREATE TABLE company_accounts (
         username TEXT PRIMARY KEY,
-        password TEXT NOT NULL,
-        company_id TEXT NOT NULL,
-        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE ON UPDATE CASCADE
+        password TEXT,
+        company_id TEXT
       )
     ''');
 
     batch.execute('''
     CREATE TABLE panels (
-      no_pp TEXT PRIMARY KEY, 
-      no_panel TEXT NOT NULL UNIQUE,
-      no_wbs TEXT NOT NULL,
-      percent_progress REAL, 
-      start_date TEXT, 
+      no_pp TEXT PRIMARY KEY,
+      no_panel TEXT UNIQUE,
+      no_wbs TEXT,
+      project TEXT,
+      percent_progress REAL,
+      start_date TEXT,
       target_delivery TEXT,
       status_busbar_pcc TEXT,
       status_busbar_mcc TEXT,
-      status_component TEXT, 
-      status_palet TEXT,  
+      status_component TEXT,
+      status_palet TEXT,
       status_corepart TEXT,
       ao_busbar_pcc TEXT,
-      eta_busbar_pcc TEXT,
       ao_busbar_mcc TEXT,
-      eta_busbar_mcc TEXT,
-      logs TEXT, 
-      created_by TEXT NOT NULL,
-      vendor_id TEXT, 
-      is_closed INTEGER NOT NULL DEFAULT 0, 
+      created_by TEXT,
+      vendor_id TEXT,
+      is_closed INTEGER DEFAULT 0,
       closed_date TEXT
     )
     ''');
 
     batch.execute('''
     CREATE TABLE busbars (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, 
-      panel_no_pp TEXT NOT NULL,
-      vendor TEXT NOT NULL, 
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      panel_no_pp TEXT,
+      vendor TEXT,
       remarks TEXT,
       UNIQUE(panel_no_pp, vendor)
     )
     ''');
     batch.execute('''
       CREATE TABLE components (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        panel_no_pp TEXT NOT NULL,
-        vendor TEXT NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        panel_no_pp TEXT,
+        vendor TEXT,
         UNIQUE(panel_no_pp, vendor)
       )
     ''');
     batch.execute('''
       CREATE TABLE palet (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        panel_no_pp TEXT NOT NULL,
-        vendor TEXT NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        panel_no_pp TEXT,
+        vendor TEXT,
         UNIQUE(panel_no_pp, vendor)
       )
     ''');
     batch.execute('''
       CREATE TABLE corepart (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        panel_no_pp TEXT NOT NULL,
-        vendor TEXT NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        panel_no_pp TEXT,
+        vendor TEXT,
         UNIQUE(panel_no_pp, vendor)
       )
     ''');
@@ -139,10 +138,11 @@ class DatabaseHelper {
       Company(id: 'admin', name: 'Administrator', role: AppRole.admin),
       Company(id: 'viewer', name: 'Viewer', role: AppRole.viewer),
       Company(id: 'warehouse', name: 'Warehouse', role: AppRole.warehouse),
-      Company(id: 'abacus', name: 'Abacus', role: AppRole.k3),
+      Company(id: 'abacus', name: 'ABACUS', role: AppRole.k3),
       Company(id: 'gaa', name: 'GAA', role: AppRole.k3),
       Company(id: 'gpe', name: 'GPE', role: AppRole.k5),
       Company(id: 'dsm', name: 'DSM', role: AppRole.k5),
+      Company(id: 'presisi', name: 'Presisi', role: AppRole.k5),
     ];
     for (final c in companies) {
       batch.insert('companies', c.toMap());
@@ -181,95 +181,6 @@ class DatabaseHelper {
     for (final a in accounts) {
       batch.insert('company_accounts', a.toMap());
     }
-
-    final now = DateTime.now();
-    // final panels = [
-    //   Panel(
-    //     noPp: 'J-2101.01-A01-01',
-    //     noPanel: 'MDP-01-GedungA',
-    //     noWbs: 'WBS-A-001',
-    //     percentProgress: 100,
-    //     startDate: now.subtract(const Duration(days: 30)),
-    //     targetDelivery: now.subtract(const Duration(days: 15)),
-    //     statusBusbarPcc: 'Close',
-    //     statusBusbarMcc: 'Close',
-    //     statusComponent: 'Done',
-    //     statusPalet: 'Close',
-    //     statusCorepart: 'Close',
-    //     createdBy: 'admin',
-    //     vendorId: 'abacus',
-    //     isClosed: true,
-    //     closedDate: now.subtract(const Duration(days: 10)),
-    //   ),
-    //   Panel(
-    //     noPp: 'J-2205.15-B02-02',
-    //     noPanel: 'SDP-03-Lantai2',
-    //     noWbs: 'WBS-B-002',
-    //     percentProgress: 75,
-    //     startDate: now.subtract(const Duration(days: 5)),
-    //     targetDelivery: now.add(const Duration(days: 1)),
-    //     statusBusbarPcc: 'On Progress',
-    //     statusBusbarMcc: 'On Progress',
-    //     statusComponent: 'On Progress',
-    //     statusPalet: 'Close',
-    //     statusCorepart: 'Close',
-    //     createdBy: 'admin',
-    //     vendorId: 'gaa',
-    //     isClosed: false,
-    //   ),
-    //   Panel(
-    //     noPp: 'J-2310.01-C11-03',
-    //     noPanel: 'LVP-Gudang-Baru',
-    //     noWbs: 'WBS-C-003',
-    //     percentProgress: 10,
-    //     startDate: now.subtract(const Duration(days: 1)),
-    //     targetDelivery: now.add(const Duration(days: 10)),
-    //     createdBy: 'admin',
-    //     vendorId: 'abacus',
-    //     isClosed: false,
-    //   ),
-    //   Panel(
-    //     noPp: 'J-2412.01-D01-04',
-    //     noPanel: 'LVP-Gudang-Belakang',
-    //     noWbs: 'WBS-D-004',
-    //     percentProgress: 0,
-    //     startDate: now.add(const Duration(days: 2)),
-    //     targetDelivery: now.add(const Duration(days: 20)),
-    //     createdBy: 'admin',
-    //     vendorId: null,
-    //     isClosed: false,
-    //   ),
-    // ];
-
-    // for (final p in panels) {
-    //   batch.insert('panels', p.toMap());
-    //   if (p.statusPalet == 'Close' && p.vendorId != null) {
-    //     batch.insert('palet', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
-    //   }
-    //   if (p.statusCorepart == 'Close' && p.vendorId != null) {
-    //     batch.insert('corepart', {'panel_no_pp': p.noPp, 'vendor': p.vendorId});
-    //   }
-    // }
-
-    // batch.insert('busbars', {
-    //   'panel_no_pp': 'J-2101.01-A01-01',
-    //   'vendor': 'gpe',
-    //   'remarks': 'Selesai',
-    // });
-    // batch.insert('components', {
-    //   'panel_no_pp': 'J-2101.01-A01-01',
-    //   'vendor': 'warehouse',
-    // });
-
-    // batch.insert('busbars', {
-    //   'panel_no_pp': 'J-2205.15-B02-02',
-    //   'vendor': 'dsm',
-    //   'remarks': '',
-    // });
-    // batch.insert('components', {
-    //   'panel_no_pp': 'J-2205.15-B02-02',
-    //   'vendor': 'warehouse',
-    // });
   }
 
   Future<List<PanelDisplayData>> getAllPanelsForDisplay(
@@ -349,15 +260,15 @@ class DatabaseHelper {
 
       return PanelDisplayData(
         panel: Panel.fromMap(map),
-        panelVendorName: map['panel_vendor_name'] as String? ?? 'N/A',
-        busbarVendorNames: map['busbar_vendor_names'] as String? ?? 'N/A',
+        panelVendorName: map['panel_vendor_name'] as String? ?? '',
+        busbarVendorNames: map['busbar_vendor_names'] as String? ?? '',
         busbarVendorIds: cleanIds(map['busbar_vendor_ids'] as String?),
         busbarRemarks: map['busbar_remarks'] as String?,
-        componentVendorNames: map['component_vendor_names'] as String? ?? 'N/A',
+        componentVendorNames: map['component_vendor_names'] as String? ?? '',
         componentVendorIds: cleanIds(map['component_vendor_ids'] as String?),
-        paletVendorNames: map['palet_vendor_names'] as String? ?? 'N/A',
+        paletVendorNames: map['palet_vendor_names'] as String? ?? '',
         paletVendorIds: cleanIds(map['palet_vendor_ids'] as String?),
-        corepartVendorNames: map['corepart_vendor_names'] as String? ?? 'N/A',
+        corepartVendorNames: map['corepart_vendor_names'] as String? ?? '',
         corepartVendorIds: cleanIds(map['corepart_vendor_ids'] as String?),
       );
     }).toList();
@@ -590,9 +501,48 @@ class DatabaseHelper {
     return result.map((map) => Company.fromMap(map)).toList();
   }
 
+  Future<bool> isNoPpTaken(String noPp) async {
+    final db = await database;
+    final result = await db.query(
+      'panels',
+      where: 'no_pp = ?',
+      whereArgs: [noPp],
+    );
+    return result.isNotEmpty;
+  }
+
   Future<int> insertPanel(Panel panel) async {
     Database db = await instance.database;
-    return await db.insert('panels', panel.toMap());
+    return await db.insert(
+      'panels',
+      panel.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<int> updatePanel(Panel panel) async {
+    Database db = await instance.database;
+    return await db.update(
+      'panels',
+      panel.toMap(),
+      where: 'no_pp = ?',
+      whereArgs: [panel.noPp],
+    );
+  }
+
+  Future<void> deletePanel(String noPp) async {
+    Database db = await instance.database;
+    await db.transaction((txn) async {
+      await txn.delete('busbars', where: 'panel_no_pp = ?', whereArgs: [noPp]);
+      await txn.delete(
+        'components',
+        where: 'panel_no_pp = ?',
+        whereArgs: [noPp],
+      );
+      await txn.delete('palet', where: 'panel_no_pp = ?', whereArgs: [noPp]);
+      await txn.delete('corepart', where: 'panel_no_pp = ?', whereArgs: [noPp]);
+      await txn.delete('panels', where: 'no_pp = ?', whereArgs: [noPp]);
+    });
   }
 
   Future<List<Panel>> getAllPanels() async {
@@ -608,21 +558,6 @@ class DatabaseHelper {
       whereArgs: [noPp],
     );
     return result.isNotEmpty ? Panel.fromMap(result.first) : null;
-  }
-
-  Future<int> updatePanel(Panel panel) async {
-    Database db = await instance.database;
-    return await db.update(
-      'panels',
-      panel.toMap(),
-      where: 'no_pp = ?',
-      whereArgs: [panel.noPp],
-    );
-  }
-
-  Future<int> deletePanel(String noPp) async {
-    Database db = await instance.database;
-    return await db.delete('panels', where: 'no_pp = ?', whereArgs: [noPp]);
   }
 
   Future<int> upsertBusbar(Busbar busbar) async {
@@ -765,7 +700,6 @@ class DatabaseHelper {
           relevantPanelIds.addAll(
             resPanels.map((map) => map['no_pp'] as String).toList(),
           );
-
           final resPalet = await db.query(
             'palet',
             distinct: true,
@@ -776,7 +710,6 @@ class DatabaseHelper {
           relevantPanelIds.addAll(
             resPalet.map((map) => map['panel_no_pp'] as String).toList(),
           );
-
           final resCorepart = await db.query(
             'corepart',
             distinct: true,
@@ -788,7 +721,6 @@ class DatabaseHelper {
             resCorepart.map((map) => map['panel_no_pp'] as String).toList(),
           );
           break;
-
         case AppRole.k5:
           final resBusbars = await db.query(
             'busbars',
@@ -801,7 +733,6 @@ class DatabaseHelper {
               .map((map) => map['panel_no_pp'] as String)
               .toList();
           break;
-
         case AppRole.warehouse:
           final resComponents = await db.query(
             'components',
@@ -825,19 +756,16 @@ class DatabaseHelper {
           relevantPanelIds.length,
           '?',
         ).join(',');
-
         panels = (await db.query(
           'panels',
           where: 'no_pp IN ($placeholders)',
           whereArgs: relevantPanelIds,
         )).map(Panel.fromMap).toList();
-
         busbars = (await db.query(
           'busbars',
           where: 'panel_no_pp IN ($placeholders)',
           whereArgs: relevantPanelIds,
         )).map(Busbar.fromMap).toList();
-
         components = (await db.query(
           'components',
           where: 'panel_no_pp IN ($placeholders)',
@@ -867,13 +795,178 @@ class DatabaseHelper {
     };
   }
 
+  // --- [PERUBAHAN] Fungsi ini diubah untuk membuat sheet terpisah ---
+  Future<Excel> generateCustomExportExcel({
+    required bool includePanelData,
+    required bool includeUserData,
+    required Company currentUser,
+  }) async {
+    final excel = Excel.createExcel();
+    excel.delete('Sheet1'); // Hapus sheet default
+
+    final data = await getFilteredDataForExport(currentUser);
+    final allCompanies = await getAllCompanies();
+    final companyMap = {for (var c in allCompanies) c.id: c};
+
+    String? formatDate(DateTime? date) {
+      if (date == null) return null;
+      return DateFormat('dd-MMM-yyyy').format(date);
+    }
+
+    // Bagian Data Panel & Relasi -> ke sheet 'Panel'
+    if (includePanelData) {
+      final panelSheet = excel['Panel']; // Buat sheet 'Panel'
+      final panels = data['panels'] as List<Panel>;
+      final busbars = data['busbars'] as List<Busbar>;
+      final panelBusbarVendorMap = <String, Set<String>>{};
+      for (final busbar in busbars) {
+        panelBusbarVendorMap
+            .putIfAbsent(busbar.panelNoPp, () => {})
+            .add(busbar.vendor);
+      }
+
+      final panelHeaders = [
+        'PP Panel',
+        'Panel No',
+        'WBS',
+        'PROJECT',
+        'Plan Start',
+        'Actual Delivery ke SEC',
+        'Panel',
+        'Busbar',
+        'Progres Panel',
+        'Status Corepart',
+        'Status Palet',
+        'Status Busbar PCC',
+        'Status Busbar MCC',
+        'AO Busbar PCC',
+        'AO Busbar MCC',
+      ];
+      panelSheet.appendRow(panelHeaders.map((h) => TextCellValue(h)).toList());
+
+      for (final panel in panels) {
+        final panelVendorName =
+            companyMap[panel.vendorId]?.name ?? panel.vendorId ?? '';
+        final busbarVendorIds = panelBusbarVendorMap[panel.noPp] ?? {};
+        final busbarVendorName = busbarVendorIds
+            .map((id) => companyMap[id]?.name ?? id)
+            .join(', ');
+
+        panelSheet.appendRow(
+          [
+            TextCellValue(panel.noPp),
+            TextCellValue(panel.noPanel ?? ''),
+            TextCellValue(panel.noWbs ?? ''),
+            TextCellValue(panel.project ?? ''),
+            TextCellValue(formatDate(panel.startDate) ?? ''),
+            TextCellValue(formatDate(panel.targetDelivery) ?? ''),
+            TextCellValue(panelVendorName),
+            TextCellValue(busbarVendorName),
+            TextCellValue(panel.percentProgress?.toStringAsFixed(0) ?? '0'),
+            TextCellValue(panel.statusCorepart ?? ''),
+            TextCellValue(panel.statusPalet ?? ''),
+            TextCellValue(panel.statusBusbarPcc ?? ''),
+            TextCellValue(panel.statusBusbarMcc ?? ''),
+            TextCellValue(formatDate(panel.aoBusbarPcc) ?? ''),
+            TextCellValue(formatDate(panel.aoBusbarMcc) ?? ''),
+          ].map((c) => c ?? TextCellValue('')).toList(),
+        );
+      }
+    }
+
+    // Bagian Data User & Relasi -> ke sheet 'User'
+    if (includeUserData) {
+      final userSheet = excel['User']; // Buat sheet 'User'
+      final companyAccounts = data['companyAccounts'] as List<CompanyAccount>;
+      final userHeaders = ['Username', 'Password', 'Company', 'Company Role'];
+      userSheet.appendRow(userHeaders.map((h) => TextCellValue(h)).toList());
+
+      for (final account in companyAccounts) {
+        final company = companyMap[account.companyId];
+        userSheet.appendRow(
+          [
+            TextCellValue(account.username),
+            TextCellValue(account.password),
+            TextCellValue(company?.name ?? account.companyId),
+            TextCellValue(company?.role.name ?? ''),
+          ].map((c) => c ?? TextCellValue('')).toList(),
+        );
+      }
+    }
+
+    return excel;
+  }
+  // --- [AKHIR PERUBAHAN] ---
+
+  Future<String> generateCustomExportJson({
+    required bool includePanelData,
+    required bool includeUserData,
+    required Company currentUser,
+  }) async {
+    final Map<String, dynamic> jsonData = {};
+    final data = await getFilteredDataForExport(currentUser);
+    final allCompanies = await getAllCompanies();
+    final companyMap = {for (var c in allCompanies) c.id: c};
+    final busbars = data['busbars'] as List<Busbar>;
+
+    final panelBusbarVendorMap = <String, Set<String>>{};
+    for (final busbar in busbars) {
+      panelBusbarVendorMap
+          .putIfAbsent(busbar.panelNoPp, () => {})
+          .add(busbar.vendor);
+    }
+
+    if (includePanelData) {
+      final panels = data['panels'] as List<Panel>;
+      jsonData['panel_data'] = panels.map((panel) {
+        final panelVendorName =
+            companyMap[panel.vendorId]?.name ?? panel.vendorId ?? '';
+        final busbarVendorIds = panelBusbarVendorMap[panel.noPp] ?? {};
+        final busbarVendorName = busbarVendorIds
+            .map((id) => companyMap[id]?.name ?? id)
+            .join(', ');
+        return {
+          'PP Panel': panel.noPp,
+          'Panel No': panel.noPanel,
+          'WBS': panel.noWbs,
+          'PROJECT': panel.project,
+          'Plan Start': panel.startDate?.toIso8601String(),
+          'Actual Delivery ke SEC': panel.targetDelivery?.toIso8601String(),
+          'Panel': panelVendorName,
+          'Busbar': busbarVendorName,
+          'Progres Panel': panel.percentProgress,
+          'Status Corepart': panel.statusCorepart,
+          'Status Palet': panel.statusPalet,
+          'Status Busbar PCC': panel.statusBusbarPcc,
+          'Status Busbar MCC': panel.statusBusbarMcc,
+          'AO Busbar PCC': panel.aoBusbarPcc?.toIso8601String(),
+          'AO Busbar MCC': panel.aoBusbarMcc?.toIso8601String(),
+        };
+      }).toList();
+    }
+
+    if (includeUserData) {
+      final companyAccounts = data['companyAccounts'] as List<CompanyAccount>;
+      jsonData['user_data'] = companyAccounts.map((account) {
+        final company = companyMap[account.companyId];
+        return {
+          'Username': account.username,
+          'Password': account.password,
+          'Company': company?.name ?? account.companyId,
+          'Company Role': company?.role.name,
+        };
+      }).toList();
+    }
+
+    return JsonEncoder.withIndent('  ').convert(jsonData);
+  }
+
   Future<Excel> generateFilteredDatabaseExcel(
     Map<String, bool> tablesToInclude,
     Company currentUser,
   ) async {
     final excel = Excel.createExcel();
     excel.delete('Sheet1');
-
     final data = await getFilteredDataForExport(currentUser);
 
     CellValue? _toCellValue(dynamic value) {
@@ -923,6 +1016,7 @@ class DatabaseHelper {
         TextCellValue('no_pp'),
         TextCellValue('no_panel'),
         TextCellValue('no_wbs'),
+        TextCellValue('project'),
         TextCellValue('percent_progress'),
         TextCellValue('start_date'),
         TextCellValue('target_delivery'),
@@ -943,6 +1037,7 @@ class DatabaseHelper {
           _toCellValue(p.noPp),
           _toCellValue(p.noPanel),
           _toCellValue(p.noWbs),
+          _toCellValue(p.project),
           _toCellValue(p.percentProgress),
           _toCellValue(p.startDate?.toIso8601String()),
           _toCellValue(p.targetDelivery?.toIso8601String()),
@@ -1141,6 +1236,24 @@ class DatabaseHelper {
     });
   }
 
+  String? _parseDate(String? dateStr) {
+    if (dateStr == null || dateStr.trim().isEmpty) {
+      return null;
+    }
+    try {
+      return DateTime.parse(dateStr).toIso8601String();
+    } catch (_) {
+      try {
+        final dateFormat = DateFormat('dd-MMM-yy', 'en_US');
+        final date = dateFormat.parseStrict(dateStr);
+        return date.toIso8601String();
+      } catch (e) {
+        print('Gagal mem-parsing tanggal "$dateStr": $e');
+        return null;
+      }
+    }
+  }
+
   Future<TemplateFile> generateImportTemplate({
     required String dataType,
     required String format,
@@ -1181,6 +1294,7 @@ class DatabaseHelper {
           'no_pp': 'PP-CONTOH-01',
           'no_panel': 'PANEL-CONTOH-A',
           'no_wbs': 'WBS-CONTOH-01',
+          'project': 'WBS-CONTOH-01',
           'percent_progress': 80.5,
           'start_date': now,
           'target_delivery': now,
@@ -1260,6 +1374,7 @@ class DatabaseHelper {
         TextCellValue('no_pp'),
         TextCellValue('no_panel'),
         TextCellValue('no_wbs'),
+        TextCellValue('project'),
         TextCellValue('percent_progress'),
         TextCellValue('start_date'),
         TextCellValue('target_delivery'),
@@ -1337,5 +1452,240 @@ class DatabaseHelper {
       limit: 1,
     );
     return result.isNotEmpty;
+  }
+
+  String? _getValueCaseInsensitive(Map<String, dynamic> row, String key) {
+    String normalize(String s) =>
+        s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final normalizedKey = normalize(key);
+    for (final entry in row.entries) {
+      if (normalize(entry.key) == normalizedKey) {
+        final value = entry.value;
+        return value?.toString().trim();
+      }
+    }
+    return null;
+  }
+
+  Future<String> importFromCustomTemplate({
+    required Map<String, List<Map<String, dynamic>>> data,
+    required Function(double progress, String message) onProgress,
+    required String? loggedInUsername,
+  }) async {
+    final db = await database;
+    final allSheetNames = data.keys.map((k) => k.toLowerCase()).toList();
+    final hasUserSheet = allSheetNames.contains('user');
+    final hasPanelSheet = allSheetNames.contains('panel');
+
+    bool dataProcessed = false;
+
+    if (!hasUserSheet && !hasPanelSheet) {
+      return "Impor gagal: Nama sheet di file Excel salah. Pastikan nama sheet adalah 'Panel' datau 'User'.";
+    }
+
+    int totalOperations = data.values.fold(0, (sum, list) => sum + list.length);
+    if (totalOperations == 0) {
+      return "File Excel tidak berisi data untuk diimpor.";
+    }
+    int completedOperations = 0;
+
+    void updateProgress(String message) {
+      completedOperations++;
+      onProgress(completedOperations / totalOperations, message);
+    }
+
+    List<String> errors = [];
+
+    Future<String?> findVendorId(Transaction txn, String? vendorName) async {
+      if (vendorName == null || vendorName.trim().isEmpty) return null;
+      final company = await txn.query(
+        'companies',
+        where: 'LOWER(name) = ?',
+        whereArgs: [vendorName.toLowerCase().trim()],
+        limit: 1,
+      );
+      return company.isNotEmpty ? company.first['id'] as String? : null;
+    }
+
+    try {
+      await db.transaction((txn) async {
+        String? warehouseCompanyId = await findVendorId(txn, 'Warehouse');
+        if (warehouseCompanyId == null) {
+          errors.add(
+            "Kritis: Perusahaan 'Warehouse' tidak ada di DB. Component tidak bisa di-assign.",
+          );
+        }
+
+        if (hasUserSheet) {
+          final userSheetData = data.entries
+              .firstWhere((e) => e.key.toLowerCase() == 'user')
+              .value;
+          for (int i = 0; i < userSheetData.length; i++) {
+            final row = userSheetData[i];
+            final rowNum = i + 2;
+            updateProgress("Memvalidasi User baris ke-$rowNum...");
+
+            bool isRowValid = true;
+            final username = _getValueCaseInsensitive(row, 'Username');
+            final companyName = _getValueCaseInsensitive(row, 'Company');
+            final companyRole = _getValueCaseInsensitive(
+              row,
+              'Company Role',
+            )?.toLowerCase();
+
+            if (username == null || username.isEmpty) {
+              errors.add("User baris $rowNum: Kolom 'Username' kosong.");
+              isRowValid = false;
+            }
+            if (companyName == null || companyName.isEmpty) {
+              errors.add("User baris $rowNum: Kolom 'Company' kosong.");
+              isRowValid = false;
+            }
+            if (companyRole == null || companyRole.isEmpty) {
+              errors.add("User baris $rowNum: Kolom 'Company Role' kosong.");
+              isRowValid = false;
+            }
+            if (!isRowValid) continue;
+
+            String? companyId = await findVendorId(txn, companyName);
+            if (companyId == null) {
+              companyId = companyName!.toLowerCase().replaceAll(
+                RegExp(r'\s+'),
+                '_',
+              );
+              await txn.insert('companies', {
+                'id': companyId,
+                'name': companyName,
+                'role': companyRole,
+              }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            }
+            await txn.insert('company_accounts', {
+              'username': username!,
+              'password': _getValueCaseInsensitive(row, 'Password') ?? '123',
+              'company_id': companyId,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+            dataProcessed = true;
+          }
+        }
+
+        if (hasPanelSheet) {
+          final panelSheetData = data.entries
+              .firstWhere((e) => e.key.toLowerCase() == 'panel')
+              .value;
+          for (int i = 0; i < panelSheetData.length; i++) {
+            final row = panelSheetData[i];
+            final rowNum = i + 2;
+            updateProgress("Memvalidasi Panel baris ke-$rowNum...");
+
+            bool isRowValid = true;
+            String? panelK3VendorId, busbarVendorId;
+
+            final noPp = _getValueCaseInsensitive(row, 'PP Panel');
+            final noPanel = _getValueCaseInsensitive(row, 'Panel No');
+            final noWbs = _getValueCaseInsensitive(row, 'WBS');
+            final project = _getValueCaseInsensitive(row, 'PROJECT');
+
+            final panelVendorName = _getValueCaseInsensitive(row, 'Panel');
+            final busbarVendorName = _getValueCaseInsensitive(row, 'Busbar');
+
+            if ((noPp == null || noPp.isEmpty) &&
+                (noPanel == null || noPanel.isEmpty) &&
+                (noWbs == null || noWbs.isEmpty) &&
+                (project == null || project.isEmpty)) {
+              errors.add(
+                "Panel baris $rowNum: Salah satu dari kolom 'PP Panel', 'Panel No', 'WBS', atau 'PROJECT' wajib diisi.",
+              );
+              isRowValid = false;
+            }
+
+            if (panelVendorName == null || panelVendorName.isEmpty) {
+              errors.add(
+                "Panel baris $rowNum: Kolom 'Panel' (untuk vendor K3) wajib diisi.",
+              );
+              isRowValid = false;
+            } else {
+              panelK3VendorId = await findVendorId(txn, panelVendorName);
+              if (panelK3VendorId == null) {
+                errors.add(
+                  "Panel baris $rowNum: Vendor '$panelVendorName' tidak ditemukan.",
+                );
+                isRowValid = false;
+              }
+            }
+            if (busbarVendorName != null && busbarVendorName.isNotEmpty) {
+              busbarVendorId = await findVendorId(txn, busbarVendorName);
+              if (busbarVendorId == null) {
+                errors.add(
+                  "Panel baris $rowNum: Vendor '$busbarVendorName' tidak ditemukan.",
+                );
+                isRowValid = false;
+              }
+            }
+
+            if (!isRowValid) continue;
+
+            await txn.insert('panels', {
+              'no_pp': noPp,
+              'no_panel': noPanel,
+              'no_wbs': noWbs,
+              'project': project,
+              'start_date': _parseDate(
+                _getValueCaseInsensitive(row, 'Plan Start'),
+              ),
+              'target_delivery': _parseDate(
+                _getValueCaseInsensitive(row, 'Actual Delivery ke SEC'),
+              ),
+              'vendor_id': panelK3VendorId,
+              'created_by': loggedInUsername ?? 'import',
+              'percent_progress': 0.0,
+              'is_closed': 0,
+              'status_busbar_pcc': 'On Progress',
+              'status_busbar_mcc': 'On Progress',
+              'status_component': 'Open',
+              'status_palet': 'Open',
+              'status_corepart': 'Open',
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+            if (panelK3VendorId != null) {
+              await txn.insert('palet', {
+                'panel_no_pp': noPp,
+                'vendor': panelK3VendorId,
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+              await txn.insert('corepart', {
+                'panel_no_pp': noPp,
+                'vendor': panelK3VendorId,
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
+            if (warehouseCompanyId != null) {
+              await txn.insert('components', {
+                'panel_no_pp': noPp,
+                'vendor': warehouseCompanyId,
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
+            if (busbarVendorId != null) {
+              await txn.insert('busbars', {
+                'panel_no_pp': noPp,
+                'vendor': busbarVendorId,
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
+            dataProcessed = true;
+          }
+        }
+
+        if (errors.isNotEmpty) {
+          throw Exception(
+            "Impor dibatalkan karena error validasi berikut:\n- ${errors.join('\n- ')}",
+          );
+        }
+      });
+
+      if (!dataProcessed && errors.isEmpty) {
+        return "Impor gagal: Tidak ada data valid yang ditemukan di dalam sheet 'Panel' atau 'User'. Pastikan sheet tidak kosong dan nama sheet sudah benar.";
+      }
+
+      return "Impor berhasil diselesaikan! 🎉";
+    } catch (e) {
+      return "Terjadi kesalahan. ${e.toString().replaceFirst("Exception: ", "")}";
+    }
   }
 }

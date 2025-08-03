@@ -36,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<Company> _allWHSVendors = [];
   bool _isLoading = true;
 
+  // --- State untuk filter ---
   String searchQuery = "";
   bool includeArchived = false;
   SortOption? selectedSort;
@@ -50,6 +51,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<String> selectedComponents = [];
   List<String> selectedPalet = [];
   List<String> selectedCorepart = [];
+  // --- [BARU] State untuk rentang tanggal ---
+  DateTimeRange? startDateRange;
+  DateTimeRange? deliveryDateRange;
 
   @override
   void initState() {
@@ -91,7 +95,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   String _formatDuration(DateTime? startDate) {
-    if (startDate == null) return "N/A";
+    if (startDate == null) return "";
     final now = DateTime.now();
 
     if (startDate.isAfter(now)) {
@@ -134,64 +138,77 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return _allPanelsData.where((data) {
       final panel = data.panel;
 
+      // ... (Filter lain tetap sama)
       final query = searchQuery.toLowerCase();
       final matchSearch =
-          panel.noPanel.toLowerCase().contains(query) ||
+          (panel.noPanel ?? '').toLowerCase().contains(query) ||
           panel.noPp.toLowerCase().contains(query) ||
-          panel.noWbs.toLowerCase().contains(query) ||
+          (panel.noWbs ?? '').toLowerCase().contains(query) ||
+          (panel.project ?? '').toLowerCase().contains(query) ||
           data.panelVendorName.toLowerCase().contains(query) ||
           data.busbarVendorNames.toLowerCase().contains(query) ||
           data.componentVendorNames.toLowerCase().contains(query) ||
           data.paletVendorNames.toLowerCase().contains(query) ||
           data.corepartVendorNames.toLowerCase().contains(query);
 
+      // --- [BARU] Logika filter rentang tanggal ---
+      final matchStartDate =
+          startDateRange == null ||
+          (panel.startDate != null &&
+              !panel.startDate!.isBefore(startDateRange!.start) &&
+              !panel.startDate!.isAfter(
+                startDateRange!.end.add(const Duration(days: 1)),
+              ));
+
+      final matchDeliveryDate =
+          deliveryDateRange == null ||
+          (panel.targetDelivery != null &&
+              !panel.targetDelivery!.isBefore(deliveryDateRange!.start) &&
+              !panel.targetDelivery!.isAfter(
+                deliveryDateRange!.end.add(const Duration(days: 1)),
+              ));
+      // --- [AKHIR LOGIKA BARU] ---
+
       final matchPanelVendor =
           selectedPanelVendors.isEmpty ||
           selectedPanelVendors.contains(panel.vendorId);
-
       final matchBusbarVendor =
           selectedBusbarVendors.isEmpty ||
           selectedBusbarVendors.any((id) => data.busbarVendorIds.contains(id));
-
       final matchComponentVendor =
           selectedComponentVendors.isEmpty ||
           selectedComponentVendors.any(
             (id) => data.componentVendorIds.contains(id),
           );
-
       final matchPaletVendor =
           selectedPaletVendors.isEmpty ||
           selectedPaletVendors.any((id) => data.paletVendorIds.contains(id));
-
       final matchCorepartVendor =
           selectedCorepartVendors.isEmpty ||
           selectedCorepartVendors.any(
             (id) => data.corepartVendorIds.contains(id),
           );
-
       final matchPccStatus =
           selectedPccStatuses.isEmpty ||
           (panel.statusBusbarPcc != null &&
               selectedPccStatuses.contains(panel.statusBusbarPcc));
-
       final matchMccStatus =
           selectedMccStatuses.isEmpty ||
           (panel.statusBusbarMcc != null &&
               selectedMccStatuses.contains(panel.statusBusbarMcc));
-
       final matchComponent =
           selectedComponents.isEmpty ||
           selectedComponents.contains(panel.statusComponent);
-
       final matchPalet =
           selectedPalet.isEmpty || selectedPalet.contains(panel.statusPalet);
-
       final matchCorepart =
           selectedCorepart.isEmpty ||
           selectedCorepart.contains(panel.statusCorepart);
 
       final baseFiltersMatch =
           matchSearch &&
+          matchStartDate && // Tambahkan pengecekan
+          matchDeliveryDate && // Tambahkan pengecekan
           matchPanelVendor &&
           matchBusbarVendor &&
           matchComponentVendor &&
@@ -219,6 +236,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   List<PanelDisplayData> get filteredPanelsForDisplay {
     var tabFilteredPanels = _panelsAfterPrimaryFilters;
+    // ... (sisa logika sorting dan tab tidak berubah)
     final role = widget.currentCompany.role;
 
     switch (_tabController.index) {
@@ -323,12 +341,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         break;
       case SortOption.panelNoAZ:
         tabFilteredPanels.sort(
-          (a, b) => a.panel.noPanel.compareTo(b.panel.noPanel),
+          (a, b) => (a.panel.noPanel ?? "").compareTo(b.panel.noPanel ?? ""),
         );
         break;
       case SortOption.panelNoZA:
         tabFilteredPanels.sort(
-          (a, b) => b.panel.noPanel.compareTo(a.panel.noPanel),
+          (a, b) => (b.panel.noPanel ?? "").compareTo(a.panel.noPanel ?? ""),
         );
         break;
       default:
@@ -367,6 +385,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         selectedComponentVendors: selectedComponentVendors,
         selectedPaletVendors: selectedPaletVendors,
         selectedCorepartVendors: selectedCorepartVendors,
+        // --- [BARU] Kirim state & callback tanggal ke bottom sheet ---
+        startDateRange: startDateRange,
+        deliveryDateRange: deliveryDateRange,
+        onStartDateRangeChanged: (value) =>
+            setState(() => startDateRange = value),
+        onDeliveryDateRangeChanged: (value) =>
+            setState(() => deliveryDateRange = value),
         onPccStatusesChanged: (value) =>
             setState(() => selectedPccStatuses = value),
         onMccStatusesChanged: (value) =>
@@ -376,7 +401,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         onPaletChanged: (value) => setState(() => selectedPalet = value),
         onCorepartChanged: (value) => setState(() => selectedCorepart = value),
         onIncludeArchivedChanged: (value) =>
-            setState(() => includeArchived = value ?? false),
+            setState(() => includeArchived = value),
         onSortChanged: (value) => setState(() => selectedSort = value),
         onPanelStatusesChanged: (value) =>
             setState(() => selectedPanelStatuses = value),
@@ -407,6 +432,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             selectedComponents = [];
             selectedPalet = [];
             selectedCorepart = [];
+            // --- [BARU] Reset filter tanggal ---
+            startDateRange = null;
+            deliveryDateRange = null;
           });
           Navigator.pop(context);
         },
@@ -414,6 +442,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ... (Sisa kode di home_screen.dart tetap sama)
   void _openEditPanelBottomSheet(PanelDisplayData dataToEdit) {
     showModalBottomSheet(
       context: context,
@@ -557,7 +586,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "Alignment Panel, Busbar, dan Komponen",
+                "Alignment Panel Busbar & Komponen",
                 style: TextStyle(
                   color: AppColors.black,
                   fontSize: 24,
@@ -654,14 +683,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       progress: (panel.percentProgress ?? 0) / 100.0,
                       startDate: panel.startDate,
                       progressLabel: "${panel.percentProgress?.toInt() ?? 0}%",
-                      panelTitle: panel.noPanel,
-                      statusBusbarPcc: panel.statusBusbarPcc ?? "N/A",
-                      statusBusbarMcc: panel.statusBusbarMcc ?? "N/A",
-                      statusComponent: panel.statusComponent ?? "N/A",
-                      statusPalet: panel.statusPalet ?? "N/A",
-                      statusCorepart: panel.statusCorepart ?? "N/A",
+                      panelTitle: panel.noPanel ?? "",
+                      statusBusbarPcc: panel.statusBusbarPcc ?? "",
+                      statusBusbarMcc: panel.statusBusbarMcc ?? "",
+                      statusComponent: panel.statusComponent ?? "",
+                      statusPalet: panel.statusPalet ?? "",
+                      statusCorepart: panel.statusCorepart ?? "",
                       ppNumber: panel.noPp,
-                      wbsNumber: panel.noWbs,
+                      wbsNumber: panel.noWbs ?? "",
+                      project: panel.project ?? "",
                       onEdit: () {
                         final role = widget.currentCompany.role;
                         if (role == AppRole.admin || role == AppRole.k3) {

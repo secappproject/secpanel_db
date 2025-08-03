@@ -490,7 +490,7 @@ class _UserCard extends StatelessWidget {
   const _UserCard({required this.userData, this.onEdit});
 
   String _formatRole(String roleName) {
-    if (roleName.isEmpty) return 'N/A';
+    if (roleName.isEmpty) return '';
     final formatted = roleName[0].toUpperCase() + roleName.substring(1);
     return formatted;
   }

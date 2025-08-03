@@ -20,6 +20,7 @@ class PanelProgressCard extends StatelessWidget {
   final String statusCorepart;
   final String ppNumber;
   final String wbsNumber;
+  final String project;
   final VoidCallback onEdit;
   final String panelVendorName;
   final String busbarVendorName;
@@ -46,6 +47,7 @@ class PanelProgressCard extends StatelessWidget {
     required this.statusCorepart,
     required this.ppNumber,
     required this.wbsNumber,
+    required this.project,
     required this.onEdit,
     required this.panelVendorName,
     required this.busbarVendorName,
@@ -95,7 +97,7 @@ class PanelProgressCard extends StatelessWidget {
 
   String _getBusbarStatusImage(String status) {
     final lower = status.toLowerCase();
-    if (lower == 'n/a' || lower.contains('on progress')) {
+    if (lower == '' || lower.contains('on progress')) {
       return 'assets/images/new-yellow.png';
     } else if (lower.contains('close')) {
       return 'assets/images/done-green.png';
@@ -109,7 +111,7 @@ class PanelProgressCard extends StatelessWidget {
 
   String _getComponentStatusImage(String status) {
     final lower = status.toLowerCase();
-    if (lower == 'n/a' || lower.contains('open')) {
+    if (lower == '' || lower.contains('open')) {
       return 'assets/images/no-status-gray.png';
     } else if (lower.contains('done')) {
       return 'assets/images/done-green.png';
@@ -121,7 +123,7 @@ class PanelProgressCard extends StatelessWidget {
 
   String _getPaletStatusImage(String status) {
     final lower = status.toLowerCase();
-    if (lower == 'n/a' || lower.contains('open')) {
+    if (lower == '' || lower.contains('open')) {
       return 'assets/images/no-status-gray.png';
     } else if (lower.contains('close')) {
       return 'assets/images/done-green.png';
@@ -131,7 +133,7 @@ class PanelProgressCard extends StatelessWidget {
 
   String _getCorepartStatusImage(String status) {
     final lower = status.toLowerCase();
-    if (lower == 'n/a' || lower.contains('open')) {
+    if (lower == '' || lower.contains('open')) {
       return 'assets/images/no-status-gray.png';
     } else if (lower.contains('close')) {
       return 'assets/images/done-green.png';
@@ -159,13 +161,13 @@ class PanelProgressCard extends StatelessWidget {
     final String pccDisplayStatus = statusBusbarPcc;
     final String mccDisplayStatus = statusBusbarMcc;
 
-    final String componentDisplayStatus = (statusComponent == 'N/A')
+    final String componentDisplayStatus = (statusComponent == '')
         ? 'Open'
         : statusComponent;
-    final String paletDisplayStatus = (statusPalet == 'N/A')
+    final String paletDisplayStatus = (statusPalet == '')
         ? 'Open'
         : statusPalet;
-    final String corepartDisplayStatus = (statusCorepart == 'N/A')
+    final String corepartDisplayStatus = (statusCorepart == '')
         ? 'Open'
         : statusCorepart;
     final bool isFuture =
@@ -323,7 +325,7 @@ class PanelProgressCard extends StatelessWidget {
                                             ),
                                           ),
                                           child: Text(
-                                            panelVendorName == 'N/A'
+                                            panelVendorName == ''
                                                 ? 'No Vendor'
                                                 : panelVendorName,
                                             style: const TextStyle(
@@ -358,7 +360,7 @@ class PanelProgressCard extends StatelessWidget {
                                             ),
                                           ),
                                           child: Text(
-                                            busbarVendorName == 'N/A'
+                                            busbarVendorName == ''
                                                 ? 'No Vendor'
                                                 : busbarVendorName,
                                             style: const TextStyle(
@@ -446,7 +448,7 @@ class PanelProgressCard extends StatelessWidget {
                                                 Row(
                                                   children: [
                                                     Text(
-                                                      pccDisplayStatus == 'N/A'
+                                                      pccDisplayStatus == ''
                                                           ? 'On Progress'
                                                           : pccDisplayStatus,
                                                       style: const TextStyle(
@@ -495,7 +497,7 @@ class PanelProgressCard extends StatelessWidget {
                                                 Row(
                                                   children: [
                                                     Text(
-                                                      mccDisplayStatus == 'N/A'
+                                                      mccDisplayStatus == ''
                                                           ? 'On Progress'
                                                           : mccDisplayStatus,
                                                       style: const TextStyle(
@@ -751,6 +753,28 @@ class PanelProgressCard extends StatelessWidget {
                         ),
                         Text(
                           wbsNumber,
+                          style: const TextStyle(
+                            color: AppColors.gray,
+                            fontWeight: FontWeight.w400,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Project",
+                          style: TextStyle(
+                            color: AppColors.gray,
+                            fontWeight: FontWeight.w300,
+                            fontSize: 10,
+                          ),
+                        ),
+                        Text(
+                          project,
                           style: const TextStyle(
                             color: AppColors.gray,
                             fontWeight: FontWeight.w400,

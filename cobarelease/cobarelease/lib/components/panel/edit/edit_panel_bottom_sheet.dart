@@ -36,6 +36,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
 
   late final TextEditingController _noPanelController;
   late final TextEditingController _noWbsController;
+  late final TextEditingController _projectController;
   late final TextEditingController _noPpController;
   late final TextEditingController _progressController;
 
@@ -84,6 +85,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
 
     _noPanelController = TextEditingController(text: _panel.noPanel);
     _noWbsController = TextEditingController(text: _panel.noWbs);
+    _projectController = TextEditingController(text: _panel.project);
     _noPpController = TextEditingController(text: _panel.noPp);
     _progressController = TextEditingController(
       text: _panel.percentProgress?.toInt().toString() ?? '0',
@@ -137,6 +139,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   void dispose() {
     _noPanelController.dispose();
     _noWbsController.dispose();
+    _projectController.dispose();
     _noPpController.dispose();
     _progressController.removeListener(_updateCanMarkAsSent);
     _progressController.dispose();
@@ -161,12 +164,35 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
 
   Future<void> _saveChanges() async {
     if (_isLoading || _isSuccess) return;
+
+    // --- [PERUBAHAN] Validasi custom sebelum validasi form ---
+    final noPanel = _noPanelController.text.trim();
+    final noWbs = _noWbsController.text.trim();
+    final project = _projectController.text.trim();
+    final noPp = _noPpController.text.trim();
+
+    if (noPanel.isEmpty && noWbs.isEmpty && project.isEmpty && noPp.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Harap isi salah satu dari No. Panel, No. WBS, Project, atau No. PP.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+    // --- [AKHIR PERUBAHAN] ---
+
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
-      _panel.noPanel = _noPanelController.text.trim();
-      _panel.noWbs = _noWbsController.text.trim();
-      _panel.noPp = _noPpController.text.trim();
+      _panel.noPanel = noPanel;
+      _panel.noWbs = noWbs;
+      _panel.project = project;
+      _panel.noPp = noPp;
       _panel.percentProgress =
           double.tryParse(_progressController.text.trim()) ?? 0.0;
       _panel.startDate = _selectedDate;
@@ -193,30 +219,34 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
       try {
         await DatabaseHelper.instance.updatePanel(_panel);
         if (_isAdmin) {
-          if (_selectedBusbarVendorId != null)
+          if (_selectedBusbarVendorId != null) {
             await DatabaseHelper.instance.upsertBusbar(
               Busbar(panelNoPp: _panel.noPp, vendor: _selectedBusbarVendorId!),
             );
-          if (_selectedComponentVendorId != null)
+          }
+          if (_selectedComponentVendorId != null) {
             await DatabaseHelper.instance.upsertComponent(
               Component(
                 panelNoPp: _panel.noPp,
                 vendor: _selectedComponentVendorId!,
               ),
             );
+          }
         }
         if (_isAdmin || _isK3) {
-          if (_selectedPaletVendorId != null)
+          if (_selectedPaletVendorId != null) {
             await DatabaseHelper.instance.upsertPalet(
               Palet(panelNoPp: _panel.noPp, vendor: _selectedPaletVendorId!),
             );
-          if (_selectedCorepartVendorId != null)
+          }
+          if (_selectedCorepartVendorId != null) {
             await DatabaseHelper.instance.upsertCorepart(
               Corepart(
                 panelNoPp: _panel.noPp,
                 vendor: _selectedCorepartVendorId!,
               ),
             );
+          }
         }
 
         setState(() {
@@ -244,7 +274,100 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   }
 
   void _showDeleteConfirmation() {
-    // Kode ini tidak berubah
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      // --- [PERUBAHAN] Latar belakang eksplisit warna putih ---
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext innerContext) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                height: 5,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.grayLight,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Icon(
+                Icons.warning_amber_rounded,
+                color: AppColors.red,
+                size: 50,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Hapus Panel?',
+                // --- [PERUBAHAN] Ketebalan font dari bold menjadi w500 ---
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Anda yakin ingin menghapus panel "${_panel.noPanel}"? Tindakan ini tidak dapat dibatalkan.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, color: AppColors.gray),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(innerContext),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        side: const BorderSide(color: AppColors.schneiderGreen),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      child: const Text(
+                        "Batal",
+                        style: TextStyle(
+                          color: AppColors.schneiderGreen,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(innerContext);
+                        widget.onDelete();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: AppColors.red,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      child: const Text(
+                        "Ya, Hapus",
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -299,13 +422,13 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                       ),
                   ],
                 ),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 Container(
                   width: MediaQuery.of(context).size.width,
-                  padding: EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    border: BoxBorder.all(color: AppColors.grayLight, width: 1),
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                    border: Border.all(color: AppColors.grayLight, width: 1),
+                    borderRadius: const BorderRadius.all(Radius.circular(12)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -326,6 +449,11 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                       ),
                       const SizedBox(height: 16),
                       _buildTextField(
+                        controller: _projectController,
+                        label: "Project",
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTextField(
                         controller: _noPpController,
                         label: "No. PP",
                       ),
@@ -340,6 +468,19 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                               label: "Progress",
                               isNumber: true,
                               suffixText: "%",
+                              // --- [PERUBAHAN] Validator hanya untuk field ini ---
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return '0-100';
+                                }
+                                final progress = int.tryParse(value);
+                                if (progress == null ||
+                                    progress < 0 ||
+                                    progress > 100) {
+                                  return '0-100';
+                                }
+                                return null;
+                              },
                             ),
                           ),
                           const SizedBox(width: 16),
@@ -356,18 +497,14 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                     ],
                   ),
                 ),
-
                 if (_isAdmin) ...[
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   Container(
                     width: MediaQuery.of(context).size.width,
-                    padding: EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      border: BoxBorder.all(
-                        color: AppColors.grayLight,
-                        width: 1,
-                      ),
-                      borderRadius: BorderRadius.all(Radius.circular(12)),
+                      border: Border.all(color: AppColors.grayLight, width: 1),
+                      borderRadius: const BorderRadius.all(Radius.circular(12)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,16 +564,13 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                       ],
                     ),
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   Container(
                     width: MediaQuery.of(context).size.width,
-                    padding: EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      border: BoxBorder.all(
-                        color: AppColors.grayLight,
-                        width: 1,
-                      ),
-                      borderRadius: BorderRadius.all(Radius.circular(12)),
+                      border: Border.all(color: AppColors.grayLight, width: 1),
+                      borderRadius: const BorderRadius.all(Radius.circular(12)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -458,13 +592,13 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                     ),
                   ),
                 ],
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 Container(
                   width: MediaQuery.of(context).size.width,
-                  padding: EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    border: BoxBorder.all(color: AppColors.grayLight, width: 1),
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                    border: Border.all(color: AppColors.grayLight, width: 1),
+                    borderRadius: const BorderRadius.all(Radius.circular(12)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,13 +619,13 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                     ],
                   ),
                 ),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 Container(
                   width: MediaQuery.of(context).size.width,
-                  padding: EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    border: BoxBorder.all(color: AppColors.grayLight, width: 1),
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                    border: Border.all(color: AppColors.grayLight, width: 1),
+                    borderRadius: const BorderRadius.all(Radius.circular(12)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -512,7 +646,7 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
                     ],
                   ),
                 ),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 _buildActionButtons(),
               ],
             ),
@@ -538,18 +672,12 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     );
   }
 
-  Widget _buildSectionDivider() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 24.0),
-      child: Divider(height: 1, color: AppColors.grayLight),
-    );
-  }
-
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
     bool isNumber = false,
     String? suffixText,
+    String? Function(String?)? validator, // --- [PERUBAHAN] Validator optional
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -564,17 +692,8 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
           controller: controller,
           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
           keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-          validator: (value) {
-            if (isNumber) {
-              if (value == null || value.isEmpty) return '0-100';
-              final progress = int.tryParse(value);
-              if (progress == null || progress < 0 || progress > 100)
-                return '0-100';
-            }
-            if (!isNumber && (value == null || value.isEmpty))
-              return 'Field ini tidak boleh kosong';
-            return null;
-          },
+          validator:
+              validator, // --- [PERUBAHAN] Menggunakan validator dari argumen
           decoration: InputDecoration(
             suffixText: suffixText,
             hintText: 'Masukkan $label',
@@ -600,8 +719,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     );
   }
 
-  // Method helper lainnya (_buildSelectorSection, _buildMarkAsSent, dll.) tidak berubah
-  // dan bisa diletakkan di sini...
   Widget _buildSelectorSection({
     required String label,
     required Map<String, String> options,
@@ -609,7 +726,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     required ValueChanged<String?> onTap,
     bool isEnabled = true,
   }) {
-    // ... (kode _buildSelectorSection tidak berubah)
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -638,7 +754,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   }
 
   Widget _buildMarkAsSent() {
-    // ... (kode _buildMarkAsSent tidak berubah)
     final Color borderColor = _isSent
         ? AppColors.schneiderGreen
         : AppColors.grayLight;
@@ -706,7 +821,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   }
 
   Widget _buildDateTimePicker() {
-    // ... (kode _buildDateTimePicker tidak berubah)
     Future<void> pickDateTime() async {
       final date = await showDatePicker(
         context: context,
@@ -798,7 +912,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     required ValueChanged<DateTime> onDateChanged,
     required IconData icon,
   }) {
-    // ... (kode _buildDatePickerField tidak berubah)
     Future<void> pickDate() async {
       final date = await showDatePicker(
         context: context,
@@ -873,7 +986,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   }
 
   Widget _buildK3VendorDisplay() {
-    // ... (kode _buildK3VendorDisplay tidak berubah)
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -908,7 +1020,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
     required bool selected,
     required VoidCallback? onTap,
   }) {
-    // ... (kode _buildOptionButton tidak berubah)
     final Color borderColor = selected
         ? AppColors.schneiderGreen
         : AppColors.grayLight;
@@ -938,7 +1049,6 @@ class _EditPanelBottomSheetState extends State<EditPanelBottomSheet> {
   }
 
   Widget _buildActionButtons() {
-    // ... (kode _buildActionButtons tidak berubah)
     return Row(
       children: [
         Expanded(

@@ -30,6 +30,7 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
 
   final _noPanelController = TextEditingController();
   final _noWbsController = TextEditingController();
+  final _projectController = TextEditingController();
   final _noPpController = TextEditingController();
   final _progressController = TextEditingController();
 
@@ -53,6 +54,7 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
   void dispose() {
     _noPanelController.dispose();
     _noWbsController.dispose();
+    _projectController.dispose();
     _noPpController.dispose();
     _progressController.dispose();
     super.dispose();
@@ -193,8 +195,6 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
     });
   }
 
-  // Ganti seluruh fungsi _savePanel Anda dengan yang ini
-  // Ganti seluruh fungsi _savePanel Anda dengan yang ini
   Future<void> _savePanel() async {
     if (_isLoading || _isSuccess) return;
     if (!_formKey.currentState!.validate()) return;
@@ -210,15 +210,16 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
     }
 
     setState(() => _isLoading = true);
-    final noPanel = _noPanelController.text.trim();
 
-    final isUnique = await DatabaseHelper.instance.isPanelNumberUnique(noPanel);
+    final noPp = _noPpController.text.trim();
 
-    if (!isUnique) {
+    // Cek duplikasi No. PP
+    final isPpTaken = await DatabaseHelper.instance.isNoPpTaken(noPp);
+    if (isPpTaken) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('No. Panel sudah ada. Gunakan nomor lain.'),
+            content: Text('No. PP sudah ada. Gunakan nomor lain.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -229,45 +230,37 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
 
     try {
       final newPanel = Panel(
-        noPp: _noPpController.text.trim(),
-        noPanel: noPanel,
+        noPp: noPp,
+        noPanel: _noPanelController.text.trim(),
         noWbs: _noWbsController.text.trim(),
+        project: _projectController.text.trim(),
         percentProgress:
             double.tryParse(_progressController.text.trim()) ?? 0.0,
         startDate: _selectedDate,
         createdBy: widget.currentCompany.id,
         vendorId: _selectedK3VendorId,
+        // Default status sesuai permintaan
+        statusBusbarPcc: "On Progress",
+        statusBusbarMcc: "On Progress",
         statusComponent: "Open",
         statusPalet: "Open",
         statusCorepart: "Open",
       );
 
-      // 1. Simpan Panel utama ke database
       await DatabaseHelper.instance.insertPanel(newPanel);
 
-      // 2. Assign Palet dan Corepart ke vendor K3 yang dipilih
       if (_selectedK3VendorId != null) {
-        final newPalet = Palet(
-          panelNoPp: newPanel.noPp,
-          vendor: _selectedK3VendorId!,
+        await DatabaseHelper.instance.upsertPalet(
+          Palet(panelNoPp: newPanel.noPp, vendor: _selectedK3VendorId!),
         );
-        await DatabaseHelper.instance.upsertPalet(newPalet);
-
-        final newCorepart = Corepart(
-          panelNoPp: newPanel.noPp,
-          vendor: _selectedK3VendorId!,
+        await DatabaseHelper.instance.upsertCorepart(
+          Corepart(panelNoPp: newPanel.noPp, vendor: _selectedK3VendorId!),
         );
-        await DatabaseHelper.instance.upsertCorepart(newCorepart);
       }
 
-      // ---- LOGIKA BARU: AUTO-ASSIGN KE WAREHOUSE ----
-      // 3. Otomatis assign Component ke Warehouse
-      final componentForWarehouse = Component(
-        panelNoPp: newPanel.noPp,
-        vendor: 'warehouse', // ID warehouse sesuai db_helper.dart
+      await DatabaseHelper.instance.upsertComponent(
+        Component(panelNoPp: newPanel.noPp, vendor: 'warehouse'),
       );
-      await DatabaseHelper.instance.upsertComponent(componentForWarehouse);
-      // ---- LOGIKA BARU SELESAI ----
 
       setState(() {
         _isLoading = false;
@@ -284,7 +277,7 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal menyimpan data turunan: ${e.toString()}'),
+            content: Text('Gagal menyimpan: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -331,6 +324,8 @@ class _AddPanelBottomSheetState extends State<AddPanelBottomSheet> {
               ),
               const SizedBox(height: 16),
               _buildTextField(controller: _noWbsController, label: "No. WBS"),
+              const SizedBox(height: 16),
+              _buildTextField(controller: _projectController, label: "Project"),
               const SizedBox(height: 16),
               _buildTextField(controller: _noPpController, label: "No. PP"),
               const SizedBox(height: 16),

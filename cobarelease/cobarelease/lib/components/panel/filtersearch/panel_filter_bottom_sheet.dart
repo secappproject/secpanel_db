@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:secpanel/models/company.dart';
 import 'package:secpanel/theme/colors.dart';
 
@@ -13,6 +14,8 @@ enum SortOption {
   ppNoZA,
   wbsNoAZ,
   wbsNoZA,
+  projectNoAZ,
+  projectNoZA,
 }
 
 enum PanelFilterStatus {
@@ -41,6 +44,8 @@ class PanelFilterBottomSheet extends StatefulWidget {
   final List<String> selectedComponentVendors;
   final List<String> selectedPaletVendors;
   final List<String> selectedCorepartVendors;
+  final DateTimeRange? startDateRange;
+  final DateTimeRange? deliveryDateRange;
 
   final Function(List<String>) onPccStatusesChanged;
   final Function(List<String>) onMccStatusesChanged;
@@ -55,6 +60,8 @@ class PanelFilterBottomSheet extends StatefulWidget {
   final Function(List<String>) onComponentVendorsChanged;
   final Function(List<String>) onPaletVendorsChanged;
   final Function(List<String>) onCorepartVendorsChanged;
+  final Function(DateTimeRange?) onStartDateRangeChanged;
+  final Function(DateTimeRange?) onDeliveryDateRangeChanged;
   final VoidCallback onReset;
 
   const PanelFilterBottomSheet({
@@ -88,6 +95,10 @@ class PanelFilterBottomSheet extends StatefulWidget {
     required this.onComponentVendorsChanged,
     required this.onPaletVendorsChanged,
     required this.onCorepartVendorsChanged,
+    required this.startDateRange,
+    required this.deliveryDateRange,
+    required this.onStartDateRangeChanged,
+    required this.onDeliveryDateRangeChanged,
     required this.onReset,
   });
 
@@ -109,6 +120,8 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
   late List<String> _selectedComponentVendors;
   late List<String> _selectedPaletVendors;
   late List<String> _selectedCorepartVendors;
+  late DateTimeRange? _startDateRange;
+  late DateTimeRange? _deliveryDateRange;
 
   final List<String> busbarStatusOptions = [
     "Close",
@@ -135,6 +148,8 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
     _selectedComponentVendors = List.from(widget.selectedComponentVendors);
     _selectedPaletVendors = List.from(widget.selectedPaletVendors);
     _selectedCorepartVendors = List.from(widget.selectedCorepartVendors);
+    _startDateRange = widget.startDateRange;
+    _deliveryDateRange = widget.deliveryDateRange;
   }
 
   Widget _buildOptionButton({
@@ -196,10 +211,14 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
     widget.onComponentVendorsChanged(_selectedComponentVendors);
     widget.onPaletVendorsChanged(_selectedPaletVendors);
     widget.onCorepartVendorsChanged(_selectedCorepartVendors);
+    widget.onStartDateRangeChanged(_startDateRange);
+    widget.onDeliveryDateRangeChanged(_deliveryDateRange);
     Navigator.pop(context);
   }
 
-  void _cancel() {
+  // --- [PERBAIKAN] Fungsi reset dipindahkan ke sini ---
+  void _resetFilters() {
+    widget.onReset();
     Navigator.pop(context);
   }
 
@@ -211,6 +230,136 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
         list.add(value);
       }
     });
+  }
+
+  Widget _buildDateRangePicker({
+    required String title,
+    required DateTimeRange? currentRange,
+    required Function(DateTimeRange?) onRangeChanged,
+  }) {
+    final dateFormat = DateFormat('d MMM yyyy');
+
+    Future<void> pickDateRange() async {
+      final newRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2100),
+        initialDateRange: currentRange,
+        builder: (context, child) => Theme(
+          data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: AppColors.schneiderGreen,
+              onPrimary: Colors.white,
+              onSurface: AppColors.black,
+              background: Colors.white,
+            ),
+            scaffoldBackgroundColor: Colors.white,
+            textTheme: const TextTheme(
+              bodyLarge: TextStyle(fontFamily: 'Lexend', color: AppColors.gray),
+              titleMedium: TextStyle(
+                fontFamily: 'Lexend',
+                color: AppColors.gray,
+              ),
+              titleSmall: TextStyle(
+                fontFamily: 'Lexend',
+                color: AppColors.gray,
+              ),
+              bodyMedium: TextStyle(
+                fontFamily: 'Lexend',
+                color: AppColors.gray,
+              ),
+              labelSmall: TextStyle(
+                fontFamily: 'Lexend',
+                color: AppColors.gray,
+              ),
+            ),
+            datePickerTheme: DatePickerThemeData(
+              headerForegroundColor: AppColors.black,
+              headerHelpStyle: const TextStyle(
+                fontFamily: 'Lexend',
+                color: AppColors.black,
+                fontWeight: FontWeight.w500,
+              ),
+              dayStyle: const TextStyle(fontFamily: 'Lexend'),
+              weekdayStyle: const TextStyle(
+                fontFamily: 'Lexend',
+                color: AppColors.gray,
+              ),
+              yearStyle: const TextStyle(fontFamily: 'Lexend'),
+              rangePickerHeaderHelpStyle: const TextStyle(fontFamily: 'Lexend'),
+              rangeSelectionBackgroundColor: AppColors.schneiderGreen
+                  .withOpacity(0.1),
+              todayBorder: const BorderSide(color: AppColors.schneiderGreen),
+              todayForegroundColor: MaterialStateProperty.all(
+                AppColors.schneiderGreen,
+              ),
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.schneiderGreen,
+                textStyle: const TextStyle(fontFamily: 'Lexend'),
+              ),
+            ),
+          ),
+          child: child!,
+        ),
+      );
+      if (newRange != null) {
+        onRangeChanged(newRange);
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: pickDateRange,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.grayLight),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.calendar_today_outlined,
+                  size: 20,
+                  color: AppColors.gray,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    currentRange == null
+                        ? 'Pilih Rentang Tanggal'
+                        : '${dateFormat.format(currentRange.start)} - ${dateFormat.format(currentRange.end)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w300,
+                      color: currentRange != null
+                          ? AppColors.black
+                          : AppColors.gray,
+                    ),
+                  ),
+                ),
+                if (currentRange != null)
+                  InkWell(
+                    onTap: () => onRangeChanged(null),
+                    child: const Icon(
+                      Icons.clear,
+                      size: 20,
+                      color: AppColors.gray,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -249,6 +398,18 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
               const Text(
                 "Filter",
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed:
+                    _resetFilters, // --- [PERBAIKAN] Panggil fungsi reset lokal
+                child: const Text(
+                  'Reset Filter',
+                  style: TextStyle(
+                    color: AppColors.schneiderGreen,
+                    fontSize: 12,
+                  ),
+                ),
               ),
             ],
           ),
@@ -290,6 +451,26 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                         ),
                       ],
                     ),
+                  ),
+                  const SizedBox(height: 24),
+                  _buildDateRangePicker(
+                    title: "Range Tanggal Mulai Pengerjaan",
+                    currentRange: _startDateRange,
+                    onRangeChanged: (range) {
+                      setState(() {
+                        _startDateRange = range;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  _buildDateRangePicker(
+                    title: "Range Target Delivery",
+                    currentRange: _deliveryDateRange,
+                    onRangeChanged: (range) {
+                      setState(() {
+                        _deliveryDateRange = range;
+                      });
+                    },
                   ),
                   const SizedBox(height: 24),
                   const Text(
@@ -675,6 +856,26 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
                               : SortOption.wbsNoZA,
                         ),
                       ),
+                      _buildOptionButton(
+                        label: "Project A-Z",
+                        selected: _selectedSort == SortOption.projectNoAZ,
+                        onTap: () => setState(
+                          () => _selectedSort =
+                              _selectedSort == SortOption.projectNoAZ
+                              ? null
+                              : SortOption.projectNoAZ,
+                        ),
+                      ),
+                      _buildOptionButton(
+                        label: "Project Z-A",
+                        selected: _selectedSort == SortOption.projectNoZA,
+                        onTap: () => setState(
+                          () => _selectedSort =
+                              _selectedSort == SortOption.projectNoZA
+                              ? null
+                              : SortOption.projectNoZA,
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -686,7 +887,7 @@ class _PanelFilterBottomSheetState extends State<PanelFilterBottomSheet> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _cancel,
+                  onPressed: () => Navigator.pop(context),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     side: const BorderSide(color: AppColors.schneiderGreen),

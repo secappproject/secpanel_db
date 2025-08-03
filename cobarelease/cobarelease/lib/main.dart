@@ -23,6 +23,7 @@ class MyApp extends StatelessWidget {
         ),
       ),
       title: 'Schneider Indonesia',
+
       debugShowCheckedModeBanner: false,
 
       home: const LoginPage(),

@@ -22,7 +22,7 @@ class SearchField extends StatelessWidget {
         fontWeight: FontWeight.w400,
       ),
       decoration: InputDecoration(
-        hintText: 'Cari No. Panel / PP / WBS...',
+        hintText: 'No. Panel / PP / WBS / Project...',
         hintStyle: const TextStyle(
           color: AppColors.gray,
           fontSize: 12,
