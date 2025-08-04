@@ -1690,13 +1690,22 @@ func parseDate(dateStr string) *string {
 	if dateStr == "" {
 		return nil
 	}
-	layouts := []string{time.RFC3339, "2006-01-02T15:04:05Z07:00", "02-Jan-06", "1/2/2006"}
+	// Daftar format yang akan dicoba untuk di-parsing.
+	layouts := []string{
+		time.RFC3339,                   // Format standar: 2025-08-04T00:00:00Z
+		"2006-01-02T15:04:05Z07:00",     // Format standar lain
+		"02-Jan-2006",                  // Format BARU: 04-Aug-2025 (tahun 4 digit)
+		"02-Jan-06",                    // Format lama: 04-Aug-25 (tahun 2 digit)
+		"1/2/2006",                     // Format: 8/4/2025
+	}
 	for _, layout := range layouts {
 		t, err := time.Parse(layout, dateStr)
 		if err == nil {
+			// Jika berhasil, ubah ke format standar ISO 8601 untuk disimpan di DB
 			s := t.Format(time.RFC3339)
 			return &s
 		}
 	}
+	// Jika semua format gagal, kembalikan nil
 	return nil
 }
