@@ -1,8 +1,9 @@
+// filename: main.go
 package main
 
 import (
 	"database/sql"
-	"database/sql/driver" // <-- IMPORT BARU
+	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -74,9 +75,9 @@ func (ct *customTime) Scan(value interface{}) error {
 
 func (ct customTime) Value() (driver.Value, error) {
 	if ct.Time.IsZero() {
-		return nil, nil 
+		return nil, nil
 	}
-	return ct.Time, nil 
+	return ct.Time, nil
 }
 
 type Company struct {
@@ -162,31 +163,27 @@ type App struct {
 }
 
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
-    // [UBAH] Ambil SSL_MODE dari environment, default ke 'disable' jika tidak ada (untuk lokal)
 	dbSslMode := os.Getenv("DB_SSLMODE")
 	if dbSslMode == "" {
-		// Untuk production di Koyeb, 'require' adalah pilihan minimum yang baik.
-		dbSslMode = "require" 
+		dbSslMode = "require"
 	}
-    // [UBAH] Gunakan variabel dbSslMode di connection string
-    connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
+	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
 
-    var err error
-    a.DB, err = sql.Open("postgres", connectionString)
-    if err != nil {
-        log.Fatalf("Gagal membuka koneksi DB: %v", err)
-    }
+	var err error
+	a.DB, err = sql.Open("postgres", connectionString)
+	if err != nil {
+		log.Fatalf("Gagal membuka koneksi DB: %v", err)
+	}
 
+	err = a.DB.Ping()
+	if err != nil {
+		log.Fatalf("Tidak dapat terhubung ke database: %v", err)
+	}
+	log.Println("Berhasil terhubung ke database!")
 
-    err = a.DB.Ping()
-    if err != nil {
-        log.Fatalf("Tidak dapat terhubung ke database: %v", err)
-    }
-    log.Println("Berhasil terhubung ke database!")
-
-    initDB(a.DB) // Pastikan initDB juga berjalan setelah koneksi berhasil
-    a.Router = mux.NewRouter()
-    a.initializeRoutes()
+	initDB(a.DB)
+	a.Router = mux.NewRouter()
+	a.initializeRoutes()
 }
 
 func (a *App) Run(addr string) {
@@ -194,21 +191,18 @@ func (a *App) Run(addr string) {
 	log.Fatal(http.ListenAndServe(addr, jsonContentTypeMiddleware(a.Router)))
 }
 func main() {
-    dbUser := os.Getenv("DB_USER")
-    dbPassword := os.Getenv("DB_PASSWORD")
-    dbName := os.Getenv("DB_NAME")
-    dbHost := os.Getenv("DB_HOST") 
-    
-    // Perhatikan: os.Getenv("DB_SSLMODE") tidak perlu diambil di sini
-    // karena sudah ditangani di dalam fungsi Initialize.
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+	dbHost := os.Getenv("DB_HOST")
 
-    if dbUser == "" || dbPassword == "" || dbName == "" || dbHost == "" {
-        log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
-    }
+	if dbUser == "" || dbPassword == "" || dbName == "" || dbHost == "" {
+		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
+	}
 
-    app := App{}
-    app.Initialize(dbUser, dbPassword, dbName, dbHost)
-    app.Run(":8080")
+	app := App{}
+	app.Initialize(dbUser, dbPassword, dbName, dbHost)
+	app.Run(":8080")
 }
 
 // =============================================================================
@@ -267,7 +261,6 @@ func (a *App) initializeRoutes() {
 // HANDLERS
 // =============================================================================
 
-// --- Panel Handlers [PERBAIKAN] ---
 func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var p Panel
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -289,10 +282,6 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, p)
 }
 
-// --- Sisa Handlers (Tidak berubah) ---
-// (Kode lengkap untuk semua handler lain dimasukkan di sini)
-
-// --- Auth & User Handlers ---
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct{ Username, Password string }
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -399,9 +388,8 @@ func (a *App) updateCompanyAndAccountHandler(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer tx.Rollback() // Rollback on any error
+	defer tx.Rollback()
 
-	// Find company by name, if not exists, create it
 	var targetCompanyId string
 	err = tx.QueryRow("SELECT id FROM companies WHERE name = $1", payload.Company.Name).Scan(&targetCompanyId)
 	if err == sql.ErrNoRows {
@@ -416,7 +404,6 @@ func (a *App) updateCompanyAndAccountHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Update the account
 	if payload.NewPassword != nil && *payload.NewPassword != "" {
 		_, err = tx.Exec("UPDATE company_accounts SET company_id = $1, password = $2 WHERE username = $3", targetCompanyId, *payload.NewPassword, username)
 	} else {
@@ -569,7 +556,6 @@ func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.
 	respondWithJSON(w, http.StatusOK, results)
 }
 
-// --- Company Handlers ---
 func (a *App) getCompanyByIdHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var c Company
@@ -642,7 +628,6 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 	respondWithJSON(w, http.StatusOK, companies)
 }
 
-// --- Panel Handlers ---
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
@@ -730,8 +715,6 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
 		return
 	}
-	// Foreign keys with ON DELETE CASCADE will handle deletions in related tables automatically.
-	// We only need to delete from the parent table.
 	result, err := tx.Exec("DELETE FROM panels WHERE no_pp = $1", noPp)
 	if err != nil {
 		tx.Rollback()
@@ -822,7 +805,6 @@ func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// --- Sub-Panel Parts Handlers ---
 func (a *App) upsertGenericHandler(tableName string, model interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(model); err != nil {
@@ -878,8 +860,8 @@ func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.
 }
 func (a *App) getAllGenericHandler(tableName string, modelFactory func() interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		query := "SELECT * FROM " + tableName
-		if tableName == "busbars" { // Order by ID for consistency if needed
+		var query string
+		if tableName == "busbars" {
 			query = "SELECT id, panel_no_pp, vendor, remarks FROM " + tableName
 		} else {
 			query = "SELECT id, panel_no_pp, vendor FROM " + tableName
@@ -923,7 +905,7 @@ func (a *App) getAllGenericHandler(tableName string, modelFactory func() interfa
 	}
 }
 
-// --- Import/Export Handlers ---
+// --- [PERUBAHAN] Fungsi getFilteredDataForExport diubah untuk mencegah nilai 'null' pada JSON ---
 func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 	var relevantPanelIds []string
@@ -934,7 +916,6 @@ func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]i
 	}
 	defer tx.Rollback()
 
-	// Logic to get relevant panel IDs
 	if userRole != AppRoleAdmin && userRole != AppRoleViewer {
 		var panelIdRows *sql.Rows
 		var query string
@@ -968,7 +949,6 @@ func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]i
 		}
 	}
 
-	// Fetch data based on role
 	if userRole == AppRoleAdmin || userRole == AppRoleViewer {
 		result["companies"], _ = fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
 		result["companyAccounts"], _ = fetchAllAs(tx, "company_accounts", func() interface{} { return &CompanyAccount{} })
@@ -978,7 +958,6 @@ func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]i
 		result["palet"], _ = fetchAllAs(tx, "palet", func() interface{} { return &Palet{} })
 		result["corepart"], _ = fetchAllAs(tx, "corepart", func() interface{} { return &Corepart{} })
 	} else {
-		// Fetch filtered data
 		var companies []Company
 		row := tx.QueryRow("SELECT id, name, role FROM companies WHERE id = $1", companyId)
 		var c Company
@@ -990,13 +969,13 @@ func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]i
 		var accounts []CompanyAccount
 		accRows, _ := tx.Query("SELECT username, password, company_id FROM company_accounts WHERE company_id = $1", companyId)
 		if accRows != nil {
+			defer accRows.Close()
 			for accRows.Next() {
 				var acc CompanyAccount
 				if err := accRows.Scan(&acc.Username, &acc.Password, &acc.CompanyID); err == nil {
 					accounts = append(accounts, acc)
 				}
 			}
-			accRows.Close()
 		}
 		result["companyAccounts"] = accounts
 
@@ -1011,8 +990,20 @@ func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]i
 				[]Panel{}, []Busbar{}, []Component{}, []Palet{}, []Corepart{}
 		}
 	}
+
+	// [FIX] Memastikan tidak ada key yang memiliki nilai nil; ganti dengan slice kosong.
+	// Ini membuat respons API konsisten dan mencegah error di frontend.
+	keys := []string{"companies", "companyAccounts", "panels", "busbars", "components", "palet", "corepart"}
+	for _, key := range keys {
+		if result[key] == nil {
+			result[key] = []interface{}{}
+		}
+	}
+
 	return result, nil
 }
+// --- [AKHIR PERUBAHAN] ---
+
 func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
@@ -1037,13 +1028,13 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 
 	allCompaniesResult, _ := fetchAllAs(a.DB, "companies", func() interface{} { return &Company{} })
 	allCompanies := allCompaniesResult.([]interface{})
-	
+
 	companyMap := make(map[string]Company)
 	for _, c := range allCompanies {
 		company := c.(*Company)
 		companyMap[company.ID] = *company
 	}
-	
+
 	jsonData := make(map[string]interface{})
 
 	if includePanels {
@@ -1216,7 +1207,7 @@ func (a *App) generateImportTemplateHandler(w http.ResponseWriter, r *http.Reque
 func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Data             map[string][]map[string]interface{} `json:"data"`
-		LoggedInUsername *string                           `json:"loggedInUsername"`
+		LoggedInUsername *string                             `json:"loggedInUsername"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -1233,7 +1224,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	var errors []string
 	dataProcessed := false
 
-	// Function to find vendor ID case-insensitively
 	findVendorId := func(vendorName string) (string, error) {
 		if strings.TrimSpace(vendorName) == "" {
 			return "", nil
@@ -1317,21 +1307,21 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			panelMap := map[string]interface{}{
-				"no_pp":              noPp,
-				"no_panel":           getValueCaseInsensitive(row, "Panel No"),
-				"no_wbs":             getValueCaseInsensitive(row, "WBS"),
-				"project":            getValueCaseInsensitive(row, "PROJECT"),
-				"start_date":         parseDate(getValueCaseInsensitive(row, "Plan Start")),
-				"target_delivery":    parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC")),
-				"vendor_id":          panelK3VendorId,
-				"created_by":         "import",
-				"percent_progress":   0.0,
-				"is_closed":          false,
-				"status_busbar_pcc":  "On Progress",
-				"status_busbar_mcc":  "On Progress",
-				"status_component":   "Open",
-				"status_palet":       "Open",
-				"status_corepart":    "Open",
+				"no_pp":             noPp,
+				"no_panel":          getValueCaseInsensitive(row, "Panel No"),
+				"no_wbs":            getValueCaseInsensitive(row, "WBS"),
+				"project":           getValueCaseInsensitive(row, "PROJECT"),
+				"start_date":        parseDate(getValueCaseInsensitive(row, "Plan Start")),
+				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC")),
+				"vendor_id":         panelK3VendorId,
+				"created_by":        "import",
+				"percent_progress":  0.0,
+				"is_closed":         false,
+				"status_busbar_pcc": "On Progress",
+				"status_busbar_mcc": "On Progress",
+				"status_component":  "Open",
+				"status_palet":      "Open",
+				"status_corepart":   "Open",
 			}
 			if payload.LoggedInUsername != nil {
 				panelMap["created_by"] = *payload.LoggedInUsername
@@ -1342,18 +1332,25 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				continue
 			}
 
-			// Link related tables
-			if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelK3VendorId}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err)) }
-			if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelK3VendorId}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err)) }
+			if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelK3VendorId}); err != nil {
+				errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err))
+			}
+			if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelK3VendorId}); err != nil {
+				errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err))
+			}
 			if warehouseCompanyId != "" {
-				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err)) }
+				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err))
+				}
 			}
 			if busbarVendorName != "" {
 				busbarVendorId, err := findVendorId(busbarVendorName)
 				if err != nil || busbarVendorId == "" {
 					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorName))
 				} else {
-					if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err)) }
+					if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId}); err != nil {
+						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err))
+					}
 				}
 			}
 			dataProcessed = true
@@ -1485,15 +1482,19 @@ func fetchAllAs(db DBTX, tableName string, factory func() interface{}) (interfac
 	var results []interface{}
 	for rows.Next() {
 		model := factory()
-		// This part needs reflection for a truly generic solution. For now, we use a type switch.
 		switch m := model.(type) {
 		case *Company:
-			if err := rows.Scan(&m.ID, &m.Name, &m.Role); err != nil { return nil, err }
+			if err := rows.Scan(&m.ID, &m.Name, &m.Role); err != nil {
+				return nil, err
+			}
 		case *CompanyAccount:
-			if err := rows.Scan(&m.Username, &m.Password, &m.CompanyID); err != nil { return nil, err }
+			if err := rows.Scan(&m.Username, &m.Password, &m.CompanyID); err != nil {
+				return nil, err
+			}
 		case *Panel:
-			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatusBusbarPcc, &m.StatusBusbarMcc, &m.StatusComponent, &m.StatusPalet, &m.StatusCorepart, &m.AoBusbarPcc, &m.AoBusbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil { return nil, err }
-		// Add other cases as needed
+			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatusBusbarPcc, &m.StatusBusbarMcc, &m.StatusComponent, &m.StatusPalet, &m.StatusCorepart, &m.AoBusbarPcc, &m.AoBusbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("unsupported type for fetchAllAs: %T", m)
 		}
@@ -1519,22 +1520,31 @@ func fetchInAs(db DBTX, tableName, columnName string, ids []string, factory func
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var results []interface{}
 	for rows.Next() {
 		model := factory()
-		// Similar to fetchAllAs, this needs a type switch or reflection
 		switch m := model.(type) {
 		case *Panel:
-			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatusBusbarPcc, &m.StatusBusbarMcc, &m.StatusComponent, &m.StatusPalet, &m.StatusCorepart, &m.AoBusbarPcc, &m.AoBusbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil { return nil, err }
+			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatusBusbarPcc, &m.StatusBusbarMcc, &m.StatusComponent, &m.StatusPalet, &m.StatusCorepart, &m.AoBusbarPcc, &m.AoBusbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil {
+				return nil, err
+			}
 		case *Busbar:
-			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor, &m.Remarks); err != nil { return nil, err }
+			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor, &m.Remarks); err != nil {
+				return nil, err
+			}
 		case *Component:
-			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil { return nil, err }
+			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
+				return nil, err
+			}
 		case *Palet:
-			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil { return nil, err }
+			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
+				return nil, err
+			}
 		case *Corepart:
-			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil { return nil, err }
+			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("unsupported type for fetchInAs: %T", m)
 		}
@@ -1549,7 +1559,6 @@ func insertMap(tx DBTX, tableName string, data map[string]interface{}) error {
 	var placeholders []string
 	i := 1
 	for col, val := range data {
-		// Skip nil values, let DB handle defaults
 		if val == nil {
 			continue
 		}
@@ -1560,9 +1569,9 @@ func insertMap(tx DBTX, tableName string, data map[string]interface{}) error {
 	}
 
 	if len(cols) == 0 {
-		return nil // Nothing to insert
+		return nil
 	}
-	
+
 	var conflictColumn string
 	var updateSetters []string
 
@@ -1580,21 +1589,17 @@ func insertMap(tx DBTX, tableName string, data map[string]interface{}) error {
 	}
 
 	for _, col := range cols {
-		// Don't update the primary key on conflict
 		if !strings.Contains(conflictColumn, col) {
 			updateSetters = append(updateSetters, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
 		}
 	}
 
-	// For tables with composite keys and potentially no other fields to update
 	if len(updateSetters) == 0 && strings.Contains(conflictColumn, ",") {
-		// Just do nothing on conflict
 		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT %s DO NOTHING",
-		tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "), conflictColumn)
+			tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "), conflictColumn)
 		_, err := tx.Exec(query, vals...)
 		return err
 	}
-
 
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT %s DO UPDATE SET %s",
 		tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "), conflictColumn, strings.Join(updateSetters, ", "))
@@ -1635,19 +1640,27 @@ func generateExcelTemplate(dataType string) *excelize.File {
 		f.SetCellValue("company_accounts", "B2", "password123")
 		f.SetCellValue("company_accounts", "C2", "vendor_k3_contoh")
 	} else {
-		// Define headers for all panel-related sheets
 		panelHeaders := []string{"no_pp", "no_panel", "no_wbs", "project", "percent_progress", "start_date", "target_delivery", "status_busbar_pcc", "status_busbar_mcc", "status_component", "status_palet", "status_corepart", "ao_busbar_pcc", "ao_busbar_mcc", "created_by", "vendor_id", "is_closed", "closed_date"}
 		f.NewSheet("panels")
-		for i, h := range panelHeaders { f.SetCellValue("panels", fmt.Sprintf("%c1", 'A'+i), h) }
+		for i, h := range panelHeaders {
+			f.SetCellValue("panels", fmt.Sprintf("%c1", 'A'+i), h)
+		}
 
 		busbarHeaders := []string{"panel_no_pp", "vendor", "remarks"}
 		f.NewSheet("busbars")
-		for i, h := range busbarHeaders { f.SetCellValue("busbars", fmt.Sprintf("%c1", 'A'+i), h) }
-        
-        // Add other sheets with headers
-        f.NewSheet("components"); f.SetCellValue("components", "A1", "panel_no_pp"); f.SetCellValue("components", "B1", "vendor")
-        f.NewSheet("palet"); f.SetCellValue("palet", "A1", "panel_no_pp"); f.SetCellValue("palet", "B1", "vendor")
-        f.NewSheet("corepart"); f.SetCellValue("corepart", "A1", "panel_no_pp"); f.SetCellValue("corepart", "B1", "vendor")
+		for i, h := range busbarHeaders {
+			f.SetCellValue("busbars", fmt.Sprintf("%c1", 'A'+i), h)
+		}
+
+		f.NewSheet("components")
+		f.SetCellValue("components", "A1", "panel_no_pp")
+		f.SetCellValue("components", "B1", "vendor")
+		f.NewSheet("palet")
+		f.SetCellValue("palet", "A1", "panel_no_pp")
+		f.SetCellValue("palet", "B1", "vendor")
+		f.NewSheet("corepart")
+		f.SetCellValue("corepart", "A1", "panel_no_pp")
+		f.SetCellValue("corepart", "B1", "vendor")
 	}
 	f.DeleteSheet("Sheet1")
 	return f
@@ -1664,7 +1677,9 @@ func getValueCaseInsensitive(row map[string]interface{}, key string) string {
 	return ""
 }
 func parseDate(dateStr string) *string {
-	if dateStr == "" { return nil }
+	if dateStr == "" {
+		return nil
+	}
 	layouts := []string{time.RFC3339, "2006-01-02T15:04:05Z07:00", "02-Jan-06", "1/2/2006"}
 	for _, layout := range layouts {
 		t, err := time.Parse(layout, dateStr)
