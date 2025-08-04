@@ -162,14 +162,8 @@ type App struct {
 }
 
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
-    // [UBAH] Ambil SSL_MODE dari environment, default ke 'disable' jika tidak ada (untuk lokal)
-    dbSslMode := os.Getenv("DB_SSLMODE")
-    if dbSslMode == "" {
-        dbSslMode = "disable"
-    }
-
     // [UBAH] Gunakan variabel dbSslMode di connection string
-    connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
+    connectionString := "user=%s password=%s host=%s dbname='%s'"
 
     var err error
     a.DB, err = sql.Open("postgres", connectionString)
