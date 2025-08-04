@@ -162,36 +162,52 @@ type App struct {
 }
 
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
-	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", dbUser, dbPassword, dbHost, dbName)
-	var err error
-	a.DB, err = sql.Open("postgres", connectionString)
-	if err != nil {
-		log.Fatalf("Gagal membuka koneksi DB: %v", err)
-	}
-	err = a.DB.Ping()
-	if err != nil {
-		log.Fatalf("Tidak dapat terhubung ke database: %v", err)
-	}
-	log.Println("Berhasil terhubung ke database!")
-	initDB(a.DB)
-	a.Router = mux.NewRouter()
-	a.initializeRoutes()
+    // [UBAH] Ambil SSL_MODE dari environment, default ke 'disable' jika tidak ada (untuk lokal)
+    dbSslMode := os.Getenv("DB_SSLMODE")
+    if dbSslMode == "" {
+        dbSslMode = "disable"
+    }
+
+    // [UBAH] Gunakan variabel dbSslMode di connection string
+    connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
+
+    var err error
+    a.DB, err = sql.Open("postgres", connectionString)
+    if err != nil {
+        log.Fatalf("Gagal membuka koneksi DB: %v", err)
+    }
+
+    err = a.DB.Ping()
+    if err != nil {
+        log.Fatalf("Tidak dapat terhubung ke database: %v", err)
+    }
+    log.Println("Berhasil terhubung ke database!")
+
+    initDB(a.DB) // Pastikan initDB juga berjalan setelah koneksi berhasil
+    a.Router = mux.NewRouter()
+    a.initializeRoutes()
 }
+
 func (a *App) Run(addr string) {
 	log.Printf("Server berjalan di %s", addr)
 	log.Fatal(http.ListenAndServe(addr, jsonContentTypeMiddleware(a.Router)))
 }
 func main() {
-	dbUser := os.Getenv("DB_USER")
-	dbPassword := os.Getenv("DB_PASSWORD")
-	dbName := os.Getenv("DB_NAME")
-	dbHost := os.Getenv("DB_HOST")
-	if dbUser == "" || dbName == "" || dbHost == "" {
-		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
-	}
-	app := App{}
-	app.Initialize(dbUser, dbPassword, dbName, dbHost)
-	app.Run(":8080")
+    dbUser := os.Getenv("DB_USER")
+    dbPassword := os.Getenv("DB_PASSWORD")
+    dbName := os.Getenv("DB_NAME")
+    dbHost := os.Getenv("DB_HOST") 
+    
+    // Perhatikan: os.Getenv("DB_SSLMODE") tidak perlu diambil di sini
+    // karena sudah ditangani di dalam fungsi Initialize.
+
+    if dbUser == "" || dbPassword == "" || dbName == "" || dbHost == "" {
+        log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
+    }
+
+    app := App{}
+    app.Initialize(dbUser, dbPassword, dbName, dbHost)
+    app.Run(":8080")
 }
 
 // =============================================================================
