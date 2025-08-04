@@ -175,6 +175,15 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 		log.Fatalf("Gagal membuka koneksi DB: %v", err)
 	}
 
+	// [PERUBAHAN] Konfigurasi connection pool untuk menjaga koneksi tetap sehat
+	// Mengatur jumlah maksimum koneksi yang diizinkan terbuka ke database.
+	a.DB.SetMaxOpenConns(25)
+	// Mengatur jumlah maksimum koneksi yang boleh dalam keadaan idle (tidak terpakai) di dalam pool.
+	a.DB.SetMaxIdleConns(25)
+	// Mengatur durasi maksimum sebuah koneksi boleh digunakan sebelum ditutup dan diganti dengan yang baru.
+	// Ini adalah kunci untuk mencegah error "bad connection" pada platform cloud.
+	a.DB.SetConnMaxLifetime(5 * time.Minute)
+
 	err = a.DB.Ping()
 	if err != nil {
 		log.Fatalf("Tidak dapat terhubung ke database: %v", err)
@@ -185,6 +194,7 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	a.Router = mux.NewRouter()
 	a.initializeRoutes()
 }
+
 
 func (a *App) Run(addr string) {
 	log.Printf("Server berjalan di %s", addr)
