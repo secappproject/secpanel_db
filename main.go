@@ -189,9 +189,19 @@ func main() {
 	if dbUser == "" || dbName == "" || dbHost == "" {
 		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
 	}
+
+    // [PERBAIKAN] Ambil port dari environment variable
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Port default untuk development lokal
+	}
+
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
-	app.Run(":8080")
+	
+	// Gunakan port yang sudah dinamis
+	log.Printf("Server akan berjalan di port %s", port)
+	app.Run(":" + port)
 }
 
 // =============================================================================
