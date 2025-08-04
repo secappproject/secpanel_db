@@ -163,7 +163,7 @@ type App struct {
 
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
     // [UBAH] Gunakan variabel dbSslMode di connection string
-    connectionString := fmt.Sprintf("user=%s password=%s host=%s dbname='%s'", dbUser, dbPassword, dbHost, dbName)
+    connectionString := fmt.Sprintf("user=%s password=%s host=%s dbname=%s", dbUser, dbPassword, dbHost, dbName)
     var err error
     a.DB, err = sql.Open("postgres", connectionString)
     if err != nil {
