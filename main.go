@@ -292,27 +292,49 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, p)
 }
 
+// [PERBAIKAN] Handler login dengan penanganan error yang lebih spesifik
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
-	var payload struct{ Username, Password string }
+	var payload struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
+
 	var account CompanyAccount
+	// Query untuk mengambil password dan company_id berdasarkan username
 	err := a.DB.QueryRow("SELECT password, company_id FROM company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
+
 	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
+		// KASUS 1: Username tidak ditemukan di database.
+		if err == sql.ErrNoRows {
+			log.Printf("Login failed for user '%s': user not found", payload.Username)
+			respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
+			return
+		}
+		// KASUS 2: Terjadi error internal lain saat query ke database.
+		log.Printf("Database error during login for user '%s': %v", payload.Username, err)
+		respondWithError(w, http.StatusInternalServerError, "Terjadi masalah pada server")
 		return
 	}
+
+	// KASUS 3: Username ditemukan, sekarang bandingkan password.
 	if account.Password == payload.Password {
+		// Jika password cocok, ambil detail company.
 		var company Company
 		err := a.DB.QueryRow("SELECT id, name, role FROM companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
+			log.Printf("Could not find company with id '%s' for user '%s': %v", account.CompanyID, payload.Username, err)
+			respondWithError(w, http.StatusInternalServerError, "Data perusahaan untuk user ini tidak ditemukan")
 			return
 		}
+		// Kirim data company sebagai respons berhasil login.
 		respondWithJSON(w, http.StatusOK, company)
 	} else {
+		// Jika password tidak cocok.
+		log.Printf("Login failed for user '%s': incorrect password", payload.Username)
 		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
 	}
 }
@@ -1414,10 +1436,10 @@ func initDB(db *sql.DB) {
     CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
     CREATE TABLE IF NOT EXISTS panels (
-      no_pp TEXT PRIMARY KEY, no_panel TEXT UNIQUE, no_wbs TEXT, project TEXT, percent_progress REAL,
-      start_date TIMESTAMPTZ, target_delivery TIMESTAMPTZ, status_busbar_pcc TEXT, status_busbar_mcc TEXT,
-      status_component TEXT, status_palet TEXT, status_corepart TEXT, ao_busbar_pcc TIMESTAMPTZ, ao_busbar_mcc TIMESTAMPTZ,
-      created_by TEXT, vendor_id TEXT, is_closed BOOLEAN DEFAULT false, closed_date TIMESTAMPTZ );
+	no_pp TEXT PRIMARY KEY, no_panel TEXT UNIQUE, no_wbs TEXT, project TEXT, percent_progress REAL,
+	start_date TIMESTAMPTZ, target_delivery TIMESTAMPTZ, status_busbar_pcc TEXT, status_busbar_mcc TEXT,
+	status_component TEXT, status_palet TEXT, status_corepart TEXT, ao_busbar_pcc TIMESTAMPTZ, ao_busbar_mcc TIMESTAMPTZ,
+	created_by TEXT, vendor_id TEXT, is_closed BOOLEAN DEFAULT false, closed_date TIMESTAMPTZ );
     CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
