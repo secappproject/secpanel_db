@@ -161,11 +161,10 @@ type App struct {
 	Router *mux.Router
 	DB     *sql.DB
 }
-
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	dbSslMode := os.Getenv("DB_SSLMODE")
 	if dbSslMode == "" {
-		dbSslMode = "require"
+		dbSslMode = "require" // Default yang aman untuk cloud
 	}
 	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
 
@@ -176,13 +175,9 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	}
 
 	// [PERUBAHAN] Konfigurasi connection pool untuk menjaga koneksi tetap sehat
-	// Mengatur jumlah maksimum koneksi yang diizinkan terbuka ke database.
 	a.DB.SetMaxOpenConns(25)
-	// Mengatur jumlah maksimum koneksi yang boleh dalam keadaan idle (tidak terpakai) di dalam pool.
 	a.DB.SetMaxIdleConns(25)
-	// Mengatur durasi maksimum sebuah koneksi boleh digunakan sebelum ditutup dan diganti dengan yang baru.
-	// Ini adalah kunci untuk mencegah error "bad connection" pada platform cloud.
-	a.DB.SetConnMaxLifetime(5 * time.Minute)
+	a.DB.SetConnMaxLifetime(5 * time.Minute) // Kunci untuk mencegah error "bad connection"
 
 	err = a.DB.Ping()
 	if err != nil {
@@ -195,9 +190,9 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	a.initializeRoutes()
 }
 
-
 func (a *App) Run(addr string) {
 	log.Printf("Server berjalan di %s", addr)
+	// Middleware untuk memastikan semua respons adalah JSON
 	log.Fatal(http.ListenAndServe(addr, jsonContentTypeMiddleware(a.Router)))
 }
 func main() {
@@ -210,9 +205,14 @@ func main() {
 		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
 	}
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Port default untuk Koyeb
+	}
+
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
-	app.Run(":8080")
+	app.Run(":" + port)
 }
 
 // =============================================================================
