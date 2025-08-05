@@ -161,10 +161,11 @@ type App struct {
 	Router *mux.Router
 	DB     *sql.DB
 }
+
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	dbSslMode := os.Getenv("DB_SSLMODE")
 	if dbSslMode == "" {
-		dbSslMode = "require" // Default yang aman untuk cloud
+		dbSslMode = "require"
 	}
 	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
 
@@ -175,9 +176,13 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	}
 
 	// [PERUBAHAN] Konfigurasi connection pool untuk menjaga koneksi tetap sehat
+	// Mengatur jumlah maksimum koneksi yang diizinkan terbuka ke database.
 	a.DB.SetMaxOpenConns(25)
+	// Mengatur jumlah maksimum koneksi yang boleh dalam keadaan idle (tidak terpakai) di dalam pool.
 	a.DB.SetMaxIdleConns(25)
-	a.DB.SetConnMaxLifetime(5 * time.Minute) // Kunci untuk mencegah error "bad connection"
+	// Mengatur durasi maksimum sebuah koneksi boleh digunakan sebelum ditutup dan diganti dengan yang baru.
+	// Ini adalah kunci untuk mencegah error "bad connection" pada platform cloud.
+	a.DB.SetConnMaxLifetime(5 * time.Minute)
 
 	err = a.DB.Ping()
 	if err != nil {
@@ -190,9 +195,9 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	a.initializeRoutes()
 }
 
+
 func (a *App) Run(addr string) {
 	log.Printf("Server berjalan di %s", addr)
-	// Middleware untuk memastikan semua respons adalah JSON
 	log.Fatal(http.ListenAndServe(addr, jsonContentTypeMiddleware(a.Router)))
 }
 func main() {
@@ -205,14 +210,9 @@ func main() {
 		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080" // Port default untuk Koyeb
-	}
-
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
-	app.Run(":" + port)
+	app.Run(":8080")
 }
 
 // =============================================================================
@@ -292,49 +292,27 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, p)
 }
 
-// [PERBAIKAN] Handler login dengan penanganan error yang lebih spesifik
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
+	var payload struct{ Username, Password string }
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
 		return
 	}
-
 	var account CompanyAccount
-	// Query untuk mengambil password dan company_id berdasarkan username
 	err := a.DB.QueryRow("SELECT password, company_id FROM company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
-
 	if err != nil {
-		// KASUS 1: Username tidak ditemukan di database.
-		if err == sql.ErrNoRows {
-			log.Printf("Login failed for user '%s': user not found", payload.Username)
-			respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
-			return
-		}
-		// KASUS 2: Terjadi error internal lain saat query ke database.
-		log.Printf("Database error during login for user '%s': %v", payload.Username, err)
-		respondWithError(w, http.StatusInternalServerError, "Terjadi masalah pada server")
+		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
 		return
 	}
-
-	// KASUS 3: Username ditemukan, sekarang bandingkan password.
 	if account.Password == payload.Password {
-		// Jika password cocok, ambil detail company.
 		var company Company
 		err := a.DB.QueryRow("SELECT id, name, role FROM companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
 		if err != nil {
-			log.Printf("Could not find company with id '%s' for user '%s': %v", account.CompanyID, payload.Username, err)
-			respondWithError(w, http.StatusInternalServerError, "Data perusahaan untuk user ini tidak ditemukan")
+			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
 			return
 		}
-		// Kirim data company sebagai respons berhasil login.
 		respondWithJSON(w, http.StatusOK, company)
 	} else {
-		// Jika password tidak cocok.
-		log.Printf("Login failed for user '%s': incorrect password", payload.Username)
 		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
 	}
 }
@@ -1436,10 +1414,10 @@ func initDB(db *sql.DB) {
     CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
     CREATE TABLE IF NOT EXISTS panels (
-	no_pp TEXT PRIMARY KEY, no_panel TEXT UNIQUE, no_wbs TEXT, project TEXT, percent_progress REAL,
-	start_date TIMESTAMPTZ, target_delivery TIMESTAMPTZ, status_busbar_pcc TEXT, status_busbar_mcc TEXT,
-	status_component TEXT, status_palet TEXT, status_corepart TEXT, ao_busbar_pcc TIMESTAMPTZ, ao_busbar_mcc TIMESTAMPTZ,
-	created_by TEXT, vendor_id TEXT, is_closed BOOLEAN DEFAULT false, closed_date TIMESTAMPTZ );
+      no_pp TEXT PRIMARY KEY, no_panel TEXT UNIQUE, no_wbs TEXT, project TEXT, percent_progress REAL,
+      start_date TIMESTAMPTZ, target_delivery TIMESTAMPTZ, status_busbar_pcc TEXT, status_busbar_mcc TEXT,
+      status_component TEXT, status_palet TEXT, status_corepart TEXT, ao_busbar_pcc TIMESTAMPTZ, ao_busbar_mcc TIMESTAMPTZ,
+      created_by TEXT, vendor_id TEXT, is_closed BOOLEAN DEFAULT false, closed_date TIMESTAMPTZ );
     CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
