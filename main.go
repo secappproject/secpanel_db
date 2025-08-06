@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -241,6 +241,7 @@ func (a *App) initializeRoutes() {
 	// Panel Management
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
+	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE") 
 	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
@@ -716,6 +717,35 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		results = append(results, pdd)
 	}
 	respondWithJSON(w, http.StatusOK, results)
+}
+
+func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		NoPps []string `json:"no_pps"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	if len(payload.NoPps) == 0 {
+		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Tidak ada panel yang dipilih untuk dihapus"})
+		return
+	}
+
+	// Menggunakan pq.Array untuk mengirim list string ke query PostgreSQL
+	// ON DELETE CASCADE pada schema akan menangani penghapusan di tabel-tabel terkait (busbars, components, dll)
+	query := "DELETE FROM panels WHERE no_pp = ANY($1)"
+	result, err := a.DB.Exec(query, pq.Array(payload.NoPps))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	message := fmt.Sprintf("%d panel berhasil dihapus.", rowsAffected)
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": message})
 }
 
 func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
