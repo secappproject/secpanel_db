@@ -646,7 +646,13 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	var args []interface{}
 	argCounter := 1
 
+	// Jika role tidak dikirim (dari bulk delete), anggap sebagai admin untuk ambil semua data
+	if userRole == "" {
+		userRole = AppRoleAdmin
+	}
+
 	if userRole != AppRoleAdmin && userRole != AppRoleViewer {
+		// Logika filter untuk role lain tetap sama
 		switch userRole {
 		case AppRoleK3:
 			panelIdsSubQuery = fmt.Sprintf(`
