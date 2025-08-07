@@ -1,4 +1,3 @@
-// filename: main.go
 package main
 
 import (
@@ -195,7 +194,6 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	a.initializeRoutes()
 }
 
-
 func (a *App) Run(addr string) {
 	log.Printf("Server berjalan di %s", addr)
 	log.Fatal(http.ListenAndServe(addr, jsonContentTypeMiddleware(a.Router)))
@@ -232,6 +230,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/users/colleagues/display", a.getColleagueAccountsForDisplayHandler).Methods("GET")
 
 	// Company Management
+	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST") // <-- [PERBAIKAN] Route baru ditambahkan
 	a.Router.HandleFunc("/company/{id}", a.getCompanyByIdHandler).Methods("GET")
 	a.Router.HandleFunc("/companies", a.getAllCompaniesHandler).Methods("GET")
 	a.Router.HandleFunc("/company-by-name/{name}", a.getCompanyByNameHandler).Methods("GET")
@@ -241,7 +240,7 @@ func (a *App) initializeRoutes() {
 	// Panel Management
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
-	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE") 
+	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
@@ -271,6 +270,34 @@ func (a *App) initializeRoutes() {
 // =============================================================================
 // HANDLERS
 // =============================================================================
+
+// <-- [PERBAIKAN] Handler baru untuk insert company ditambahkan di sini -->
+func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
+	var c Company
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	query := `
+        INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)
+        ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            role = EXCLUDED.role`
+
+	_, err := a.DB.Exec(query, c.ID, c.Name, c.Role)
+	if err != nil {
+		// Check for unique constraint violation on 'name' specifically
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" && strings.Contains(pqErr.Constraint, "companies_name_key") {
+			respondWithError(w, http.StatusConflict, fmt.Sprintf("Nama perusahaan '%s' sudah ada.", c.Name))
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Gagal memasukkan perusahaan: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, c)
+}
 
 func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var p Panel
@@ -656,24 +683,24 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		switch userRole {
 		case AppRoleK3:
 			panelIdsSubQuery = fmt.Sprintf(`
-                SELECT no_pp FROM panels WHERE vendor_id = $%d
-                UNION SELECT panel_no_pp FROM palet WHERE vendor = $%d
-                UNION SELECT panel_no_pp FROM corepart WHERE vendor = $%d
-                UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM palet)
-                UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM corepart)
-            `, argCounter, argCounter, argCounter)
+                        SELECT no_pp FROM panels WHERE vendor_id = $%d
+                        UNION SELECT panel_no_pp FROM palet WHERE vendor = $%d
+                        UNION SELECT panel_no_pp FROM corepart WHERE vendor = $%d
+                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM palet)
+                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM corepart)
+                    `, argCounter, argCounter, argCounter)
 			args = append(args, companyId)
 		case AppRoleK5:
 			panelIdsSubQuery = fmt.Sprintf(`
-                SELECT panel_no_pp FROM busbars WHERE vendor = $%d
-                UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)
-            `, argCounter)
+                        SELECT panel_no_pp FROM busbars WHERE vendor = $%d
+                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)
+                    `, argCounter)
 			args = append(args, companyId)
 		case AppRoleWarehouse:
 			panelIdsSubQuery = fmt.Sprintf(`
-                SELECT panel_no_pp FROM components WHERE vendor = $%d
-                UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM components)
-            `, argCounter)
+                        SELECT panel_no_pp FROM components WHERE vendor = $%d
+                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM components)
+                    `, argCounter)
 			args = append(args, companyId)
 		default:
 			respondWithJSON(w, http.StatusOK, []PanelDisplayData{})
@@ -968,9 +995,9 @@ func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]i
 		switch userRole {
 		case AppRoleK3:
 			query = `
-                SELECT no_pp FROM panels WHERE vendor_id = $1
-                UNION SELECT panel_no_pp FROM palet WHERE vendor = $1
-                UNION SELECT panel_no_pp FROM corepart WHERE vendor = $1`
+                        SELECT no_pp FROM panels WHERE vendor_id = $1
+                        UNION SELECT panel_no_pp FROM palet WHERE vendor = $1
+                        UNION SELECT panel_no_pp FROM corepart WHERE vendor = $1`
 			panelIdRows, err = tx.Query(query, companyId)
 		case AppRoleK5:
 			query = "SELECT panel_no_pp FROM busbars WHERE vendor = $1"
@@ -1048,6 +1075,7 @@ func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]i
 
 	return result, nil
 }
+
 // --- [AKHIR PERUBAHAN] ---
 
 func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Request) {
@@ -1353,16 +1381,16 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			panelMap := map[string]interface{}{
-				"no_pp":             noPp,
-				"no_panel":          getValueCaseInsensitive(row, "Panel No"),
-				"no_wbs":            getValueCaseInsensitive(row, "WBS"),
-				"project":           getValueCaseInsensitive(row, "PROJECT"),
-				"start_date":        parseDate(getValueCaseInsensitive(row, "Plan Start")),
-				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC")),
-				"vendor_id":         panelK3VendorId,
-				"created_by":        "import",
-				"percent_progress":  0.0,
-				"is_closed":         false,
+				"no_pp":            noPp,
+				"no_panel":         getValueCaseInsensitive(row, "Panel No"),
+				"no_wbs":           getValueCaseInsensitive(row, "WBS"),
+				"project":          getValueCaseInsensitive(row, "PROJECT"),
+				"start_date":       parseDate(getValueCaseInsensitive(row, "Plan Start")),
+				"target_delivery":  parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC")),
+				"vendor_id":        panelK3VendorId,
+				"created_by":       "import",
+				"percent_progress": 0.0,
+				"is_closed":        false,
 				"status_busbar_pcc": "On Progress",
 				"status_busbar_mcc": "On Progress",
 				"status_component":  "Open",
@@ -1404,8 +1432,33 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if len(errors) > 0 {
-		errorString := strings.Join(errors, "\n- ")
-		respondWithError(w, http.StatusBadRequest, "Impor dibatalkan karena error validasi:\n- "+errorString)
+		// [PERUBAHAN] Pesan error dibuat lebih generik untuk ditampilkan ke pengguna.
+		// Detail error tetap dicatat di log server untuk kebutuhan debugging.
+		log.Printf("Import validation error details: %s", strings.Join(errors, " | "))
+
+		var summary []string
+		errorString := strings.ToLower(strings.Join(errors, "\n"))
+
+		if strings.Contains(errorString, "tidak ditemukan") {
+			summary = append(summary, "terdapat panel/busbar/vendor yang tidak terdaftar")
+		}
+		if strings.Contains(errorString, "duplicate") || strings.Contains(errorString, "sudah ada") || strings.Contains(errorString, "violates unique constraint") {
+			summary = append(summary, "terdapat duplikasi data (misal: No. Panel)")
+		}
+		if strings.Contains(errorString, "wajib diisi") || strings.Contains(errorString, "kosong") {
+			summary = append(summary, "ada kolom wajib yang belum diisi")
+		}
+
+		var genericMessage string
+		if len(summary) > 0 {
+			// Gabungkan semua masalah yang terdeteksi menjadi satu pesan
+			genericMessage = "Impor dibatalkan karena " + strings.Join(summary, ", ") + "."
+		} else {
+			// Fallback message jika jenis error tidak teridentifikasi
+			genericMessage = "Impor dibatalkan karena terdapat data yang tidak valid."
+		}
+		
+		respondWithError(w, http.StatusBadRequest, genericMessage)
 		return
 	}
 
@@ -1728,11 +1781,11 @@ func parseDate(dateStr string) *string {
 	}
 	// Daftar format yang akan dicoba untuk di-parsing.
 	layouts := []string{
-		time.RFC3339,                   // Format standar: 2025-08-04T00:00:00Z
-		"2006-01-02T15:04:05Z07:00",     // Format standar lain
-		"02-Jan-2006",                  // Format BARU: 04-Aug-2025 (tahun 4 digit)
-		"02-Jan-06",                    // Format lama: 04-Aug-25 (tahun 2 digit)
-		"1/2/2006",                     // Format: 8/4/2025
+		time.RFC3339,                 // Format standar: 2025-08-04T00:00:00Z
+		"2006-01-02T15:04:05Z07:00",   // Format standar lain
+		"02-Jan-2006",                 // Format BARU: 04-Aug-2025 (tahun 4 digit)
+		"02-Jan-06",                   // Format lama: 04-Aug-25 (tahun 2 digit)
+		"1/2/2006",                    // Format: 8/4/2025
 	}
 	for _, layout := range layouts {
 		t, err := time.Parse(layout, dateStr)
