@@ -33,7 +33,12 @@ const (
 type customTime struct {
 	time.Time
 }
-
+type PanelKeyInfo struct {
+	NoPp    string `json:"no_pp"`
+	NoPanel string `json:"no_panel"`
+	Project string `json:"project"`
+	NoWbs   string `json:"no_wbs"`
+}
 const ctLayout = "2006-01-02T15:04:05.999999"
 
 func (ct *customTime) UnmarshalJSON(b []byte) (err error) {
@@ -238,6 +243,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/keys", a.getPanelKeysHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
 	// Rute isPanelNumberUniqueHandler tidak lagi diperlukan karena no_panel tidak unik
@@ -749,6 +755,27 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		results = append(results, pdd)
 	}
 	respondWithJSON(w, http.StatusOK, results)
+}
+
+func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
+	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM panels WHERE is_deleted = false`
+	rows, err := a.DB.Query(query)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var keys []PanelKeyInfo
+	for rows.Next() {
+		var key PanelKeyInfo
+		if err := rows.Scan(&key.NoPp, &key.NoPanel, &key.Project, &key.NoWbs); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal scan panel keys: "+err.Error())
+			return
+		}
+		keys = append(keys, key)
+	}
+	respondWithJSON(w, http.StatusOK, keys)
 }
 
 func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
@@ -1463,21 +1490,46 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			errors = append(errors, "Kritis: Perusahaan 'Warehouse' tidak ada di DB. Component tidak bisa di-assign.")
 		}
 
-		for i, row := range panelSheetData {
+for i, row := range panelSheetData {
 			rowNum := i + 2
 			
-
+			// Ambil semua kunci dari baris Excel
 			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
+			noPanel := getValueCaseInsensitive(row, "Panel No")
+			project := getValueCaseInsensitive(row, "PROJECT")
+			noWbs := getValueCaseInsensitive(row, "WBS")
 
+			// Bersihkan no_pp dari .0
 			var noPp string
 			if f, err := strconv.ParseFloat(noPpRaw, 64); err == nil {
-				// Jika berhasil di-parse sebagai angka, ubah ke integer string
 				noPp = fmt.Sprintf("%d", int(f))
 			} else {
-				// Jika bukan angka (sudah benar), gunakan apa adanya
 				noPp = noPpRaw
 			}
-			// Jika no_pp dari file kosong setelah dibersihkan, buat ID unik sementara
+
+			var oldTempNoPp string
+			// Jika no_pp baru ADA, cari record lama yang cocok berdasarkan kunci alami
+			if noPp != "" && (noPanel != "" || project != "" || noWbs != "") {
+				// Cari panel TEMP yang cocok dengan kombinasi kunci alami
+				findTempQuery := `SELECT no_pp FROM panels WHERE no_pp LIKE 'TEMP_PP_%' AND no_panel = $1 AND project = $2 AND no_wbs = $3`
+				err := tx.QueryRow(findTempQuery, noPanel, project, noWbs).Scan(&oldTempNoPp)
+				if err != nil && err != sql.ErrNoRows {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal mencari data sementara: %v", rowNum, err))
+					continue
+				}
+
+				// Jika ditemukan, hapus data lama sebelum insert yang baru
+				if oldTempNoPp != "" {
+					// ON DELETE CASCADE akan menangani tabel relasi
+					_, err := tx.Exec("DELETE FROM panels WHERE no_pp = $1", oldTempNoPp)
+					if err != nil {
+						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal menghapus data sementara %s: %v", rowNum, oldTempNoPp, err))
+						continue
+					}
+				}
+			}
+
+			// Jika no_pp dari file kosong (dan tidak ada oldTempNoPp ditemukan), buatkan yang baru
 			if noPp == "" {
 				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
 				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
