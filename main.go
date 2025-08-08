@@ -706,7 +706,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	} else {
-				panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL"
+		// Untuk Admin/Viewer, hanya tampilkan panel yang no_pp-nya bukan temporary
+		// dan bukan data tes yang aneh. Asumsi no_pp valid panjangnya > 3 karakter.
+		panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL AND no_pp NOT LIKE 'TEMP_PP_%' AND LENGTH(no_pp) > 3"
 	}
 
 	finalQuery := `
@@ -731,7 +733,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
         WHERE p.is_deleted = false
         AND p.no_pp IN (` + panelIdsSubQuery + `) 
         ORDER BY p.start_date DESC`
-
+		
 	rows, err := a.DB.Query(finalQuery, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1489,12 +1491,22 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 		for i, row := range panelSheetData {
 			rowNum := i + 2
 			
-			noPp := getValueCaseInsensitive(row, "PP Panel")
 
-			// Jika no_pp dari file kosong, buat ID unik sementara
+			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
+
+			var noPp string
+			if f, err := strconv.ParseFloat(noPpRaw, 64); err == nil {
+				// Jika berhasil di-parse sebagai angka, ubah ke integer string
+				noPp = fmt.Sprintf("%d", int(f))
+			} else {
+				// Jika bukan angka (sudah benar), gunakan apa adanya
+				noPp = noPpRaw
+			}
+
+			// Jika no_pp dari file kosong setelah dibersihkan, buat ID unik sementara
 			if noPp == "" {
 				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
-				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp) 
+				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
 			}
 			panelVendorInput := getValueCaseInsensitive(row, "Panel")
 			busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
