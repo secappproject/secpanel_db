@@ -672,43 +672,26 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	var args []interface{}
 	argCounter := 1
 
-	// Jika role tidak dikirim (dari bulk delete), anggap sebagai admin untuk ambil semua data
-	if userRole == "" {
-		userRole = AppRoleAdmin
-	}
+	if userRole == "" { userRole = AppRoleAdmin }
 
 	if userRole != AppRoleAdmin && userRole != AppRoleViewer {
 		// Logika filter untuk role lain tetap sama
 		switch userRole {
 		case AppRoleK3:
-			panelIdsSubQuery = fmt.Sprintf(`
-                        SELECT no_pp FROM panels WHERE vendor_id = $%d
-                        UNION SELECT panel_no_pp FROM palet WHERE vendor = $%d
-                        UNION SELECT panel_no_pp FROM corepart WHERE vendor = $%d
-                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM palet)
-                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM corepart)
-                    `, argCounter, argCounter, argCounter)
+			panelIdsSubQuery = fmt.Sprintf(`SELECT no_pp FROM panels WHERE vendor_id = $%d UNION SELECT panel_no_pp FROM palet WHERE vendor = $%d UNION SELECT panel_no_pp FROM corepart WHERE vendor = $%d`, argCounter, argCounter, argCounter)
 			args = append(args, companyId)
 		case AppRoleK5:
-			panelIdsSubQuery = fmt.Sprintf(`
-                        SELECT panel_no_pp FROM busbars WHERE vendor = $%d
-                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)
-                    `, argCounter)
+			panelIdsSubQuery = fmt.Sprintf(`SELECT panel_no_pp FROM busbars WHERE vendor = $%d UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)`, argCounter)
 			args = append(args, companyId)
 		case AppRoleWarehouse:
-			panelIdsSubQuery = fmt.Sprintf(`
-                        SELECT panel_no_pp FROM components WHERE vendor = $%d
-                        UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM components)
-                    `, argCounter)
+			panelIdsSubQuery = fmt.Sprintf(`SELECT panel_no_pp FROM components WHERE vendor = $%d UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM components)`, argCounter)
 			args = append(args, companyId)
 		default:
-			respondWithJSON(w, http.StatusOK, []PanelDisplayData{})
-			return
+			respondWithJSON(w, http.StatusOK, []PanelDisplayData{}); return
 		}
 	} else {
 		// Untuk Admin/Viewer, hanya tampilkan panel yang no_pp-nya bukan temporary
-		// dan bukan data tes yang aneh. Asumsi no_pp valid panjangnya > 3 karakter.
-		panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL AND no_pp NOT LIKE 'TEMP_PP_%' AND LENGTH(no_pp) > 3"
+		panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL AND no_pp NOT LIKE 'TEMP_PP_%'"
 	}
 
 	finalQuery := `
@@ -730,10 +713,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
             (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
         FROM panels p 
         LEFT JOIN companies pu ON p.vendor_id = pu.id
-        WHERE p.is_deleted = false
-        AND p.no_pp IN (` + panelIdsSubQuery + `) 
+        WHERE p.no_pp IN (` + panelIdsSubQuery + `) 
         ORDER BY p.start_date DESC`
-		
+    
 	rows, err := a.DB.Query(finalQuery, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -769,30 +751,25 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	respondWithJSON(w, http.StatusOK, results)
 }
 
-
 func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		NoPps []string `json:"no_pps"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
-
 	if len(payload.NoPps) == 0 {
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Tidak ada panel yang dipilih untuk dihapus"})
 		return
 	}
 
-	// Query UPDATE untuk soft delete
-	query := "UPDATE panels SET is_deleted = true WHERE no_pp = ANY($1)"
+	query := "DELETE FROM panels WHERE no_pp = ANY($1)"
 	result, err := a.DB.Exec(query, pq.Array(payload.NoPps))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
 		return
 	}
-
 	rowsAffected, _ := result.RowsAffected()
 	message := fmt.Sprintf("%d panel berhasil dihapus.", rowsAffected)
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": message})
@@ -801,19 +778,17 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 	
-	query := "UPDATE panels SET is_deleted = true WHERE no_pp = $1"
+	query := "DELETE FROM panels WHERE no_pp = $1"
 	result, err := a.DB.Exec(query, noPp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-    
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
 		return
 	}
-
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Panel berhasil dihapus"})
 }
 
@@ -1624,7 +1599,7 @@ func splitIds(ns sql.NullString) []string {
 func initDB(db *sql.DB) {
 	// --- [PERBAIKAN #1] Menghapus UNIQUE dari kolom no_panel ---
 createTablesSQL := `
-    CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
+        CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
     CREATE TABLE IF NOT EXISTS panels (
       no_pp TEXT PRIMARY KEY, 
@@ -1644,8 +1619,7 @@ createTablesSQL := `
       created_by TEXT, 
       vendor_id TEXT, 
       is_closed BOOLEAN DEFAULT false, 
-      closed_date TIMESTAMPTZ,
-      is_deleted BOOLEAN DEFAULT false  
+      closed_date TIMESTAMPTZ
     );
     CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
