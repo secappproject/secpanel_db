@@ -691,7 +691,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		}
 	} else {
 		// Untuk Admin/Viewer, hanya tampilkan panel yang no_pp-nya bukan temporary
-		panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL AND no_pp NOT LIKE 'TEMP_PP_%'"
+		panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL"
 	}
 
 	finalQuery := `
@@ -1477,7 +1477,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				// Jika bukan angka (sudah benar), gunakan apa adanya
 				noPp = noPpRaw
 			}
-
 			// Jika no_pp dari file kosong setelah dibersihkan, buat ID unik sementara
 			if noPp == "" {
 				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
