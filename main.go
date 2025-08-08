@@ -706,11 +706,17 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	} else {
-		panelIdsSubQuery = "SELECT no_pp FROM panels"
+				panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL"
 	}
 
 	finalQuery := `
-        SELECT p.*, pu.name as panel_vendor_name,
+        SELECT 
+            CASE WHEN p.no_pp LIKE 'TEMP_PP_%' THEN '' ELSE p.no_pp END AS no_pp,
+            p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
+            p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
+            p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
+            p.is_closed, p.closed_date,
+            pu.name as panel_vendor_name,
             (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
             (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
             (SELECT STRING_AGG(b.remarks, '; ') FROM busbars b WHERE b.panel_no_pp = p.no_pp) as busbar_remarks,
@@ -720,8 +726,11 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
             (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_ids,
             (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
             (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
-        FROM panels p LEFT JOIN companies pu ON p.vendor_id = pu.id
-        WHERE p.no_pp IN (` + panelIdsSubQuery + `) ORDER BY p.start_date DESC`
+        FROM panels p 
+        LEFT JOIN companies pu ON p.vendor_id = pu.id
+        WHERE p.is_deleted = false
+        AND p.no_pp IN (` + panelIdsSubQuery + `) 
+        ORDER BY p.start_date DESC`
 
 	rows, err := a.DB.Query(finalQuery, args...)
 	if err != nil {
@@ -735,8 +744,15 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		var pdd PanelDisplayData
 		var busbarVendorIds, componentVendorIds, paletVendorIds, corepartVendorIds sql.NullString
 		err := rows.Scan(
-			&pdd.Panel.NoPp, &pdd.Panel.NoPanel, &pdd.Panel.NoWbs, &pdd.Panel.Project, &pdd.Panel.PercentProgress, &pdd.Panel.StartDate, &pdd.Panel.TargetDelivery, &pdd.Panel.StatusBusbarPcc, &pdd.Panel.StatusBusbarMcc, &pdd.Panel.StatusComponent, &pdd.Panel.StatusPalet, &pdd.Panel.StatusCorepart, &pdd.Panel.AoBusbarPcc, &pdd.Panel.AoBusbarMcc, &pdd.Panel.CreatedBy, &pdd.Panel.VendorID, &pdd.Panel.IsClosed, &pdd.Panel.ClosedDate,
-			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks, &pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds, &pdd.CorepartVendorNames, &corepartVendorIds,
+			&pdd.Panel.NoPp, &pdd.Panel.NoPanel, &pdd.Panel.NoWbs, &pdd.Panel.Project, 
+			&pdd.Panel.PercentProgress, &pdd.Panel.StartDate, &pdd.Panel.TargetDelivery, 
+			&pdd.Panel.StatusBusbarPcc, &pdd.Panel.StatusBusbarMcc, &pdd.Panel.StatusComponent, 
+			&pdd.Panel.StatusPalet, &pdd.Panel.StatusCorepart, &pdd.Panel.AoBusbarPcc, 
+			&pdd.Panel.AoBusbarMcc, &pdd.Panel.CreatedBy, &pdd.Panel.VendorID, 
+			&pdd.Panel.IsClosed, &pdd.Panel.ClosedDate,
+			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks, 
+			&pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds, 
+			&pdd.CorepartVendorNames, &corepartVendorIds,
 		)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Error scanning row: "+err.Error())
@@ -750,6 +766,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	}
 	respondWithJSON(w, http.StatusOK, results)
 }
+
 
 func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
@@ -766,9 +783,8 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Menggunakan pq.Array untuk mengirim list string ke query PostgreSQL
-	// ON DELETE CASCADE pada schema akan menangani penghapusan di tabel-tabel terkait (busbars, components, dll)
-	query := "DELETE FROM panels WHERE no_pp = ANY($1)"
+	// Query UPDATE untuk soft delete
+	query := "UPDATE panels SET is_deleted = true WHERE no_pp = ANY($1)"
 	result, err := a.DB.Exec(query, pq.Array(payload.NoPps))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
@@ -782,31 +798,35 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
-	tx, err := a.DB.Begin()
+	
+	query := "UPDATE panels SET is_deleted = true WHERE no_pp = $1"
+	result, err := a.DB.Exec(query, noPp)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
-		return
-	}
-	result, err := tx.Exec("DELETE FROM panels WHERE no_pp = $1", noPp)
-	if err != nil {
-		tx.Rollback()
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+    
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		tx.Rollback()
 		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
 		return
 	}
-	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
-		return
-	}
-	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Panel " + noPp + " berhasil dihapus"})
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Panel berhasil dihapus"})
 }
+
 func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.DB.Query("SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date FROM panels")
+	// [PERBAIKAN] Menggunakan CASE untuk menyembunyikan no_pp sementara
+	query := `
+        SELECT 
+            CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
+            no_panel, no_wbs, project, percent_progress, start_date, target_delivery, 
+            status_busbar_pcc, status_busbar_mcc, status_component, status_palet, 
+            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, 
+            is_closed, closed_date 
+        FROM panels`
+
+	rows, err := a.DB.Query(query)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -823,11 +843,24 @@ func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusOK, panels)
 }
+
 func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 	var p Panel
-	err := a.DB.QueryRow("SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date FROM panels WHERE no_pp = $1", noPp).Scan(
+
+	// [PERBAIKAN] Menggunakan CASE untuk menyembunyikan no_pp sementara
+	query := `
+        SELECT 
+            CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
+            no_panel, no_wbs, project, percent_progress, start_date, target_delivery, 
+            status_busbar_pcc, status_busbar_mcc, status_component, status_palet, 
+            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, 
+            is_closed, closed_date 
+        FROM panels WHERE no_pp = $1`
+	
+	err := a.DB.QueryRow(query, noPp).Scan(
 		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate)
+	
 	if err != nil {
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
@@ -1455,7 +1488,14 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 		for i, row := range panelSheetData {
 			rowNum := i + 2
+			
 			noPp := getValueCaseInsensitive(row, "PP Panel")
+
+			// Jika no_pp dari file kosong, buat ID unik sementara
+			if noPp == "" {
+				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
+				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp) 
+			}
 			panelVendorInput := getValueCaseInsensitive(row, "Panel")
 			busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
 
@@ -1571,7 +1611,7 @@ func splitIds(ns sql.NullString) []string {
 }
 func initDB(db *sql.DB) {
 	// --- [PERBAIKAN #1] Menghapus UNIQUE dari kolom no_panel ---
-	createTablesSQL := `
+createTablesSQL := `
     CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
     CREATE TABLE IF NOT EXISTS panels (
@@ -1592,7 +1632,8 @@ func initDB(db *sql.DB) {
       created_by TEXT, 
       vendor_id TEXT, 
       is_closed BOOLEAN DEFAULT false, 
-      closed_date TIMESTAMPTZ 
+      closed_date TIMESTAMPTZ,
+      is_deleted BOOLEAN DEFAULT false  
     );
     CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
