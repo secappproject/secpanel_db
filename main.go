@@ -1281,7 +1281,7 @@ func (a *App) generateImportTemplateHandler(w http.ResponseWriter, r *http.Reque
 func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Data             map[string][]map[string]interface{} `json:"data"`
-		LoggedInUsername *string                             `json:"loggedInUsername"`
+		LoggedInUsername *string                           `json:"loggedInUsername"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -1322,11 +1322,11 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			if username == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' kosong.", rowNum))
+				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNum))
 				continue
 			}
 			if companyName == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' kosong.", rowNum))
+				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNum))
 				continue
 			}
 
@@ -1431,36 +1431,20 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+    // --- [PERBAIKAN LOGIKA ERROR DIMULAI DI SINI] ---
 	if len(errors) > 0 {
-		// [PERUBAHAN] Pesan error dibuat lebih generik untuk ditampilkan ke pengguna.
-		// Detail error tetap dicatat di log server untuk kebutuhan debugging.
+		// Log error detail di server untuk debugging (ini sudah bagus, kita pertahankan)
 		log.Printf("Import validation error details: %s", strings.Join(errors, " | "))
 
-		var summary []string
-		errorString := strings.ToLower(strings.Join(errors, "\n"))
+		// Buat satu pesan final dengan menggabungkan semua error spesifik.
+		// Setiap error akan berada di baris baru agar mudah dibaca di aplikasi.
+		finalMessage := "Impor dibatalkan karena error berikut:\n- " + strings.Join(errors, "\n- ")
 
-		if strings.Contains(errorString, "tidak ditemukan") {
-			summary = append(summary, "terdapat panel/busbar/vendor yang tidak terdaftar")
-		}
-		if strings.Contains(errorString, "duplicate") || strings.Contains(errorString, "sudah ada") || strings.Contains(errorString, "violates unique constraint") {
-			summary = append(summary, "terdapat duplikasi data (misal: No. Panel)")
-		}
-		if strings.Contains(errorString, "wajib diisi") || strings.Contains(errorString, "kosong") {
-			summary = append(summary, "ada kolom wajib yang belum diisi")
-		}
-
-		var genericMessage string
-		if len(summary) > 0 {
-			// Gabungkan semua masalah yang terdeteksi menjadi satu pesan
-			genericMessage = "Impor dibatalkan karena " + strings.Join(summary, ", ") + "."
-		} else {
-			// Fallback message jika jenis error tidak teridentifikasi
-			genericMessage = "Impor dibatalkan karena terdapat data yang tidak valid."
-		}
-		
-		respondWithError(w, http.StatusBadRequest, genericMessage)
+		// Kirim pesan error yang spesifik ini ke aplikasi Flutter
+		respondWithError(w, http.StatusBadRequest, finalMessage)
 		return
 	}
+    // --- [PERBAIKAN SELESAI] ---
 
 	if !dataProcessed {
 		respondWithError(w, http.StatusBadRequest, "Tidak ada data valid yang ditemukan di dalam sheet 'Panel' atau 'User'.")
@@ -1474,7 +1458,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
-
 // =============================================================================
 // HELPERS & DB INIT
 // =============================================================================
