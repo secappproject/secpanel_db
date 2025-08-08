@@ -174,13 +174,8 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 		log.Fatalf("Gagal membuka koneksi DB: %v", err)
 	}
 
-	// [PERUBAHAN] Konfigurasi connection pool untuk menjaga koneksi tetap sehat
-	// Mengatur jumlah maksimum koneksi yang diizinkan terbuka ke database.
 	a.DB.SetMaxOpenConns(25)
-	// Mengatur jumlah maksimum koneksi yang boleh dalam keadaan idle (tidak terpakai) di dalam pool.
 	a.DB.SetMaxIdleConns(25)
-	// Mengatur durasi maksimum sebuah koneksi boleh digunakan sebelum ditutup dan diganti dengan yang baru.
-	// Ini adalah kunci untuk mencegah error "bad connection" pada platform cloud.
 	a.DB.SetConnMaxLifetime(5 * time.Minute)
 
 	err = a.DB.Ping()
@@ -230,7 +225,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/users/colleagues/display", a.getColleagueAccountsForDisplayHandler).Methods("GET")
 
 	// Company Management
-	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST") // <-- [PERBAIKAN] Route baru ditambahkan
+	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST")
 	a.Router.HandleFunc("/company/{id}", a.getCompanyByIdHandler).Methods("GET")
 	a.Router.HandleFunc("/companies", a.getAllCompaniesHandler).Methods("GET")
 	a.Router.HandleFunc("/company-by-name/{name}", a.getCompanyByNameHandler).Methods("GET")
@@ -245,7 +240,8 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
-	a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
+	// Rute isPanelNumberUniqueHandler tidak lagi diperlukan karena no_panel tidak unik
+	// a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
 
 	// Sub-Panel Parts Management
 	a.Router.HandleFunc("/busbar", a.upsertGenericHandler("busbars", &Busbar{})).Methods("POST")
@@ -271,7 +267,6 @@ func (a *App) initializeRoutes() {
 // HANDLERS
 // =============================================================================
 
-// <-- [PERBAIKAN] Handler baru untuk insert company ditambahkan di sini -->
 func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	var c Company
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
@@ -287,7 +282,6 @@ func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, err := a.DB.Exec(query, c.ID, c.Name, c.Role)
 	if err != nil {
-		// Check for unique constraint violation on 'name' specifically
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" && strings.Contains(pqErr.Constraint, "companies_name_key") {
 			respondWithError(w, http.StatusConflict, fmt.Sprintf("Nama perusahaan '%s' sudah ada.", c.Name))
 			return
@@ -314,11 +308,16 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, err := a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate)
 	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			respondWithError(w, http.StatusConflict, "Gagal menyimpan: Terdapat duplikasi pada No Panel.")
+			return
+		}
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondWithJSON(w, http.StatusCreated, p)
 }
+
 
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct{ Username, Password string }
@@ -1278,6 +1277,64 @@ func (a *App) generateImportTemplateHandler(w http.ResponseWriter, r *http.Reque
 		"extension": extension,
 	})
 }
+
+
+// normalizeVendorName membersihkan nama vendor ke format dasar untuk pencocokan.
+// Contoh: "PT. G.A.A 2" -> "GAA"
+func normalizeVendorName(name string) string {
+	// 1. Hapus Prefiks Umum (PT, CV, etc.)
+	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
+	tempName := strings.ToUpper(name)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(tempName, prefix+" ") {
+			tempName = strings.TrimSpace(strings.TrimPrefix(tempName, prefix+" "))
+			break
+		}
+	}
+
+	// 2. Hapus semua karakter non-alfabet
+	var result strings.Builder
+	for _, r := range tempName {
+		if r >= 'A' && r <= 'Z' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// generateAcronym membuat akronim dari nama vendor.
+// Contoh: "PT Global Abc Acd" -> "GAA"
+func generateAcronym(name string) string {
+	// 1. Hapus Prefiks
+	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
+	tempName := strings.ToUpper(name)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(tempName, prefix+" ") {
+			tempName = strings.TrimSpace(strings.TrimPrefix(tempName, prefix+" "))
+			break
+		}
+	}
+
+	// 2. Buat Akronim dari sisa kata
+	parts := strings.Fields(tempName) // Memisahkan berdasarkan spasi
+	if len(parts) <= 1 {
+		return "" // Bukan nama multi-kata, tidak ada akronim
+	}
+	var acronym strings.Builder
+	for _, part := range parts {
+		if len(part) > 0 {
+			acronym.WriteRune([]rune(part)[0])
+		}
+	}
+
+	// Hanya kembalikan jika benar-benar sebuah akronim (2+ huruf)
+	if acronym.Len() > 1 {
+		return acronym.String()
+	}
+	return ""
+}
+
+
 func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Data             map[string][]map[string]interface{} `json:"data"`
@@ -1298,18 +1355,72 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	var errors []string
 	dataProcessed := false
 
-	findVendorId := func(vendorName string) (string, error) {
-		if strings.TrimSpace(vendorName) == "" {
-			return "", nil
+	// --- [PERBAIKAN UTAMA] Pre-computation & Caching Vendor Names ---
+	vendorIdMap := make(map[string]bool)
+	normalizedNameToIdMap := make(map[string]string)
+	acronymToIdMap := make(map[string]string)
+
+	rows, err := tx.Query("SELECT id, name FROM companies")
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var c Company
+		if err := rows.Scan(&c.ID, &c.Name); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal scan company: "+err.Error())
+			return
 		}
-		var id string
-		err := tx.QueryRow("SELECT id FROM companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(vendorName)).Scan(&id)
-		if err == sql.ErrNoRows {
-			return "", nil
+		vendorIdMap[c.ID] = true
+		
+		normalized := normalizeVendorName(c.Name)
+		if normalized != "" {
+			normalizedNameToIdMap[normalized] = c.ID
 		}
-		return id, err
+		
+		acronym := generateAcronym(c.Name)
+		if acronym != "" {
+			acronymToIdMap[acronym] = c.ID
+		}
+	}
+	
+	// Fungsi helper baru yang menggunakan cache di atas
+	resolveVendor := func(vendorInput string) string {
+		trimmedInput := strings.TrimSpace(vendorInput)
+		if trimmedInput == "" {
+			return ""
+		}
+		
+		// 1. Cek apakah input adalah ID valid
+		if vendorIdMap[trimmedInput] {
+			return trimmedInput
+		}
+
+		normalizedInput := normalizeVendorName(trimmedInput)
+
+		// 2. Cek berdasarkan nama yang sudah dinormalisasi
+		if id, ok := normalizedNameToIdMap[normalizedInput]; ok {
+			return id
+		}
+		
+		// 3. Cek apakah input adalah sebuah akronim
+		if id, ok := acronymToIdMap[normalizedInput]; ok {
+			return id
+		}
+
+		// 4. Cek berdasarkan akronim yang dibuat dari input
+		acronymInput := generateAcronym(trimmedInput)
+		if id, ok := acronymToIdMap[acronymInput]; ok {
+			return id
+		}
+		
+		return "" // Tidak ditemukan
 	}
 
+
+	// Logika untuk sheet 'user' tidak berubah, biarkan seperti semula
 	if userSheetData, ok := payload.Data["user"]; ok {
 		for i, row := range userSheetData {
 			rowNum := i + 2
@@ -1317,66 +1428,67 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			companyName := getValueCaseInsensitive(row, "Company")
 			companyRole := strings.ToLower(getValueCaseInsensitive(row, "Company Role"))
 			password := getValueCaseInsensitive(row, "Password")
-			if password == "" {
-				password = "123"
-			}
+			if password == "" { password = "123" }
 
-			if username == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNum))
-				continue
-			}
-			if companyName == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNum))
-				continue
-			}
-
-			companyId, err := findVendorId(companyName)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("User baris %d: Error mencari company: %v", rowNum, err))
-				continue
-			}
-			if companyId == "" {
+			if username == "" { errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNum)); continue }
+			if companyName == "" { errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNum)); continue }
+			
+			var companyId string
+			err := tx.QueryRow("SELECT id FROM companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(companyName)).Scan(&companyId)
+			if err == sql.ErrNoRows {
 				companyId = strings.ToLower(strings.ReplaceAll(companyName, " ", "_"))
-				_, err := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING", companyId, companyName, companyRole)
-				if err != nil {
-					errors = append(errors, fmt.Sprintf("User baris %d: Gagal membuat company baru '%s': %v", rowNum, companyName, err))
-					continue
-				}
-			}
-
+				_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING", companyId, companyName, companyRole)
+				if errInsert != nil { errors = append(errors, fmt.Sprintf("User baris %d: Gagal membuat company baru '%s': %v", rowNum, companyName, errInsert)); continue }
+			} else if err != nil { errors = append(errors, fmt.Sprintf("User baris %d: Error mencari company: %v", rowNum, err)); continue }
+			
 			_, err = tx.Exec("INSERT INTO company_accounts (username, password, company_id) VALUES ($1, $2, $3) ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, company_id = EXCLUDED.company_id", username, password, companyId)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("User baris %d: Gagal memasukkan/update akun '%s': %v", rowNum, username, err))
-				continue
-			}
+			if err != nil { errors = append(errors, fmt.Sprintf("User baris %d: Gagal memasukkan/update akun '%s': %v", rowNum, username, err)); continue }
 			dataProcessed = true
 		}
 	}
 
 	if panelSheetData, ok := payload.Data["panel"]; ok {
-		warehouseCompanyId, err := findVendorId("Warehouse")
-		if err != nil || warehouseCompanyId == "" {
+		warehouseCompanyId := resolveVendor("Warehouse")
+		if warehouseCompanyId == "" {
 			errors = append(errors, "Kritis: Perusahaan 'Warehouse' tidak ada di DB. Component tidak bisa di-assign.")
 		}
 
 		for i, row := range panelSheetData {
 			rowNum := i + 2
 			noPp := getValueCaseInsensitive(row, "PP Panel")
-			panelVendorName := getValueCaseInsensitive(row, "Panel")
-			busbarVendorName := getValueCaseInsensitive(row, "Busbar")
+			panelVendorInput := getValueCaseInsensitive(row, "Panel")
+			busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
 
 			if noPp == "" {
 				errors = append(errors, fmt.Sprintf("Panel baris %d: Kolom 'PP Panel' wajib diisi.", rowNum))
 				continue
 			}
-			if panelVendorName == "" {
-				errors = append(errors, fmt.Sprintf("Panel baris %d: Kolom 'Panel' (untuk vendor K3) wajib diisi.", rowNum))
-				continue
+
+			var panelVendorId, busbarVendorId sql.NullString
+
+			// --- [PERBAIKAN #2 & #3] Validasi Kolom 'Panel' ---
+			if panelVendorInput != "" {
+				resolvedId := resolveVendor(panelVendorInput)
+				if resolvedId == "" {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemukan.", rowNum, panelVendorInput))
+					continue
+				}
+				panelVendorId = sql.NullString{String: resolvedId, Valid: true}
 			}
 
-			panelK3VendorId, err := findVendorId(panelVendorName)
-			if err != nil || panelK3VendorId == "" {
-				errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemukan.", rowNum, panelVendorName))
+			// --- [PERBAIKAN #2 & #3] Validasi Kolom 'Busbar' ---
+			if busbarVendorInput != "" {
+				resolvedId := resolveVendor(busbarVendorInput)
+				if resolvedId == "" {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorInput))
+					continue
+				}
+				busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
+			}
+			
+			// Lanjutkan hanya jika tidak ada error pada baris ini
+			lastErrorIndex := len(errors) -1
+			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
 				continue
 			}
 
@@ -1387,64 +1499,39 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				"project":          getValueCaseInsensitive(row, "PROJECT"),
 				"start_date":       parseDate(getValueCaseInsensitive(row, "Plan Start")),
 				"target_delivery":  parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC")),
-				"vendor_id":        panelK3VendorId,
+				"vendor_id":        panelVendorId,
 				"created_by":       "import",
 				"percent_progress": 0.0,
 				"is_closed":        false,
-				"status_busbar_pcc": "On Progress",
-				"status_busbar_mcc": "On Progress",
-				"status_component":  "Open",
-				"status_palet":      "Open",
-				"status_corepart":   "Open",
+				"status_busbar_pcc": "On Progress", "status_busbar_mcc": "On Progress",
+				"status_component":  "Open", "status_palet":      "Open", "status_corepart":   "Open",
 			}
-			if payload.LoggedInUsername != nil {
-				panelMap["created_by"] = *payload.LoggedInUsername
-			}
+			if payload.LoggedInUsername != nil { panelMap["created_by"] = *payload.LoggedInUsername }
 
 			if err := insertMap(tx, "panels", panelMap); err != nil {
-				errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal insert panel: %v", rowNum, err))
-				continue
+				errors = append(errors, fmt.Sprintf("Panel baris %d (%s): Gagal menyimpan: %v", rowNum, noPp, err)); continue
 			}
 
-			if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelK3VendorId}); err != nil {
-				errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err))
-			}
-			if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelK3VendorId}); err != nil {
-				errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err))
+			if panelVendorId.Valid {
+				if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err)) }
+				if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err)) }
 			}
 			if warehouseCompanyId != "" {
-				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err))
-				}
+				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err)) }
 			}
-			if busbarVendorName != "" {
-				busbarVendorId, err := findVendorId(busbarVendorName)
-				if err != nil || busbarVendorId == "" {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorName))
-				} else {
-					if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId}); err != nil {
-						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err))
-					}
-				}
+			if busbarVendorId.Valid {
+				if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId.String}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err)) }
 			}
 			dataProcessed = true
 		}
 	}
-
-    // --- [PERBAIKAN LOGIKA ERROR DIMULAI DI SINI] ---
+	
 	if len(errors) > 0 {
-		// Log error detail di server untuk debugging (ini sudah bagus, kita pertahankan)
 		log.Printf("Import validation error details: %s", strings.Join(errors, " | "))
-
-		// Buat satu pesan final dengan menggabungkan semua error spesifik.
-		// Setiap error akan berada di baris baru agar mudah dibaca di aplikasi.
 		finalMessage := "Impor dibatalkan karena error berikut:\n- " + strings.Join(errors, "\n- ")
-
-		// Kirim pesan error yang spesifik ini ke aplikasi Flutter
 		respondWithError(w, http.StatusBadRequest, finalMessage)
 		return
 	}
-    // --- [PERBAIKAN SELESAI] ---
 
 	if !dataProcessed {
 		respondWithError(w, http.StatusBadRequest, "Tidak ada data valid yang ditemukan di dalam sheet 'Panel' atau 'User'.")
@@ -1458,6 +1545,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
+
 // =============================================================================
 // HELPERS & DB INIT
 // =============================================================================
@@ -1482,21 +1570,55 @@ func splitIds(ns sql.NullString) []string {
 	return strings.Split(ns.String, ",")
 }
 func initDB(db *sql.DB) {
+	// --- [PERBAIKAN #1] Menghapus UNIQUE dari kolom no_panel ---
 	createTablesSQL := `
     CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
     CREATE TABLE IF NOT EXISTS panels (
-      no_pp TEXT PRIMARY KEY, no_panel TEXT UNIQUE, no_wbs TEXT, project TEXT, percent_progress REAL,
-      start_date TIMESTAMPTZ, target_delivery TIMESTAMPTZ, status_busbar_pcc TEXT, status_busbar_mcc TEXT,
-      status_component TEXT, status_palet TEXT, status_corepart TEXT, ao_busbar_pcc TIMESTAMPTZ, ao_busbar_mcc TIMESTAMPTZ,
-      created_by TEXT, vendor_id TEXT, is_closed BOOLEAN DEFAULT false, closed_date TIMESTAMPTZ );
+      no_pp TEXT PRIMARY KEY, 
+      no_panel TEXT, 
+      no_wbs TEXT, 
+      project TEXT, 
+      percent_progress REAL,
+      start_date TIMESTAMPTZ, 
+      target_delivery TIMESTAMPTZ, 
+      status_busbar_pcc TEXT, 
+      status_busbar_mcc TEXT,
+      status_component TEXT, 
+      status_palet TEXT, 
+      status_corepart TEXT, 
+      ao_busbar_pcc TIMESTAMPTZ, 
+      ao_busbar_mcc TIMESTAMPTZ,
+      created_by TEXT, 
+      vendor_id TEXT, 
+      is_closed BOOLEAN DEFAULT false, 
+      closed_date TIMESTAMPTZ 
+    );
     CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS corepart ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );`
+	
+    // Menghapus constraint UNIQUE jika sudah ada sebelumnya
+    alterTableSQL := `
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'panels_no_panel_key' AND conrelid = 'panels'::regclass
+        ) THEN
+            ALTER TABLE panels DROP CONSTRAINT panels_no_panel_key;
+        END IF;
+    END;
+    $$;
+    `
 	if _, err := db.Exec(createTablesSQL); err != nil {
 		log.Fatalf("Gagal membuat tabel: %v", err)
 	}
+    if _, err := db.Exec(alterTableSQL); err != nil {
+		log.Fatalf("Gagal mengubah tabel panels: %v", err)
+	}
+
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM companies").Scan(&count); err != nil {
 		log.Fatalf("Gagal cek data dummy: %v", err)
