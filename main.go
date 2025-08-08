@@ -670,7 +670,6 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	respondWithJSON(w, http.StatusOK, companies)
 }
-
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
@@ -681,7 +680,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	if userRole == "" { userRole = AppRoleAdmin }
 
 	if userRole != AppRoleAdmin && userRole != AppRoleViewer {
-		// Logika filter untuk role lain tetap sama
+		// Logika filter untuk role selain Admin/Viewer tidak perlu diubah
 		switch userRole {
 		case AppRoleK3:
 			panelIdsSubQuery = fmt.Sprintf(`SELECT no_pp FROM panels WHERE vendor_id = $%d UNION SELECT panel_no_pp FROM palet WHERE vendor = $%d UNION SELECT panel_no_pp FROM corepart WHERE vendor = $%d`, argCounter, argCounter, argCounter)
@@ -696,10 +695,11 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			respondWithJSON(w, http.StatusOK, []PanelDisplayData{}); return
 		}
 	} else {
-		// Untuk Admin/Viewer, hanya tampilkan panel yang no_pp-nya bukan temporary
+		// Untuk Admin/Viewer, ambil semua no_pp
 		panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL"
 	}
-
+	
+	// Query utama, mengganti p.* dengan daftar kolom eksplisit dan menghapus filter is_deleted
 	finalQuery := `
         SELECT 
             CASE WHEN p.no_pp LIKE 'TEMP_PP_%' THEN '' ELSE p.no_pp END AS no_pp,
@@ -721,7 +721,6 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
         LEFT JOIN companies pu ON p.vendor_id = pu.id
         WHERE p.no_pp IN (` + panelIdsSubQuery + `) 
         ORDER BY p.start_date DESC`
-    
 	rows, err := a.DB.Query(finalQuery, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -756,9 +755,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	}
 	respondWithJSON(w, http.StatusOK, results)
 }
-
 func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
-	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM panels WHERE is_deleted = false`
+    // Menghapus referensi ke is_deleted
+	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM panels`
 	rows, err := a.DB.Query(query)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -778,6 +777,8 @@ func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, keys)
 }
 
+
+// Handler delete kembali ke DELETE permanen
 func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		NoPps []string `json:"no_pps"`
@@ -1493,7 +1494,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 for i, row := range panelSheetData {
 			rowNum := i + 2
 			
-			// Ambil semua kunci dari baris Excel
+// Ambil semua kunci dari baris Excel
 			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
 			noPanel := getValueCaseInsensitive(row, "Panel No")
 			project := getValueCaseInsensitive(row, "PROJECT")
@@ -1510,7 +1511,6 @@ for i, row := range panelSheetData {
 			var oldTempNoPp string
 			// Jika no_pp baru ADA, cari record lama yang cocok berdasarkan kunci alami
 			if noPp != "" && (noPanel != "" || project != "" || noWbs != "") {
-				// Cari panel TEMP yang cocok dengan kombinasi kunci alami
 				findTempQuery := `SELECT no_pp FROM panels WHERE no_pp LIKE 'TEMP_PP_%' AND no_panel = $1 AND project = $2 AND no_wbs = $3`
 				err := tx.QueryRow(findTempQuery, noPanel, project, noWbs).Scan(&oldTempNoPp)
 				if err != nil && err != sql.ErrNoRows {
@@ -1518,9 +1518,7 @@ for i, row := range panelSheetData {
 					continue
 				}
 
-				// Jika ditemukan, hapus data lama sebelum insert yang baru
 				if oldTempNoPp != "" {
-					// ON DELETE CASCADE akan menangani tabel relasi
 					_, err := tx.Exec("DELETE FROM panels WHERE no_pp = $1", oldTempNoPp)
 					if err != nil {
 						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal menghapus data sementara %s: %v", rowNum, oldTempNoPp, err))
@@ -1650,7 +1648,7 @@ func splitIds(ns sql.NullString) []string {
 func initDB(db *sql.DB) {
 	// --- [PERBAIKAN #1] Menghapus UNIQUE dari kolom no_panel ---
 createTablesSQL := `
-        CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
+    CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
     CREATE TABLE IF NOT EXISTS panels (
       no_pp TEXT PRIMARY KEY, 
