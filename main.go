@@ -699,28 +699,38 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		panelIdsSubQuery = "SELECT no_pp FROM panels"
 	}
 	
-	// Query utama, mengganti p.* dengan daftar kolom eksplisit dan menghapus filter is_deleted
-	finalQuery := `
-        SELECT 
-            CASE WHEN p.no_pp LIKE 'TEMP_PP_%' THEN '' ELSE p.no_pp END AS no_pp,
-            p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
-            p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
-            p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
-            p.is_closed, p.closed_date,
-            pu.name as panel_vendor_name,
-            (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
-            (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
-            (SELECT STRING_AGG(b.remarks, '; ') FROM busbars b WHERE b.panel_no_pp = p.no_pp) as busbar_remarks,
-            (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
-            (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_ids,
-            (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
-            (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_ids,
-            (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
-            (SELECT STRING_AGG(c.id, ',') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
-        FROM panels p 
-        LEFT JOIN companies pu ON p.vendor_id = pu.id
-        WHERE p.no_pp IN (` + panelIdsSubQuery + `) 
-        ORDER BY p.start_date DESC`
+// [PERUBAHAN 1] Tambahkan pengecekan untuk parameter baru 'raw_ids'
+	rawIDs := r.URL.Query().Get("raw_ids") == "true"
+
+	selectClause := "CASE WHEN p.no_pp LIKE 'TEMP_PP_%' THEN '' ELSE p.no_pp END AS no_pp"
+	if rawIDs {
+		// Jika raw_ids=true, kirim no_pp asli tanpa diubah
+		selectClause = "p.no_pp"
+	}
+
+	// [PERUBAHAN 2] Gunakan selectClause yang sudah dinamis di query utama
+	finalQuery := fmt.Sprintf(`
+		SELECT 
+			%s,
+			p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
+			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
+			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
+			p.is_closed, p.closed_date,
+			pu.name as panel_vendor_name,
+			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
+			(SELECT STRING_AGG(b.remarks, '; ') FROM busbars b WHERE b.panel_no_pp = p.no_pp) as busbar_remarks,
+			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_ids,
+			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_ids,
+			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
+		FROM panels p 
+		LEFT JOIN companies pu ON p.vendor_id = pu.id
+		WHERE p.no_pp IN (`+panelIdsSubQuery+`) 
+		ORDER BY p.start_date DESC`, selectClause)
+
 	rows, err := a.DB.Query(finalQuery, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
