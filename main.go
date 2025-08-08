@@ -696,7 +696,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		}
 	} else {
 		// Untuk Admin/Viewer, ambil semua no_pp
-		panelIdsSubQuery = "SELECT no_pp FROM panels WHERE no_pp IS NOT NULL"
+		panelIdsSubQuery = "SELECT no_pp FROM panels"
 	}
 	
 	// Query utama, mengganti p.* dengan daftar kolom eksplisit dan menghapus filter is_deleted
