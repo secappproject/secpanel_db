@@ -232,10 +232,12 @@ func (a *App) initializeRoutes() {
 	// Company Management
 	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST")
 	a.Router.HandleFunc("/company/{id}", a.getCompanyByIdHandler).Methods("GET")
+	a.Router.HandleFunc("/company/{id}", a.updateCompanyHandler).Methods("PUT")
 	a.Router.HandleFunc("/companies", a.getAllCompaniesHandler).Methods("GET")
 	a.Router.HandleFunc("/company-by-name/{name}", a.getCompanyByNameHandler).Methods("GET")
 	a.Router.HandleFunc("/vendors", a.getCompaniesByRoleHandler).Methods("GET")
 	a.Router.HandleFunc("/companies/form-data", a.getUniqueCompanyDataForFormHandler).Methods("GET")
+
 
 	// Panel Management
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
@@ -575,10 +577,11 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 	respondWithJSON(w, http.StatusOK, results)
 }
 func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.Request) {
+    // Modifikasi query untuk menyertakan 'id'
 	query := `
-        SELECT name, role FROM companies
-        WHERE role != 'admin'
-        GROUP BY name, role ORDER BY name ASC`
+		SELECT id, name, role FROM companies
+		WHERE role != 'admin'
+		GROUP BY id, name, role ORDER BY name ASC`
 
 	rows, err := a.DB.Query(query)
 	if err != nil {
@@ -589,16 +592,17 @@ func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.
 
 	var results []map[string]string
 	for rows.Next() {
-		var name, role string
-		if err := rows.Scan(&name, &role); err != nil {
+		var id, name, role string
+        // Scan 'id' juga
+		if err := rows.Scan(&id, &name, &role); err != nil {
 			respondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		results = append(results, map[string]string{"name": name, "role": role})
+        // Tambahkan 'id' ke map
+		results = append(results, map[string]string{"id": id, "name": name, "role": role})
 	}
 	respondWithJSON(w, http.StatusOK, results)
 }
-
 func (a *App) getCompanyByIdHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var c Company
@@ -1023,6 +1027,36 @@ func (a *App) getAllGenericHandler(tableName string, modelFactory func() interfa
 		}
 		respondWithJSON(w, http.StatusOK, results)
 	}
+}
+func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var payload struct {
+		Name string `json:"name"`
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+	if payload.Name == "" {
+		respondWithError(w, http.StatusBadRequest, "Nama perusahaan tidak boleh kosong")
+		return
+	}
+
+	query := `UPDATE companies SET name = $1, role = $2 WHERE id = $3`
+	_, err := a.DB.Exec(query, payload.Name, payload.Role, id)
+	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" { // unique_violation
+			respondWithError(w, http.StatusConflict, "Nama perusahaan '"+payload.Name+"' sudah digunakan.")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Gagal memperbarui perusahaan: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
 // --- [PERUBAHAN] Fungsi getFilteredDataForExport diubah untuk mencegah nilai 'null' pada JSON ---
