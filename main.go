@@ -1420,7 +1420,7 @@ func generateAcronym(name string) string {
 func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Data             map[string][]map[string]interface{} `json:"data"`
-		LoggedInUsername *string                           `json:"loggedInUsername"`
+		LoggedInUsername *string                             `json:"loggedInUsername"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -1456,25 +1456,21 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			return
 		}
 		vendorIdMap[c.ID] = true
-		
 		normalized := normalizeVendorName(c.Name)
 		if normalized != "" {
 			normalizedNameToIdMap[normalized] = c.ID
 		}
-		
 		acronym := generateAcronym(c.Name)
 		if acronym != "" {
 			acronymToIdMap[acronym] = c.ID
 		}
 	}
-	
 	// Fungsi helper baru yang menggunakan cache di atas
 	resolveVendor := func(vendorInput string) string {
 		trimmedInput := strings.TrimSpace(vendorInput)
 		if trimmedInput == "" {
 			return ""
 		}
-		
 		// 1. Cek apakah input adalah ID valid
 		if vendorIdMap[trimmedInput] {
 			return trimmedInput
@@ -1486,7 +1482,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 		if id, ok := normalizedNameToIdMap[normalizedInput]; ok {
 			return id
 		}
-		
 		// 3. Cek apakah input adalah sebuah akronim
 		if id, ok := acronymToIdMap[normalizedInput]; ok {
 			return id
@@ -1497,10 +1492,8 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 		if id, ok := acronymToIdMap[acronymInput]; ok {
 			return id
 		}
-		
 		return "" // Tidak ditemukan
 	}
-
 
 	// Logika untuk sheet 'user' tidak berubah, biarkan seperti semula
 	if userSheetData, ok := payload.Data["user"]; ok {
@@ -1510,21 +1503,36 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			companyName := getValueCaseInsensitive(row, "Company")
 			companyRole := strings.ToLower(getValueCaseInsensitive(row, "Company Role"))
 			password := getValueCaseInsensitive(row, "Password")
-			if password == "" { password = "123" }
+			if password == "" {
+				password = "123"
+			}
 
-			if username == "" { errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNum)); continue }
-			if companyName == "" { errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNum)); continue }
-			
+			if username == "" {
+				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNum))
+				continue
+			}
+			if companyName == "" {
+				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNum))
+				continue
+			}
 			var companyId string
 			err := tx.QueryRow("SELECT id FROM companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(companyName)).Scan(&companyId)
 			if err == sql.ErrNoRows {
 				companyId = strings.ToLower(strings.ReplaceAll(companyName, " ", "_"))
 				_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING", companyId, companyName, companyRole)
-				if errInsert != nil { errors = append(errors, fmt.Sprintf("User baris %d: Gagal membuat company baru '%s': %v", rowNum, companyName, errInsert)); continue }
-			} else if err != nil { errors = append(errors, fmt.Sprintf("User baris %d: Error mencari company: %v", rowNum, err)); continue }
-			
+				if errInsert != nil {
+					errors = append(errors, fmt.Sprintf("User baris %d: Gagal membuat company baru '%s': %v", rowNum, companyName, errInsert))
+					continue
+				}
+			} else if err != nil {
+				errors = append(errors, fmt.Sprintf("User baris %d: Error mencari company: %v", rowNum, err))
+				continue
+			}
 			_, err = tx.Exec("INSERT INTO company_accounts (username, password, company_id) VALUES ($1, $2, $3) ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, company_id = EXCLUDED.company_id", username, password, companyId)
-			if err != nil { errors = append(errors, fmt.Sprintf("User baris %d: Gagal memasukkan/update akun '%s': %v", rowNum, username, err)); continue }
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("User baris %d: Gagal memasukkan/update akun '%s': %v", rowNum, username, err))
+				continue
+			}
 			dataProcessed = true
 		}
 	}
@@ -1535,10 +1543,9 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			errors = append(errors, "Kritis: Perusahaan 'Warehouse' tidak ada di DB. Component tidak bisa di-assign.")
 		}
 
-for i, row := range panelSheetData {
+		for i, row := range panelSheetData {
 			rowNum := i + 2
-			
-// Ambil semua kunci dari baris Excel
+			// Ambil semua kunci dari baris Excel
 			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
 			noPanel := getValueCaseInsensitive(row, "Panel No")
 			project := getValueCaseInsensitive(row, "PROJECT")
@@ -1605,47 +1612,61 @@ for i, row := range panelSheetData {
 				}
 				busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
 			}
-			
 			// Lanjutkan hanya jika tidak ada error pada baris ini
-			lastErrorIndex := len(errors) -1
+			lastErrorIndex := len(errors) - 1
 			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
 				continue
 			}
 
+			// --- [PERUBAHAN SESUAI PERMINTAAN] ---
+			// Mengubah mapping kolom Excel ke kolom Database
+			actualDeliveryDate := parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC"))
+
 			panelMap := map[string]interface{}{
-				"no_pp":            noPp,
-				"no_panel":         getValueCaseInsensitive(row, "Panel No"),
-				"no_wbs":           getValueCaseInsensitive(row, "WBS"),
-				"project":          getValueCaseInsensitive(row, "PROJECT"),
-				"start_date":       parseDate(getValueCaseInsensitive(row, "Plan Start")),
-				"target_delivery":  parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC")),
-				"vendor_id":        panelVendorId,
-				"created_by":       "import",
-				"percent_progress": 0.0,
-				"is_closed":        false,
+				"no_pp":             noPp,
+				"no_panel":          getValueCaseInsensitive(row, "Panel No"),
+				"no_wbs":            getValueCaseInsensitive(row, "WBS"),
+				"project":           getValueCaseInsensitive(row, "PROJECT"),
+				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")), // Diubah: Plan Start -> target_delivery
+				"closed_date":       actualDeliveryDate,                                   // Diubah: Actual Delivery -> closed_date
+				"is_closed":         actualDeliveryDate != nil,                            // Diubah: is_closed berdasarkan closed_date
+				"vendor_id":         panelVendorId,
+				"created_by":        "import",
+				"percent_progress":  0.0,
 				"status_busbar_pcc": "On Progress", "status_busbar_mcc": "On Progress",
-				"status_component":  "Open", "status_palet":      "Open", "status_corepart":   "Open",
+				"status_component": "Open", "status_palet": "Open", "status_corepart": "Open",
 			}
-			if payload.LoggedInUsername != nil { panelMap["created_by"] = *payload.LoggedInUsername }
+
+			if payload.LoggedInUsername != nil {
+				panelMap["created_by"] = *payload.LoggedInUsername
+			}
 
 			if err := insertMap(tx, "panels", panelMap); err != nil {
-				errors = append(errors, fmt.Sprintf("Panel baris %d (%s): Gagal menyimpan: %v", rowNum, noPp, err)); continue
+				errors = append(errors, fmt.Sprintf("Panel baris %d (%s): Gagal menyimpan: %v", rowNum, noPp, err))
+				continue
 			}
 
 			if panelVendorId.Valid {
-				if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err)) }
-				if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err)) }
+				if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err))
+				}
+				if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err))
+				}
 			}
 			if warehouseCompanyId != "" {
-				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err)) }
+				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err))
+				}
 			}
 			if busbarVendorId.Valid {
-				if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId.String}); err != nil { errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err)) }
+				if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId.String}); err != nil {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err))
+				}
 			}
 			dataProcessed = true
 		}
 	}
-	
 	if len(errors) > 0 {
 		log.Printf("Import validation error details: %s", strings.Join(errors, " | "))
 		finalMessage := "Impor dibatalkan karena error berikut:\n- " + strings.Join(errors, "\n- ")
