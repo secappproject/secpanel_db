@@ -253,6 +253,8 @@ func (a *App) initializeRoutes() {
 
 	// Sub-Panel Parts Management
 	a.Router.HandleFunc("/busbar", a.upsertGenericHandler("busbars", &Busbar{})).Methods("POST")
+	a.Router.HandleFunc("/busbar", a.deleteBusbarHandler).Methods("DELETE") 
+
 	a.Router.HandleFunc("/component", a.upsertGenericHandler("components", &Component{})).Methods("POST")
 	a.Router.HandleFunc("/palet", a.upsertGenericHandler("palet", &Palet{})).Methods("POST")
 	a.Router.HandleFunc("/corepart", a.upsertGenericHandler("corepart", &Corepart{})).Methods("POST")
@@ -952,6 +954,38 @@ func (a *App) upsertGenericHandler(tableName string, model interface{}) http.Han
 		respondWithJSON(w, http.StatusCreated, model)
 	}
 }
+func (a *App) deleteBusbarHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		PanelNoPp string `json:"panel_no_pp"`
+		Vendor    string `json:"vendor"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	if payload.PanelNoPp == "" || payload.Vendor == "" {
+		respondWithError(w, http.StatusBadRequest, "panel_no_pp and vendor are required")
+		return
+	}
+
+	query := "DELETE FROM busbars WHERE panel_no_pp = $1 AND vendor = $2"
+	result, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus relasi busbar: "+err.Error())
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Ini bukan error, mungkin data sudah terhapus sebelumnya, jadi kembalikan sukses
+		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "No matching busbar relation found to delete"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
 func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		PanelNoPp string `json:"panel_no_pp"`
