@@ -113,6 +113,8 @@ type Panel struct {
 	VendorID        *string     `json:"vendor_id"`
 	IsClosed        bool        `json:"is_closed"`
 	ClosedDate      *customTime `json:"closed_date"`
+	// [PERUBAHAN] Menambahkan field baru untuk tipe panel
+	PanelType *string `json:"panel_type,omitempty"`
 }
 type Busbar struct {
 	ID        int     `json:"id"`
@@ -308,13 +310,14 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// [PERUBAHAN] Menambahkan panel_type ke query
 	query := `
-        INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         ON CONFLICT (no_pp) DO UPDATE SET
-        no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date`
+        no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
 
-	_, err := a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate)
+	_, err := a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			respondWithError(w, http.StatusConflict, "Gagal menyimpan: Terdapat duplikasi pada No Panel.")
@@ -713,13 +716,14 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	// [PERUBAHAN 2] Gunakan selectClause yang sudah dinamis di query utama
+	// [PERUBAHAN 3] Tambahkan panel_type ke SELECT list
 	finalQuery := fmt.Sprintf(`
-		SELECT 
+		SELECT	
 			%s,
 			p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
 			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
 			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
-			p.is_closed, p.closed_date,
+			p.is_closed, p.closed_date, p.panel_type,
 			pu.name as panel_vendor_name,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
@@ -730,9 +734,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_ids,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
-		FROM panels p 
+		FROM panels p	
 		LEFT JOIN companies pu ON p.vendor_id = pu.id
-		WHERE p.no_pp IN (`+panelIdsSubQuery+`) 
+		WHERE p.no_pp IN (`+panelIdsSubQuery+`)	
 		ORDER BY p.start_date DESC`, selectClause)
 
 	rows, err := a.DB.Query(finalQuery, args...)
@@ -746,15 +750,16 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	for rows.Next() {
 		var pdd PanelDisplayData
 		var busbarVendorIds, componentVendorIds, paletVendorIds, corepartVendorIds sql.NullString
+		// [PERUBAHAN 4] Tambahkan panel_type ke Scan
 		err := rows.Scan(
-			&pdd.Panel.NoPp, &pdd.Panel.NoPanel, &pdd.Panel.NoWbs, &pdd.Panel.Project, 
-			&pdd.Panel.PercentProgress, &pdd.Panel.StartDate, &pdd.Panel.TargetDelivery, 
-			&pdd.Panel.StatusBusbarPcc, &pdd.Panel.StatusBusbarMcc, &pdd.Panel.StatusComponent, 
-			&pdd.Panel.StatusPalet, &pdd.Panel.StatusCorepart, &pdd.Panel.AoBusbarPcc, 
-			&pdd.Panel.AoBusbarMcc, &pdd.Panel.CreatedBy, &pdd.Panel.VendorID, 
-			&pdd.Panel.IsClosed, &pdd.Panel.ClosedDate,
-			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks, 
-			&pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds, 
+			&pdd.Panel.NoPp, &pdd.Panel.NoPanel, &pdd.Panel.NoWbs, &pdd.Panel.Project,	
+			&pdd.Panel.PercentProgress, &pdd.Panel.StartDate, &pdd.Panel.TargetDelivery,	
+			&pdd.Panel.StatusBusbarPcc, &pdd.Panel.StatusBusbarMcc, &pdd.Panel.StatusComponent,	
+			&pdd.Panel.StatusPalet, &pdd.Panel.StatusCorepart, &pdd.Panel.AoBusbarPcc,	
+			&pdd.Panel.AoBusbarMcc, &pdd.Panel.CreatedBy, &pdd.Panel.VendorID,	
+			&pdd.Panel.IsClosed, &pdd.Panel.ClosedDate, &pdd.Panel.PanelType,
+			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks,	
+			&pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds,	
 			&pdd.CorepartVendorNames, &corepartVendorIds,
 		)
 		if err != nil {
@@ -835,14 +840,14 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
-	// [PERBAIKAN] Menggunakan CASE untuk menyembunyikan no_pp sementara
+	// [PERUBAHAN] Menambahkan panel_type
 	query := `
-        SELECT 
+        SELECT	
             CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
-            no_panel, no_wbs, project, percent_progress, start_date, target_delivery, 
-            status_busbar_pcc, status_busbar_mcc, status_component, status_palet, 
-            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, 
-            is_closed, closed_date 
+            no_panel, no_wbs, project, percent_progress, start_date, target_delivery,	
+            status_busbar_pcc, status_busbar_mcc, status_component, status_palet,	
+            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,	
+            is_closed, closed_date, panel_type
         FROM panels`
 
 	rows, err := a.DB.Query(query)
@@ -854,7 +859,7 @@ func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
 	var panels []Panel
 	for rows.Next() {
 		var p Panel
-		if err := rows.Scan(&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate); err != nil {
+		if err := rows.Scan(&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType); err != nil {
 			respondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -867,18 +872,18 @@ func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 	var p Panel
 
-	// [PERBAIKAN] Menggunakan CASE untuk menyembunyikan no_pp sementara
+	// [PERUBAHAN] Menambahkan panel_type
 	query := `
-        SELECT 
+        SELECT	
             CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
-            no_panel, no_wbs, project, percent_progress, start_date, target_delivery, 
-            status_busbar_pcc, status_busbar_mcc, status_component, status_palet, 
-            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, 
-            is_closed, closed_date 
+            no_panel, no_wbs, project, percent_progress, start_date, target_delivery,	
+            status_busbar_pcc, status_busbar_mcc, status_component, status_palet,	
+            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,	
+            is_closed, closed_date, panel_type
         FROM panels WHERE no_pp = $1`
 	
 	err := a.DB.QueryRow(query, noPp).Scan(
-		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate)
+		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType)
 	
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -890,6 +895,7 @@ func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusOK, p)
 }
+
 func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 	var exists bool
@@ -1711,7 +1717,7 @@ func splitIds(ns sql.NullString) []string {
 	return strings.Split(ns.String, ",")
 }
 func initDB(db *sql.DB) {
-	// --- [PERBAIKAN #1] Menghapus UNIQUE dari kolom no_panel ---
+	// --- [PERUBAHAN] Menambahkan kolom `panel_type` di tabel `panels` ---
 createTablesSQL := `
     CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
@@ -1733,7 +1739,8 @@ createTablesSQL := `
       created_by TEXT, 
       vendor_id TEXT, 
       is_closed BOOLEAN DEFAULT false, 
-      closed_date TIMESTAMPTZ
+      closed_date TIMESTAMPTZ,
+      panel_type TEXT
     );
     CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
     CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
