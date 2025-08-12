@@ -395,6 +395,15 @@ func (a *App) insertCompanyWithAccountHandler(w http.ResponseWriter, r *http.Req
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
+	if payload.Account.Username == "" {
+		respondWithError(w, http.StatusBadRequest, "Username tidak boleh kosong.")
+		return
+	}
+	if payload.Account.Password == "" {
+		respondWithError(w, http.StatusBadRequest, "Password tidak boleh kosong.")
+		return
+	}
+
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
