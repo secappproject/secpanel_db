@@ -983,7 +983,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		// [FIX] LANGKAH 2: SETELAH SEMUA ANAK DIUPDATE, BARU UPDATE TABEL INDUK
 		// Ubah Primary Key di tabel panels.
 		_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
-		if err != nil {
+    	if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Gagal update Primary Key di tabel panels: "+err.Error())
 			return
 		}
