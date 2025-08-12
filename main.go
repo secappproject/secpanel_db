@@ -517,11 +517,11 @@ func (a *App) isUsernameTakenHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if exists {
-		respondWithJSON(w, http.StatusOK, map[string]bool{"exists": true})
-	} else {
-		w.WriteHeader(http.StatusNotFound)
-	}
+
+	// ---> PERUBAHAN DI SINI <---
+	// Jangan kirim 404. Selalu kirim 200 OK dengan jawaban JSON.
+	// Flutter akan tahu dari nilai boolean 'exists'.
+	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
 func (a *App) getAllUserAccountsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	query := `
