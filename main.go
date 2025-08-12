@@ -191,7 +191,7 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	log.Println("Berhasil terhubung ke database!")
 
 	initDB(a.DB)
-	a.Router = mux.NewRouter()
+	a.Router = mux.NewRouter().StrictSlash(true)
 	a.initializeRoutes()
 }
 
