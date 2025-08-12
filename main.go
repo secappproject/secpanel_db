@@ -920,11 +920,6 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNotFound)
 }
-// Lokasi: main.go
-// Ganti seluruh fungsi changePanelNoPpHandler dengan ini.
-// Lokasi: main.go
-// PASTIKAN fungsi ini sudah ada dan sesuai.
-// main.go
 func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	oldNoPp, ok := vars["old_no_pp"]
@@ -939,9 +934,6 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newNoPp := panelData.NoPp
-	pkToUpdate := oldNoPp
-
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
@@ -949,57 +941,46 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	if newNoPp != "" && oldNoPp != newNoPp {
-		var exists bool
-		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", newNoPp).Scan(&exists)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi No. PP baru: "+err.Error())
-			return
-		}
-		if exists {
-			respondWithError(w, http.StatusConflict, fmt.Sprintf("No. PP '%s' sudah digunakan.", newNoPp))
-			return
-		}
+	newNoPp := panelData.NoPp
+	pkToUpdateWith := oldNoPp // Secara default, kita asumsikan PK tidak berubah
 
-		tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
-		for _, table := range tablesToUpdate {
-			query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
-			if _, err := tx.Exec(query, newNoPp, oldNoPp); err != nil {
-				respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal update tabel anak %s: %v", table, err))
+	// ▼▼▼ DI SINILAH LOGIKANYA ▼▼▼
+	// Cek apakah ada permintaan untuk mengubah Primary Key
+	if newNoPp != oldNoPp {
+		// KASUS 1: Pengguna mengosongkan No. PP (yang tadinya permanen)
+		if newNoPp == "" && !strings.HasPrefix(oldNoPp, "TEMP_PP_") {
+			// Buat ID TEMP_ baru
+			timestamp := time.Now().UnixNano() / int64(time.Millisecond)
+			generatedTempNoPp := fmt.Sprintf("TEMP_PP_%d", timestamp)
+			
+			// Ganti No. PP di tabel induk. ON UPDATE CASCADE akan mengurus sisanya.
+			_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", generatedTempNoPp, oldNoPp)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Gagal demote PK ke TEMP: "+err.Error())
 				return
 			}
-		}
+			pkToUpdateWith = generatedTempNoPp // PK baru kita adalah TEMP_ yang baru dibuat
 
-		_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Gagal update Primary Key di tabel panels: "+err.Error())
-			return
-		}
-		
-		pkToUpdate = newNoPp
-
-	} else if newNoPp == "" && !strings.HasPrefix(oldNoPp, "TEMP_PP_") {
-		timestamp := time.Now().UnixNano() / int64(time.Millisecond)
-		generatedTempNoPp := fmt.Sprintf("TEMP_PP_%d", timestamp)
-
-		tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
-		for _, table := range tablesToUpdate {
-			query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
-			if _, err := tx.Exec(query, generatedTempNoPp, oldNoPp); err != nil {
-				respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal update tabel anak (demote) %s: %v", table, err))
+		// KASUS 2: Pengguna mengisi No. PP baru (dari A ke B)
+		} else if newNoPp != "" {
+			// Ganti No. PP di tabel induk. ON UPDATE CASCADE akan mengurus sisanya.
+			_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
+			if err != nil {
+				if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+					respondWithError(w, http.StatusConflict, fmt.Sprintf("No. PP '%s' sudah digunakan.", newNoPp))
+					return
+				}
+				respondWithError(w, http.StatusInternalServerError, "Gagal update PK ke permanen: "+err.Error())
 				return
 			}
+			pkToUpdateWith = newNoPp // PK baru kita adalah yang diinput pengguna
 		}
-
-		_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", generatedTempNoPp, oldNoPp)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Gagal update Primary Key (demote) di tabel panels: "+err.Error())
-			return
-		}
-
-		pkToUpdate = generatedTempNoPp
+		// Jika newNoPp kosong & oldNoPp sudah TEMP_, tidak ada yang perlu dilakukan pada PK.
 	}
+	// ▲▲▲ LOGIKA SELESAI ▲▲▲
 
+
+	// Update sisa detail panel di baris yang sesuai (yang mungkin PK-nya sudah berubah)
 	updateQuery := `
 		UPDATE panels SET
 			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
@@ -1009,24 +990,23 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17
 		WHERE no_pp = $18`
 
-	// [BUG FIX] Menggunakan panelData.StatusCorepart, bukan panelData.Corepart
 	_, err = tx.Exec(updateQuery,
 		panelData.NoPanel, panelData.NoWbs, panelData.Project, panelData.PercentProgress,
 		panelData.StartDate, panelData.TargetDelivery, panelData.StatusBusbarPcc,
 		panelData.StatusBusbarMcc, panelData.StatusComponent, panelData.StatusPalet,
 		panelData.StatusCorepart, panelData.AoBusbarPcc, panelData.AoBusbarMcc,
 		panelData.VendorID, panelData.IsClosed, panelData.ClosedDate, panelData.PanelType,
-		pkToUpdate,
+		pkToUpdateWith, // Gunakan PK yang sudah benar sebagai referensi WHERE
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal update detail panel: "+err.Error())
 		return
 	}
 
-	// [FIX BARU] Ambil data panel terbaru dari DB untuk dikembalikan ke frontend
+	// Ambil data panel terbaru untuk dikembalikan ke frontend
 	var finalPanel Panel
-	err = tx.QueryRow("SELECT * FROM panels WHERE no_pp = $1", pkToUpdate).Scan(
-		&finalPanel.NoPp, &finalPanel.NoPanel, &finalPanel.NoWbs, &finalPanel.Project, 
+	err = tx.QueryRow("SELECT * FROM panels WHERE no_pp = $1", pkToUpdateWith).Scan(
+		&finalPanel.NoPp, &finalPanel.NoPanel, &finalPanel.NoWbs, &finalPanel.Project,
 		&finalPanel.PercentProgress, &finalPanel.StartDate, &finalPanel.TargetDelivery,
 		&finalPanel.StatusBusbarPcc, &finalPanel.StatusBusbarMcc, &finalPanel.StatusComponent,
 		&finalPanel.StatusPalet, &finalPanel.StatusCorepart, &finalPanel.AoBusbarPcc,
@@ -1038,13 +1018,11 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
 		return
 	}
 
-	// [FIX BARU] Kembalikan objek panel yang sudah lengkap
 	respondWithJSON(w, http.StatusOK, finalPanel)
 }
 func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request) {
