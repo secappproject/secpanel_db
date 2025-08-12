@@ -714,7 +714,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		panelIdsSubQuery = "SELECT no_pp FROM panels"
 	}
 
-	rawIDs := r.URL.Query().Get("raw_ids") == "true"
+	// rawIDs := r.URL.Query().Get("raw_ids") == "true"
 
 	finalQuery := fmt.Sprintf(`
 		SELECT
