@@ -719,16 +719,16 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			pu.name as panel_vendor_name,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
-			(
-				SELECT json_agg(json_build_object(
-					'vendor_name', c.name,
-					'remark', b.remarks,
-					'vendor_id', b.vendor
-				))
-				FROM busbars b
-				JOIN companies c ON b.vendor = c.id
-				WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''
-			) as busbar_remarks,
+			COALESCE((
+			SELECT json_agg(json_build_object(
+				'vendor_name', c.name,
+				'remark', b.remarks,
+				'vendor_id', b.vendor
+			))
+			FROM busbars b
+			JOIN companies c ON b.vendor = c.id
+			WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''
+		), '[]'::json) as busbar_remarks,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_ids,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
