@@ -137,17 +137,17 @@ type Corepart struct {
 	Vendor    string `json:"vendor"`
 }
 type PanelDisplayData struct {
-	Panel                Panel    `json:"panel"`
-	PanelVendorName      *string  `json:"panel_vendor_name"`
-	BusbarVendorNames    *string  `json:"busbar_vendor_names"`
-	BusbarVendorIds      []string `json:"busbar_vendor_ids"`
-	BusbarRemarks        *string  `json:"busbar_remarks"`
-	ComponentVendorNames *string  `json:"component_vendor_names"`
-	ComponentVendorIds   []string `json:"component_vendor_ids"`
-	PaletVendorNames     *string  `json:"palet_vendor_names"`
-	PaletVendorIds       []string `json:"palet_vendor_ids"`
-	CorepartVendorNames  *string  `json:"corepart_vendor_names"`
-	CorepartVendorIds    []string `json:"corepart_vendor_ids"`
+	Panel                Panel           `json:"panel"`
+	PanelVendorName      *string         `json:"panel_vendor_name"`
+	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
+	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
+	BusbarRemarks        json.RawMessage `json:"busbar_remarks"` 
+	ComponentVendorNames *string         `json:"component_vendor_names"`
+	ComponentVendorIds   []string        `json:"component_vendor_ids"`
+	PaletVendorNames     *string         `json:"palet_vendor_names"`
+	PaletVendorIds       []string        `json:"palet_vendor_ids"`
+	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
+	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
 }
 
 // =============================================================================
