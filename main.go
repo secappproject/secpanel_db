@@ -776,9 +776,6 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		
-		if !rawIDs && strings.HasPrefix(panel.NoPp, "TEMP_PP_") {
-			panel.NoPp = ""
-		}
 
 		pdd.Panel = panel
 		pdd.BusbarVendorIds = splitIds(busbarVendorIds)
