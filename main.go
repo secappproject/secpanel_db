@@ -924,6 +924,7 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 // Ganti seluruh fungsi changePanelNoPpHandler dengan ini.
 // Lokasi: main.go
 // PASTIKAN fungsi ini sudah ada dan sesuai.
+// Lokasi: main.go
 
 func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -939,10 +940,11 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newNoPp := panelData.NoPp
+	// [FIX] No. PP baru diambil dari payload, bukan dibuat dari nol.
+	newNoPp := panelData.NoPp 
 	if newNoPp == "" {
-		// INILAH SUMBER ERROR ANDA: Backend menolak jika No PP baru kosong.
-		respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong")
+		// Jika No PP di payload kosong, ini adalah kesalahan.
+		respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong dalam payload")
 		return
 	}
 
@@ -951,9 +953,11 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // Rollback jika ada error
 
+	// Hanya jalankan logika perubahan No. PP jika memang berbeda
 	if oldNoPp != newNoPp {
+		// 1. Cek apakah No. PP baru sudah digunakan oleh panel lain
 		var exists bool
 		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", newNoPp).Scan(&exists)
 		if err != nil {
@@ -965,6 +969,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		
+		// 2. Update semua tabel anak terlebih dahulu
 		tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
 		for _, table := range tablesToUpdate {
 			query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
@@ -974,6 +979,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		
+		// 3. Setelah semua anak aman, update tabel parent (panels)
 		_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Gagal update tabel panels: "+err.Error())
@@ -981,6 +987,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 4. Update detail lain dari panel menggunakan No. PP yang BARU
 	updateQuery := `
 		UPDATE panels SET
 			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
@@ -996,13 +1003,14 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		panelData.StatusBusbarMcc, panelData.StatusComponent, panelData.StatusPalet,
 		panelData.StatusCorepart, panelData.AoBusbarPcc, panelData.AoBusbarMcc,
 		panelData.VendorID, panelData.IsClosed, panelData.ClosedDate, panelData.PanelType,
-		newNoPp,
+		newNoPp, // Gunakan newNoPp sebagai referensi WHERE
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal update detail panel: "+err.Error())
 		return
 	}
 
+	// 5. Jika semua berhasil, commit transaksi
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
 		return
