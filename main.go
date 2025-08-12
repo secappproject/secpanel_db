@@ -248,6 +248,8 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panels/keys", a.getPanelKeysHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT")
+
 	// Rute isPanelNumberUniqueHandler tidak lagi diperlukan karena no_panel tidak unik
 	// a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
 
@@ -917,6 +919,76 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNotFound)
+}
+
+func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    oldNoPp, ok := vars["old_no_pp"]
+    if !ok {
+        respondWithError(w, http.StatusBadRequest, "No. PP lama tidak ditemukan di URL")
+        return
+    }
+
+    var payload struct {
+        NewNoPp string `json:"new_no_pp"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+        return
+    }
+
+    newNoPp := payload.NewNoPp
+    if newNoPp == "" {
+        respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong")
+        return
+    }
+
+    // Mulai Transaksi Database
+    tx, err := a.DB.Begin()
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+        return
+    }
+    // Pastikan transaksi di-rollback jika terjadi error
+    defer tx.Rollback()
+
+    // 1. Cek apakah No. PP baru sudah digunakan oleh panel lain
+    var exists bool
+    err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", newNoPp).Scan(&exists)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi No. PP baru: "+err.Error())
+        return
+    }
+    if exists {
+        respondWithError(w, http.StatusConflict, fmt.Sprintf("No. PP '%s' sudah digunakan. Pilih nomor lain.", newNoPp))
+        return
+    }
+
+    // 2. Update semua tabel anak yang memiliki relasi ke panels
+    // Abaikan error jika tidak ada baris yang ter-update
+    tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
+    for _, table := range tablesToUpdate {
+        query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
+        if _, err := tx.Exec(query, newNoPp, oldNoPp); err != nil {
+            respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal update tabel %s: %v", table, err))
+            return
+        }
+    }
+
+    // 3. Setelah semua anak di-update, update tabel induk (panels)
+    _, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal update tabel panels: "+err.Error())
+        return
+    }
+
+    // 4. Jika semua berhasil, commit transaksi
+    if err := tx.Commit(); err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
+        return
+    }
+
+    respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "No. PP berhasil diubah"})
 }
 func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request) {
 	noPanel := mux.Vars(r)["no_panel"]
