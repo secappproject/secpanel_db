@@ -1756,9 +1756,8 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			actualDeliveryDate := parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC"))
-
-			// [PERBAIKAN 2] Tambahkan logika untuk progress
 			var progress float64 = 0.0
+			// Jika tanggal delivery ada, set progress ke 100
 			if actualDeliveryDate != nil {
 				progress = 100.0
 			}
@@ -1770,10 +1769,10 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				"project":           getValueCaseInsensitive(row, "PROJECT"),
 				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")),
 				"closed_date":       actualDeliveryDate,
-				"is_closed":         actualDeliveryDate != nil,
+				"is_closed":         actualDeliveryDate != nil, // is_closed juga bergantung pada tanggal ini
 				"vendor_id":         panelVendorId,
 				"created_by":        "import",
-				"percent_progress":  progress, // Gunakan variabel progress di sini
+				"percent_progress":  progress, // [PERBAIKAN] Gunakan variabel progress yang sudah dihitung
 				"status_busbar_pcc": "On Progress",
 				"status_busbar_mcc": "On Progress",
 				"status_component":  "Open",
