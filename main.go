@@ -776,6 +776,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		
+		if !rawIDs && strings.HasPrefix(panel.NoPp, "TEMP_PP_") {
+			panel.NoPp = ""
+		}
 
 		pdd.Panel = panel
 		pdd.BusbarVendorIds = splitIds(busbarVendorIds)
@@ -921,7 +924,7 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 // Ganti seluruh fungsi changePanelNoPpHandler dengan ini.
 // Lokasi: main.go
 // PASTIKAN fungsi ini sudah ada dan sesuai.
-// Lokasi: main.go
+// main.go
 
 func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -937,11 +940,9 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// [FIX] No. PP baru diambil dari payload, bukan dibuat dari nol.
-	newNoPp := panelData.NoPp 
+	newNoPp := panelData.NoPp
 	if newNoPp == "" {
-		// Jika No PP di payload kosong, ini adalah kesalahan.
-		respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong dalam payload")
+		respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong")
 		return
 	}
 
@@ -950,11 +951,11 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
 		return
 	}
-	defer tx.Rollback() // Rollback jika ada error
+	defer tx.Rollback() // Otomatis rollback jika ada error
 
-	// Hanya jalankan logika perubahan No. PP jika memang berbeda
+	// Cek apakah No. PP benar-benar berubah
 	if oldNoPp != newNoPp {
-		// 1. Cek apakah No. PP baru sudah digunakan oleh panel lain
+		// Validasi apakah No. PP baru sudah ada
 		var exists bool
 		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", newNoPp).Scan(&exists)
 		if err != nil {
@@ -965,26 +966,30 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusConflict, fmt.Sprintf("No. PP '%s' sudah digunakan.", newNoPp))
 			return
 		}
-		
-		// 2. Update semua tabel anak terlebih dahulu
+
+		// [FIX] LANGKAH 1: UPDATE SEMUA TABEL ANAK TERLEBIH DAHULU
+		// Perbarui referensi Foreign Key di tabel anak dari oldNoPp ke newNoPp.
 		tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
 		for _, table := range tablesToUpdate {
 			query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
 			if _, err := tx.Exec(query, newNoPp, oldNoPp); err != nil {
+				// Tambahkan log untuk debugging yang lebih mudah
+				log.Printf("Error updating child table %s: %v", table, err)
 				respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal update tabel %s: %v", table, err))
 				return
 			}
 		}
-		
-		// 3. Setelah semua anak aman, update tabel parent (panels)
+
+		// [FIX] LANGKAH 2: SETELAH SEMUA ANAK DIUPDATE, BARU UPDATE TABEL INDUK
+		// Ubah Primary Key di tabel panels.
 		_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Gagal update tabel panels: "+err.Error())
+			respondWithError(w, http.StatusInternalServerError, "Gagal update Primary Key di tabel panels: "+err.Error())
 			return
 		}
 	}
 
-	// 4. Update detail lain dari panel menggunakan No. PP yang BARU
+	// LANGKAH 3: Update sisa detail panel di baris yang (mungkin) sudah berganti No. PP
 	updateQuery := `
 		UPDATE panels SET
 			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
@@ -993,21 +998,21 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
 			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17
 		WHERE no_pp = $18`
-	
+
 	_, err = tx.Exec(updateQuery,
 		panelData.NoPanel, panelData.NoWbs, panelData.Project, panelData.PercentProgress,
 		panelData.StartDate, panelData.TargetDelivery, panelData.StatusBusbarPcc,
 		panelData.StatusBusbarMcc, panelData.StatusComponent, panelData.StatusPalet,
 		panelData.StatusCorepart, panelData.AoBusbarPcc, panelData.AoBusbarMcc,
 		panelData.VendorID, panelData.IsClosed, panelData.ClosedDate, panelData.PanelType,
-		newNoPp, // Gunakan newNoPp sebagai referensi WHERE
+		newNoPp, // Gunakan newNoPp sebagai referensi
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal update detail panel: "+err.Error())
 		return
 	}
 
-	// 5. Jika semua berhasil, commit transaksi
+	// Jika semua berhasil, commit transaksi
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
 		return
