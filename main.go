@@ -2180,17 +2180,19 @@ func getValueCaseInsensitive(row map[string]interface{}, key string) string {
 	}
 	return ""
 }
+
 func parseDate(dateStr string) *string {
 	if dateStr == "" {
 		return nil
 	}
 	// Daftar format yang akan dicoba untuk di-parsing.
 	layouts := []string{
-		time.RFC3339,                 // Format standar: 2025-08-04T00:00:00Z
-		"2006-01-02T15:04:05Z07:00",   // Format standar lain
-		"02-Jan-2006",                 // Format BARU: 04-Aug-2025 (tahun 4 digit)
-		"02-Jan-06",                   // Format lama: 04-Aug-25 (tahun 2 digit)
-		"1/2/2006",                    // Format: 8/4/2025
+		time.RFC3339Nano,              // [PENAMBAHAN] Format dengan milidetik: 2025-07-17T00:00:00.000Z
+		time.RFC3339,                   // Format standar: 2025-07-17T00:00:00Z
+		"2006-01-02T15:04:05Z07:00",     // Format standar lain
+		"02-Jan-2006",                  // Format: 17-Jul-2025
+		"02-Jan-06",                    // Format: 17-Jul-25
+		"1/2/2006",                     // Format: 7/17/2025
 	}
 	for _, layout := range layouts {
 		t, err := time.Parse(layout, dateStr)
