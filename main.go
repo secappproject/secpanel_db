@@ -920,75 +920,98 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNotFound)
 }
+// Lokasi: main.go
+// Ganti seluruh fungsi changePanelNoPpHandler dengan ini.
 
 func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    oldNoPp, ok := vars["old_no_pp"]
-    if !ok {
-        respondWithError(w, http.StatusBadRequest, "No. PP lama tidak ditemukan di URL")
-        return
-    }
+	vars := mux.Vars(r)
+	oldNoPp, ok := vars["old_no_pp"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "No. PP lama tidak ditemukan di URL")
+		return
+	}
 
-    var payload struct {
-        NewNoPp string `json:"new_no_pp"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-        respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
-        return
-    }
+	// Payload sekarang menerima seluruh objek Panel, bukan hanya new_no_pp
+	var panelData Panel
+	if err := json.NewDecoder(r.Body).Decode(&panelData); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+		return
+	}
 
-    newNoPp := payload.NewNoPp
-    if newNoPp == "" {
-        respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong")
-        return
-    }
+	newNoPp := panelData.NoPp
+	if newNoPp == "" {
+		respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong")
+		return
+	}
 
-    // Mulai Transaksi Database
-    tx, err := a.DB.Begin()
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
-        return
-    }
-    // Pastikan transaksi di-rollback jika terjadi error
-    defer tx.Rollback()
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+		return
+	}
+	defer tx.Rollback()
 
-    // 1. Cek apakah No. PP baru sudah digunakan oleh panel lain
-    var exists bool
-    err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", newNoPp).Scan(&exists)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi No. PP baru: "+err.Error())
-        return
-    }
-    if exists {
-        respondWithError(w, http.StatusConflict, fmt.Sprintf("No. PP '%s' sudah digunakan. Pilih nomor lain.", newNoPp))
-        return
-    }
+	// 1. Validasi jika No. PP baru sudah ada (kecuali itu adalah No PP lama itu sendiri)
+	if oldNoPp != newNoPp {
+		var exists bool
+		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", newNoPp).Scan(&exists)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi No. PP baru: "+err.Error())
+			return
+		}
+		if exists {
+			respondWithError(w, http.StatusConflict, fmt.Sprintf("No. PP '%s' sudah digunakan. Pilih nomor lain.", newNoPp))
+			return
+		}
+		
+		// 2. Ganti No. PP di semua tabel anak
+		tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
+		for _, table := range tablesToUpdate {
+			query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
+			if _, err := tx.Exec(query, newNoPp, oldNoPp); err != nil {
+				respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal update tabel %s: %v", table, err))
+				return
+			}
+		}
+		
+		// 3. Ganti No. PP di tabel induk
+		_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal update tabel panels: "+err.Error())
+			return
+		}
+	}
 
-    // 2. Update semua tabel anak yang memiliki relasi ke panels
-    // Abaikan error jika tidak ada baris yang ter-update
-    tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
-    for _, table := range tablesToUpdate {
-        query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
-        if _, err := tx.Exec(query, newNoPp, oldNoPp); err != nil {
-            respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal update tabel %s: %v", table, err))
-            return
-        }
-    }
+	// 4. Setelah No. PP aman, update sisa data panel di tabel induk
+	updateQuery := `
+		UPDATE panels SET
+			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
+			start_date = $5, target_delivery = $6, status_busbar_pcc = $7,
+			status_busbar_mcc = $8, status_component = $9, status_palet = $10,
+			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
+			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17
+		WHERE no_pp = $18`
+	
+	_, err = tx.Exec(updateQuery,
+		panelData.NoPanel, panelData.NoWbs, panelData.Project, panelData.PercentProgress,
+		panelData.StartDate, panelData.TargetDelivery, panelData.StatusBusbarPcc,
+		panelData.StatusBusbarMcc, panelData.StatusComponent, panelData.StatusPalet,
+		panelData.StatusCorepart, panelData.AoBusbarPcc, panelData.AoBusbarMcc,
+		panelData.VendorID, panelData.IsClosed, panelData.ClosedDate, panelData.PanelType,
+		newNoPp,
+	)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal update detail panel: "+err.Error())
+		return
+	}
 
-    // 3. Setelah semua anak di-update, update tabel induk (panels)
-    _, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal update tabel panels: "+err.Error())
-        return
-    }
+	// 5. Commit transaksi
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
+		return
+	}
 
-    // 4. Jika semua berhasil, commit transaksi
-    if err := tx.Commit(); err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
-        return
-    }
-
-    respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "No. PP berhasil diubah"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Panel berhasil diperbarui"})
 }
 func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request) {
 	noPanel := mux.Vars(r)["no_panel"]
