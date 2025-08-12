@@ -724,7 +724,6 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 					'vendor_name', c.name,
 					'remark', b.remarks,
 					'vendor_id', b.vendor
-					-- Bisa ditambahkan timestamp jika ada kolomnya
 				))
 				FROM busbars b
 				JOIN companies c ON b.vendor = c.id
