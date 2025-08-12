@@ -925,6 +925,7 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 // Lokasi: main.go
 // PASTIKAN fungsi ini sudah ada dan sesuai.
 // main.go
+// main.go
 
 func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -941,20 +942,17 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newNoPp := panelData.NoPp
-	if newNoPp == "" {
-		respondWithError(w, http.StatusBadRequest, "No. PP baru tidak boleh kosong")
-		return
-	}
+	pkToUpdate := oldNoPp // Secara default, kita akan mengupdate baris dengan PK yang lama.
 
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
 		return
 	}
-	defer tx.Rollback() // Otomatis rollback jika ada error
+	defer tx.Rollback()
 
-	// Cek apakah No. PP benar-benar berubah
-	if oldNoPp != newNoPp {
+	// Hanya jalankan logika perubahan Primary Key jika No. PP baru diisi dan berbeda.
+	if newNoPp != "" && oldNoPp != newNoPp {
 		// Validasi apakah No. PP baru sudah ada
 		var exists bool
 		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", newNoPp).Scan(&exists)
@@ -967,29 +965,29 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// [FIX] LANGKAH 1: UPDATE SEMUA TABEL ANAK TERLEBIH DAHULU
-		// Perbarui referensi Foreign Key di tabel anak dari oldNoPp ke newNoPp.
+		// LANGKAH 1: UPDATE SEMUA TABEL ANAK
 		tablesToUpdate := []string{"busbars", "components", "palet", "corepart"}
 		for _, table := range tablesToUpdate {
 			query := fmt.Sprintf("UPDATE %s SET panel_no_pp = $1 WHERE panel_no_pp = $2", table)
 			if _, err := tx.Exec(query, newNoPp, oldNoPp); err != nil {
-				// Tambahkan log untuk debugging yang lebih mudah
 				log.Printf("Error updating child table %s: %v", table, err)
 				respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal update tabel %s: %v", table, err))
 				return
 			}
 		}
 
-		// [FIX] LANGKAH 2: SETELAH SEMUA ANAK DIUPDATE, BARU UPDATE TABEL INDUK
-		// Ubah Primary Key di tabel panels.
+		// LANGKAH 2: UPDATE TABEL INDUK
 		_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
-    	if err != nil {
+		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Gagal update Primary Key di tabel panels: "+err.Error())
 			return
 		}
+        
+        // Setelah PK berhasil diubah, target update kita adalah baris dengan PK yang baru.
+		pkToUpdate = newNoPp
 	}
 
-	// LANGKAH 3: Update sisa detail panel di baris yang (mungkin) sudah berganti No. PP
+	// LANGKAH 3: Update sisa detail panel di baris yang sesuai (baik yang lama maupun yang baru)
 	updateQuery := `
 		UPDATE panels SET
 			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
@@ -1005,14 +1003,13 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		panelData.StatusBusbarMcc, panelData.StatusComponent, panelData.StatusPalet,
 		panelData.StatusCorepart, panelData.AoBusbarPcc, panelData.AoBusbarMcc,
 		panelData.VendorID, panelData.IsClosed, panelData.ClosedDate, panelData.PanelType,
-		newNoPp, // Gunakan newNoPp sebagai referensi
+		pkToUpdate, // Gunakan pkToUpdate sebagai referensi WHERE clause
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal update detail panel: "+err.Error())
 		return
 	}
 
-	// Jika semua berhasil, commit transaksi
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
 		return
