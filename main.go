@@ -1534,11 +1534,10 @@ func generateAcronym(name string) string {
 	return ""
 }
 
-
 func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Data             map[string][]map[string]interface{} `json:"data"`
-		LoggedInUsername *string                             `json:"loggedInUsername"`
+		LoggedInUsername *string                           `json:"loggedInUsername"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -1555,7 +1554,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	var errors []string
 	dataProcessed := false
 
-	// --- [PERBAIKAN UTAMA] Pre-computation & Caching Vendor Names ---
+	// --- Pre-computation & Caching Vendor Names ---
 	vendorIdMap := make(map[string]bool)
 	normalizedNameToIdMap := make(map[string]string)
 	acronymToIdMap := make(map[string]string)
@@ -1583,37 +1582,29 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			acronymToIdMap[acronym] = c.ID
 		}
 	}
-	// Fungsi helper baru yang menggunakan cache di atas
+	
 	resolveVendor := func(vendorInput string) string {
 		trimmedInput := strings.TrimSpace(vendorInput)
 		if trimmedInput == "" {
 			return ""
 		}
-		// 1. Cek apakah input adalah ID valid
 		if vendorIdMap[trimmedInput] {
 			return trimmedInput
 		}
-
 		normalizedInput := normalizeVendorName(trimmedInput)
-
-		// 2. Cek berdasarkan nama yang sudah dinormalisasi
 		if id, ok := normalizedNameToIdMap[normalizedInput]; ok {
 			return id
 		}
-		// 3. Cek apakah input adalah sebuah akronim
 		if id, ok := acronymToIdMap[normalizedInput]; ok {
 			return id
 		}
-
-		// 4. Cek berdasarkan akronim yang dibuat dari input
 		acronymInput := generateAcronym(trimmedInput)
 		if id, ok := acronymToIdMap[acronymInput]; ok {
 			return id
 		}
-		return "" // Tidak ditemukan
+		return ""
 	}
 
-	// Logika untuk sheet 'user' tidak berubah, biarkan seperti semula
 	if userSheetData, ok := payload.Data["user"]; ok {
 		for i, row := range userSheetData {
 			rowNum := i + 2
@@ -1656,20 +1647,33 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if panelSheetData, ok := payload.Data["panel"]; ok {
-		warehouseCompanyId := resolveVendor("Warehouse")
-		if warehouseCompanyId == "" {
-			errors = append(errors, "Kritis: Perusahaan 'Warehouse' tidak ada di DB. Component tidak bisa di-assign.")
+		// [PERBAIKAN 1] Logika baru untuk memastikan Warehouse selalu ada
+		var warehouseCompanyId string
+		err := tx.QueryRow("SELECT id FROM companies WHERE name = 'Warehouse'").Scan(&warehouseCompanyId)
+		if err == sql.ErrNoRows {
+			// Jika tidak ada, buat baru
+			warehouseCompanyId = "warehouse" // ID default
+			_, errInsert := tx.Exec(
+				"INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING",
+				warehouseCompanyId,
+				"Warehouse",
+				AppRoleWarehouse,
+			)
+			if errInsert != nil {
+				errors = append(errors, fmt.Sprintf("Kritis: Gagal membuat company 'Warehouse' secara otomatis: %v", errInsert))
+			}
+		} else if err != nil {
+			errors = append(errors, fmt.Sprintf("Kritis: Gagal mencari company 'Warehouse': %v", err))
 		}
+
 
 		for i, row := range panelSheetData {
 			rowNum := i + 2
-			// Ambil semua kunci dari baris Excel
 			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
 			noPanel := getValueCaseInsensitive(row, "Panel No")
 			project := getValueCaseInsensitive(row, "PROJECT")
 			noWbs := getValueCaseInsensitive(row, "WBS")
 
-			// Bersihkan no_pp dari .0
 			var noPp string
 			if f, err := strconv.ParseFloat(noPpRaw, 64); err == nil {
 				noPp = fmt.Sprintf("%d", int(f))
@@ -1678,7 +1682,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			var oldTempNoPp string
-			// Jika no_pp baru ADA, cari record lama yang cocok berdasarkan kunci alami
 			if noPp != "" && (noPanel != "" || project != "" || noWbs != "") {
 				findTempQuery := `SELECT no_pp FROM panels WHERE no_pp LIKE 'TEMP_PP_%' AND no_panel = $1 AND project = $2 AND no_wbs = $3`
 				err := tx.QueryRow(findTempQuery, noPanel, project, noWbs).Scan(&oldTempNoPp)
@@ -1696,7 +1699,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				}
 			}
 
-			// Jika no_pp dari file kosong (dan tidak ada oldTempNoPp ditemukan), buatkan yang baru
 			if noPp == "" {
 				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
 				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
@@ -1710,50 +1712,55 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			var panelVendorId, busbarVendorId sql.NullString
-
-			// --- [PERBAIKAN #2 & #3] Validasi Kolom 'Panel' ---
 			if panelVendorInput != "" {
 				resolvedId := resolveVendor(panelVendorInput)
 				if resolvedId == "" {
 					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemukan.", rowNum, panelVendorInput))
-					continue
+				} else {
+					panelVendorId = sql.NullString{String: resolvedId, Valid: true}
 				}
-				panelVendorId = sql.NullString{String: resolvedId, Valid: true}
 			}
 
-			// --- [PERBAIKAN #2 & #3] Validasi Kolom 'Busbar' ---
 			if busbarVendorInput != "" {
 				resolvedId := resolveVendor(busbarVendorInput)
 				if resolvedId == "" {
 					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorInput))
-					continue
+				} else {
+					busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
 				}
-				busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
 			}
-			// Lanjutkan hanya jika tidak ada error pada baris ini
+
 			lastErrorIndex := len(errors) - 1
 			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
 				continue
 			}
 
-			// --- [PERUBAHAN SESUAI PERMINTAAN] ---
-			// Mengubah mapping kolom Excel ke kolom Database
 			actualDeliveryDate := parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC"))
+
+			// [PERBAIKAN 2] Tambahkan logika untuk progress
+			var progress float64 = 0.0
+			if actualDeliveryDate != nil {
+				progress = 100.0
+			}
 
 			panelMap := map[string]interface{}{
 				"no_pp":             noPp,
 				"no_panel":          getValueCaseInsensitive(row, "Panel No"),
 				"no_wbs":            getValueCaseInsensitive(row, "WBS"),
 				"project":           getValueCaseInsensitive(row, "PROJECT"),
-				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")), // Diubah: Plan Start -> target_delivery
-				"closed_date":       actualDeliveryDate,                                   // Diubah: Actual Delivery -> closed_date
-				"is_closed":         actualDeliveryDate != nil,                            // Diubah: is_closed berdasarkan closed_date
+				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")),
+				"closed_date":       actualDeliveryDate,
+				"is_closed":         actualDeliveryDate != nil,
 				"vendor_id":         panelVendorId,
 				"created_by":        "import",
-				"percent_progress":  0.0,
-				"status_busbar_pcc": "On Progress", "status_busbar_mcc": "On Progress",
-				"status_component": "Open", "status_palet": "Open", "status_corepart": "Open",
+				"percent_progress":  progress, // Gunakan variabel progress di sini
+				"status_busbar_pcc": "On Progress",
+				"status_busbar_mcc": "On Progress",
+				"status_component":  "Open",
+				"status_palet":      "Open",
+				"status_corepart":   "Open",
 			}
+
 
 			if payload.LoggedInUsername != nil {
 				panelMap["created_by"] = *payload.LoggedInUsername
