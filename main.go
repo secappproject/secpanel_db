@@ -672,6 +672,7 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	respondWithJSON(w, http.StatusOK, companies)
 }
+
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
@@ -704,15 +705,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 
 	rawIDs := r.URL.Query().Get("raw_ids") == "true"
 
-	selectClause := "CASE WHEN p.no_pp LIKE 'TEMP_PP_%' THEN '' ELSE p.no_pp END AS no_pp"
-	if rawIDs {
-		selectClause = "p.no_pp"
-	}
-
 	finalQuery := fmt.Sprintf(`
 		SELECT
-			%s,
-			p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
+			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
 			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
 			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
 			p.is_closed, p.closed_date, p.panel_type,
@@ -720,15 +715,15 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
 			COALESCE((
-			SELECT json_agg(json_build_object(
-				'vendor_name', c.name,
-				'remark', b.remarks,
-				'vendor_id', b.vendor
-			))
-			FROM busbars b
-			JOIN companies c ON b.vendor = c.id
-			WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''
-		), '[]'::json) as busbar_remarks,
+				SELECT json_agg(json_build_object(
+					'vendor_name', c.name,
+					'remark', b.remarks,
+					'vendor_id', b.vendor
+				))
+				FROM busbars b
+				JOIN companies c ON b.vendor = c.id
+				WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''
+			), '[]'::json) as busbar_remarks,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_ids,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
@@ -738,7 +733,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		FROM panels p
 		LEFT JOIN companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp IN (`+panelIdsSubQuery+`)
-		ORDER BY p.start_date DESC`, selectClause)
+		ORDER BY p.start_date DESC`)
 
 	rows, err := a.DB.Query(finalQuery, args...)
 	if err != nil {
@@ -751,13 +746,16 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	for rows.Next() {
 		var pdd PanelDisplayData
 		var busbarVendorIds, componentVendorIds, paletVendorIds, corepartVendorIds sql.NullString
+		
+		var panel Panel
+		
 		err := rows.Scan(
-			&pdd.Panel.NoPp, &pdd.Panel.NoPanel, &pdd.Panel.NoWbs, &pdd.Panel.Project,
-			&pdd.Panel.PercentProgress, &pdd.Panel.StartDate, &pdd.Panel.TargetDelivery,
-			&pdd.Panel.StatusBusbarPcc, &pdd.Panel.StatusBusbarMcc, &pdd.Panel.StatusComponent,
-			&pdd.Panel.StatusPalet, &pdd.Panel.StatusCorepart, &pdd.Panel.AoBusbarPcc,
-			&pdd.Panel.AoBusbarMcc, &pdd.Panel.CreatedBy, &pdd.Panel.VendorID,
-			&pdd.Panel.IsClosed, &pdd.Panel.ClosedDate, &pdd.Panel.PanelType,
+			&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project,
+			&panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
+			&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent,
+			&panel.StatusPalet, &panel.StatusCorepart, &panel.AoBusbarPcc,
+			&panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID,
+			&panel.IsClosed, &panel.ClosedDate, &panel.PanelType,
 			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks,
 			&pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds,
 			&pdd.CorepartVendorNames, &corepartVendorIds,
@@ -766,6 +764,12 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			respondWithError(w, http.StatusInternalServerError, "Error scanning row: "+err.Error())
 			return
 		}
+		
+		if !rawIDs && strings.HasPrefix(panel.NoPp, "TEMP_PP_") {
+			panel.NoPp = ""
+		}
+
+		pdd.Panel = panel
 		pdd.BusbarVendorIds = splitIds(busbarVendorIds)
 		pdd.ComponentVendorIds = splitIds(componentVendorIds)
 		pdd.PaletVendorIds = splitIds(paletVendorIds)
