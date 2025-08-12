@@ -1793,7 +1793,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				errors = append(errors, fmt.Sprintf("Panel baris %d (%s): Gagal menyimpan: %v", rowNum, noPp, err))
 				continue
 			}
-
 			if panelVendorId.Valid {
 				if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil {
 					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err))
@@ -1812,6 +1811,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err))
 				}
 			}
+			
 			dataProcessed = true
 		}
 	}
