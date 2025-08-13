@@ -933,13 +933,60 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
 		return
 	}
-
+	var payloadData Panel
+	if err := json.NewDecoder(r.Body).Decode(&payloadData); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+		return
+	}
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
 		return
 	}
 	defer tx.Rollback()
+
+	// 1. Ambil dulu data panel yang ada sekarang dari DB
+	var existingPanel Panel
+	querySelect := `
+		SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
+		status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart,
+		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type
+		FROM panels WHERE no_pp = $1`
+	err = tx.QueryRow(querySelect, oldNoPp).Scan(
+		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
+		&existingPanel.PercentProgress, &existingPanel.StartDate, &existingPanel.TargetDelivery,
+		&existingPanel.StatusBusbarPcc, &existingPanel.StatusBusbarMcc, &existingPanel.StatusComponent,
+		&existingPanel.StatusPalet, &existingPanel.StatusCorepart, &existingPanel.AoBusbarPcc,
+		&existingPanel.AoBusbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
+		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Panel dengan No. PP lama tidak ditemukan")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data panel: "+err.Error())
+		return
+	}
+
+	if payloadData.NoPanel != nil { existingPanel.NoPanel = payloadData.NoPanel }
+	if payloadData.NoWbs != nil { existingPanel.NoWbs = payloadData.NoWbs }
+	if payloadData.Project != nil { existingPanel.Project = payloadData.Project }
+	if payloadData.PercentProgress != nil { existingPanel.PercentProgress = payloadData.PercentProgress }
+	if payloadData.StartDate != nil { existingPanel.StartDate = payloadData.StartDate }
+	if payloadData.TargetDelivery != nil { existingPanel.TargetDelivery = payloadData.TargetDelivery }
+	if payloadData.StatusBusbarPcc != nil { existingPanel.StatusBusbarPcc = payloadData.StatusBusbarPcc }
+	if payloadData.StatusBusbarMcc != nil { existingPanel.StatusBusbarMcc = payloadData.StatusBusbarMcc }
+	if payloadData.StatusComponent != nil { existingPanel.StatusComponent = payloadData.StatusComponent }
+	if payloadData.StatusPalet != nil { existingPanel.StatusPalet = payloadData.StatusPalet }
+	if payloadData.StatusCorepart != nil { existingPanel.StatusCorepart = payloadData.StatusCorepart }
+	if payloadData.AoBusbarPcc != nil { existingPanel.AoBusbarPcc = payloadData.AoBusbarPcc }
+	if payloadData.AoBusbarMcc != nil { existingPanel.AoBusbarMcc = payloadData.AoBusbarMcc }
+	if payloadData.VendorID != nil { existingPanel.VendorID = payloadData.VendorID }
+	if payloadData.PanelType != nil { existingPanel.PanelType = payloadData.PanelType }
+	existingPanel.IsClosed = payloadData.IsClosed
+	existingPanel.ClosedDate = payloadData.ClosedDate
+	existingPanel.NoPp = payloadData.NoPp // NoPp selalu diambil dari payload
 
 	newNoPp := panelData.NoPp
 	pkToUpdateWith := oldNoPp // Secara default, kita asumsikan PK tidak berubah
