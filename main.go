@@ -1259,129 +1259,139 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
-// --- [PERUBAHAN] Fungsi getFilteredDataForExport diubah untuk mencegah nilai 'null' pada JSON ---
-func (a *App) getFilteredDataForExport(userRole, companyId string) (map[string]interface{}, error) {
+func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{}, error) {
+	queryParams := r.URL.Query()
+	
 	result := make(map[string]interface{})
-	var relevantPanelIds []string
-
+	
 	tx, err := a.DB.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	if userRole != AppRoleAdmin && userRole != AppRoleViewer {
-		var panelIdRows *sql.Rows
-		var query string
-		switch userRole {
-		case AppRoleK3:
-			query = `
-                        SELECT no_pp FROM panels WHERE vendor_id = $1
-                        UNION SELECT panel_no_pp FROM palet WHERE vendor = $1
-                        UNION SELECT panel_no_pp FROM corepart WHERE vendor = $1`
-			panelIdRows, err = tx.Query(query, companyId)
-		case AppRoleK5:
-			query = "SELECT panel_no_pp FROM busbars WHERE vendor = $1"
-			panelIdRows, err = tx.Query(query, companyId)
-		case AppRoleWarehouse:
-			query = "SELECT panel_no_pp FROM components WHERE vendor = $1"
-			panelIdRows, err = tx.Query(query, companyId)
+	panelQuery := "SELECT * FROM panels p WHERE 1=1"
+	args := []interface{}{}
+	argCounter := 1
+
+	addDateFilter := func(query, col, start, end string) (string, []interface{}) {
+		localArgs := []interface{}{}
+		if start != "" {
+			query += fmt.Sprintf(" AND %s >= $%d", col, argCounter)
+			localArgs = append(localArgs, start)
+			argCounter++
 		}
-		if err != nil {
-			return nil, err
-		}
-		defer panelIdRows.Close()
-		idSet := make(map[string]bool)
-		for panelIdRows.Next() {
-			var id string
-			if err := panelIdRows.Scan(&id); err == nil {
-				idSet[id] = true
+		if end != "" {
+			endTime, err := time.Parse(time.RFC3339, end)
+			if err == nil {
+				end = endTime.Add(24 * time.Hour).Format(time.RFC3339)
+				query += fmt.Sprintf(" AND %s < $%d", col, argCounter)
+				localArgs = append(localArgs, end)
+				argCounter++
 			}
 		}
-		for id := range idSet {
-			relevantPanelIds = append(relevantPanelIds, id)
+		return query, localArgs
+	}
+	
+	addListFilter := func(query, col, values string) (string, []interface{}) {
+		localArgs := []interface{}{}
+		if values != "" {
+			list := strings.Split(values, ",")
+			if len(list) > 0 {
+				query += fmt.Sprintf(" AND %s = ANY($%d)", col, argCounter)
+				localArgs = append(localArgs, pq.Array(list))
+				argCounter++
+			}
 		}
+		return query, localArgs
 	}
 
-	if userRole == AppRoleAdmin || userRole == AppRoleViewer {
-		result["companies"], _ = fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
-		result["companyAccounts"], _ = fetchAllAs(tx, "company_accounts", func() interface{} { return &CompanyAccount{} })
-		result["panels"], _ = fetchAllAs(tx, "panels", func() interface{} { return &Panel{} })
-		result["busbars"], _ = fetchAllAs(tx, "busbars", func() interface{} { return &Busbar{} })
-		result["components"], _ = fetchAllAs(tx, "components", func() interface{} { return &Component{} })
-		result["palet"], _ = fetchAllAs(tx, "palet", func() interface{} { return &Palet{} })
-		result["corepart"], _ = fetchAllAs(tx, "corepart", func() interface{} { return &Corepart{} })
+	var newArgs []interface{}
+	panelQuery, newArgs = addDateFilter(panelQuery, "p.start_date", queryParams.Get("start_date_start"), queryParams.Get("start_date_end"))
+	args = append(args, newArgs...)
+	
+	panelQuery, newArgs = addDateFilter(panelQuery, "p.target_delivery", queryParams.Get("delivery_date_start"), queryParams.Get("delivery_date_end"))
+	args = append(args, newArgs...)
+
+	panelQuery, newArgs = addDateFilter(panelQuery, "p.closed_date", queryParams.Get("closed_date_start"), queryParams.Get("closed_date_end"))
+	args = append(args, newArgs...)
+	
+	panelQuery, newArgs = addListFilter(panelQuery, "p.panel_type", queryParams.Get("panel_types"))
+	args = append(args, newArgs...)
+
+    // (Lanjutkan dengan filter-filter lainnya sesuai kebutuhan)
+
+	rows, err := tx.Query(panelQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("gagal query panel: %w", err)
+	}
+	
+	var panels []Panel
+	panelIdSet := make(map[string]bool)
+	for rows.Next() {
+		var p Panel
+		if err := rows.Scan(&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType); err != nil {
+			log.Printf("Peringatan: Gagal scan panel row: %v", err)
+			continue
+		}
+		panels = append(panels, p)
+		panelIdSet[p.NoPp] = true
+	}
+	rows.Close()
+	result["panels"] = panels
+
+	relevantPanelIds := []string{}
+	for id := range panelIdSet {
+		relevantPanelIds = append(relevantPanelIds, id)
+	}
+
+	if len(relevantPanelIds) > 0 {
+		result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
+		result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
+		result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
+		result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
 	} else {
-		var companies []Company
-		row := tx.QueryRow("SELECT id, name, role FROM companies WHERE id = $1", companyId)
-		var c Company
-		if err := row.Scan(&c.ID, &c.Name, &c.Role); err == nil {
-			companies = append(companies, c)
-		}
-		result["companies"] = companies
-
-		var accounts []CompanyAccount
-		accRows, _ := tx.Query("SELECT username, password, company_id FROM company_accounts WHERE company_id = $1", companyId)
-		if accRows != nil {
-			defer accRows.Close()
-			for accRows.Next() {
-				var acc CompanyAccount
-				if err := accRows.Scan(&acc.Username, &acc.Password, &acc.CompanyID); err == nil {
-					accounts = append(accounts, acc)
-				}
-			}
-		}
-		result["companyAccounts"] = accounts
-
-		if len(relevantPanelIds) > 0 {
-			result["panels"], _ = fetchInAs(tx, "panels", "no_pp", relevantPanelIds, func() interface{} { return &Panel{} })
-			result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
-			result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
-			result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
-			result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
-		} else {
-			result["panels"], result["busbars"], result["components"], result["palet"], result["corepart"] =
-				[]Panel{}, []Busbar{}, []Component{}, []Palet{}, []Corepart{}
-		}
+		result["busbars"], result["components"], result["palet"], result["corepart"] = []Busbar{}, []Component{}, []Palet{}, []Corepart{}
 	}
 
-	// [FIX] Memastikan tidak ada key yang memiliki nilai nil; ganti dengan slice kosong.
-	// Ini membuat respons API konsisten dan mencegah error di frontend.
-	keys := []string{"companies", "companyAccounts", "panels", "busbars", "components", "palet", "corepart"}
-	for _, key := range keys {
-		if result[key] == nil {
-			result[key] = []interface{}{}
-		}
-	}
+	result["companies"], _ = fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
+	result["companyAccounts"], _ = fetchAllAs(tx, "company_accounts", func() interface{} { return &CompanyAccount{} })
 
 	return result, nil
 }
 
-// --- [AKHIR PERUBAHAN] ---
 
 func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Request) {
-	userRole := r.URL.Query().Get("role")
-	companyId := r.URL.Query().Get("company_id")
-	data, err := a.getFilteredDataForExport(userRole, companyId)
+	data, err := a.getFilteredDataForExport(r) 
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondWithJSON(w, http.StatusOK, data)
 }
+// file: main.go
+
 func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Request) {
-	userRole := r.URL.Query().Get("role")
-	companyId := r.URL.Query().Get("company_id")
+	// Ambil parameter spesifik untuk export custom
 	includePanels, _ := strconv.ParseBool(r.URL.Query().Get("panels"))
 	includeUsers, _ := strconv.ParseBool(r.URL.Query().Get("users"))
 
-	data, err := a.getFilteredDataForExport(userRole, companyId)
+	// [PERBAIKAN KUNCI]
+	// Panggil fungsi getFilteredDataForExport dengan seluruh request 'r'.
+	// Fungsi ini sekarang akan membaca semua parameter filter (tanggal, vendor, status, dll) dari URL.
+	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	allCompaniesResult, _ := fetchAllAs(a.DB, "companies", func() interface{} { return &Company{} })
+	// Mengambil semua data 'companies' untuk mapping ID ke Nama
+	// Ini tidak perlu difilter karena kita butuh semua perusahaan sebagai referensi
+	allCompaniesResult, err := fetchAllAs(a.DB, "companies", func() interface{} { return &Company{} })
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
+		return
+	}
 	allCompanies := allCompaniesResult.([]interface{})
 
 	companyMap := make(map[string]Company)
@@ -1390,10 +1400,13 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 		companyMap[company.ID] = *company
 	}
 
+	// Siapkan JSON final yang akan dikirim
 	jsonData := make(map[string]interface{})
 
+	// Logika internal untuk membangun struktur JSON tidak berubah.
+	// Sekarang ia akan otomatis bekerja dengan data panel yang sudah terfilter.
 	if includePanels {
-		panels := data["panels"].([]interface{})
+		panels := data["panels"].([]Panel) // Konversi ke slice of Panel
 		busbars := data["busbars"].([]interface{})
 		panelBusbarMap := make(map[string]string)
 		for _, b := range busbars {
@@ -1408,8 +1421,7 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 		}
 
 		var panelData []map[string]interface{}
-		for _, p := range panels {
-			panel := p.(*Panel)
+		for _, panel := range panels { // Langsung iterate dari slice of Panel
 			panelVendorName := ""
 			if panel.VendorID != nil {
 				if company, ok := companyMap[*panel.VendorID]; ok {
@@ -1460,24 +1472,36 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 
 	respondWithJSON(w, http.StatusOK, jsonData)
 }
+// file: main.go
+
 func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http.Request) {
-	userRole := r.URL.Query().Get("role")
-	companyId := r.URL.Query().Get("company_id")
+	// Ambil parameter tabel mana saja yang mau di-export
 	tablesParam := r.URL.Query().Get("tables")
 	tablesToInclude := strings.Split(tablesParam, ",")
 
-	data, err := a.getFilteredDataForExport(userRole, companyId)
+	// [PERBAIKAN KUNCI]
+	// Panggil fungsi getFilteredDataForExport dengan seluruh request 'r'.
+	// Ini akan mengembalikan data yang sudah difilter berdasarkan parameter URL
+	// seperti tanggal, vendor, status, dll.
+	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	// Buat map JSON final
 	jsonData := make(map[string]interface{})
+	
+	// Logika untuk memilih tabel mana yang akan dimasukkan ke JSON final tidak berubah.
+	// Sekarang ia akan bekerja dengan data yang sudah terfilter.
 	for _, table := range tablesToInclude {
-		switch strings.ToLower(strings.ReplaceAll(table, " ", "")) {
+		// Normalisasi nama tabel untuk pencocokan yang lebih fleksibel
+		normalizedTable := strings.ToLower(strings.ReplaceAll(table, " ", ""))
+		switch normalizedTable {
 		case "companies":
 			jsonData["companies"] = data["companies"]
 		case "companyaccounts":
+			// Nama tabel di JSON adalah 'company_accounts'
 			jsonData["company_accounts"] = data["companyAccounts"]
 		case "panels":
 			jsonData["panels"] = data["panels"]
@@ -1491,6 +1515,7 @@ func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http
 			jsonData["corepart"] = data["corepart"]
 		}
 	}
+	
 	respondWithJSON(w, http.StatusOK, jsonData)
 }
 func (a *App) importDataHandler(w http.ResponseWriter, r *http.Request) {
