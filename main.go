@@ -1258,23 +1258,33 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
+// file: main.go
 
 func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{}, error) {
 	queryParams := r.URL.Query()
-	
 	result := make(map[string]interface{})
-	
+
 	tx, err := a.DB.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	panelQuery := "SELECT * FROM panels p WHERE 1=1"
+	// [PERBAIKAN] Query dasar sekarang menggunakan JOIN untuk filter vendor
+	panelQuery := `
+		SELECT p.* FROM panels p
+		LEFT JOIN busbars b ON p.no_pp = b.panel_no_pp
+		LEFT JOIN components c ON p.no_pp = c.panel_no_pp
+		LEFT JOIN palet pa ON p.no_pp = pa.panel_no_pp
+		LEFT JOIN corepart cp ON p.no_pp = cp.panel_no_pp
+		WHERE 1=1
+	`
 	args := []interface{}{}
 	argCounter := 1
 
+	// -- Helper Functions --
 	addDateFilter := func(query, col, start, end string) (string, []interface{}) {
+		// ... (fungsi ini tidak berubah)
 		localArgs := []interface{}{}
 		if start != "" {
 			query += fmt.Sprintf(" AND %s >= $%d", col, argCounter)
@@ -1292,13 +1302,54 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 		return query, localArgs
 	}
-	
+
 	addListFilter := func(query, col, values string) (string, []interface{}) {
+		// ... (fungsi ini tidak berubah)
 		localArgs := []interface{}{}
 		if values != "" {
 			list := strings.Split(values, ",")
 			if len(list) > 0 {
-				query += fmt.Sprintf(" AND %s = ANY($%d)", col, argCounter)
+				// Khusus untuk 'Belum Diatur'
+				if len(list) == 1 && list[0] == "Belum Diatur" {
+					query += fmt.Sprintf(" AND (%s IS NULL OR %s = '')", col, col)
+				} else {
+					hasBelumDiatur := false
+					var filteredList []string
+					for _, item := range list {
+						if item == "Belum Diatur" {
+							hasBelumDiatur = true
+						} else {
+							filteredList = append(filteredList, item)
+						}
+					}
+					
+					var condition string
+					if len(filteredList) > 0 {
+						condition = fmt.Sprintf("%s = ANY($%d)", col, argCounter)
+						localArgs = append(localArgs, pq.Array(filteredList))
+						argCounter++
+					}
+
+					if hasBelumDiatur {
+						if condition != "" {
+							condition = fmt.Sprintf("(%s OR %s IS NULL OR %s = '')", condition, col, col)
+						} else {
+							condition = fmt.Sprintf("(%s IS NULL OR %s = '')", col, col)
+						}
+					}
+					query += " AND " + condition
+				}
+			}
+		}
+		return query, localArgs
+	}
+
+	addVendorFilter := func(query, col, values string) (string, []interface{}) {
+		localArgs := []interface{}{}
+		if values != "" {
+			list := strings.Split(values, ",")
+			if len(list) > 0 {
+				query += fmt.Sprintf(" AND %s IN (SELECT unnest($%d::text[]))", col, argCounter)
 				localArgs = append(localArgs, pq.Array(list))
 				argCounter++
 			}
@@ -1306,26 +1357,82 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		return query, localArgs
 	}
 
+	// -- Menerapkan Semua Filter --
 	var newArgs []interface{}
+	
+	// Filter Tanggal
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.start_date", queryParams.Get("start_date_start"), queryParams.Get("start_date_end"))
 	args = append(args, newArgs...)
-	
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.target_delivery", queryParams.Get("delivery_date_start"), queryParams.Get("delivery_date_end"))
 	args = append(args, newArgs...)
-
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.closed_date", queryParams.Get("closed_date_start"), queryParams.Get("closed_date_end"))
 	args = append(args, newArgs...)
-	
+
+	// Filter Tipe & Status
 	panelQuery, newArgs = addListFilter(panelQuery, "p.panel_type", queryParams.Get("panel_types"))
 	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_busbar_pcc", queryParams.Get("pcc_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_busbar_mcc", queryParams.Get("mcc_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_component", queryParams.Get("component_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_palet", queryParams.Get("palet_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_corepart", queryParams.Get("corepart_statuses"))
+	args = append(args, newArgs...)
+	
+	// Filter Vendor (menggunakan JOIN)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "p.vendor_id", queryParams.Get("panel_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "b.vendor", queryParams.Get("busbar_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "c.vendor", queryParams.Get("component_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "pa.vendor", queryParams.Get("palet_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "cp.vendor", queryParams.Get("corepart_vendors"))
+	args = append(args, newArgs...)
+	
+	// Filter Status Panel berdasarkan persentase
+	if statuses := queryParams.Get("panel_statuses"); statuses != "" {
+		statusList := strings.Split(statuses, ",")
+		var statusConditions []string
+		for _, status := range statusList {
+			switch status {
+			case "progressRed":
+				statusConditions = append(statusConditions, "(p.percent_progress < 50)")
+			case "progressOrange":
+				statusConditions = append(statusConditions, "(p.percent_progress >= 50 AND p.percent_progress < 75)")
+			case "progressBlue":
+				statusConditions = append(statusConditions, "(p.percent_progress >= 75 AND p.percent_progress < 100)")
+			case "readyToDelivery":
+				statusConditions = append(statusConditions, "(p.percent_progress >= 100 AND p.is_closed = false)")
+			case "closed":
+				statusConditions = append(statusConditions, "(p.is_closed = true)")
+			}
+		}
+		if len(statusConditions) > 0 {
+			panelQuery += " AND (" + strings.Join(statusConditions, " OR ") + ")"
+		}
+	}
+    
+    // Filter Arsip
+    if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
+        panelQuery += " AND (p.is_closed = false OR p.closed_date > NOW() - INTERVAL '2 days')"
+    }
 
-    // (Lanjutkan dengan filter-filter lainnya sesuai kebutuhan)
 
+	// Akhiri query dengan GROUP BY untuk menghilangkan duplikat karena JOIN
+	panelQuery += " GROUP BY p.no_pp"
+	
+	// Eksekusi query
 	rows, err := tx.Query(panelQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("gagal query panel: %w", err)
 	}
-	
+
+	// ... (Sisa fungsi untuk mem-parsing hasil dan mengambil data terkait tidak berubah)
 	var panels []Panel
 	panelIdSet := make(map[string]bool)
 	for rows.Next() {
@@ -1359,7 +1466,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 
 	return result, nil
 }
-
 
 func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Request) {
 	data, err := a.getFilteredDataForExport(r) 
