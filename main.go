@@ -757,18 +757,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	if userRole != AppRoleAdmin && userRole != AppRoleViewer {
 		switch userRole {
 		case AppRoleK3:
-			// [PERBAIKAN] Query diubah untuk mengambil panel yang sudah ditugaskan ATAU yang belum punya vendor sama sekali.
-			panelIdsSubQuery = fmt.Sprintf(`
-				-- 1. Ambil semua panel yang sudah ditugaskan ke perusahaan ini
-				SELECT no_pp FROM panels WHERE vendor_id = $1
-				UNION
-				SELECT panel_no_pp FROM palet WHERE vendor = $1
-				UNION
-				SELECT panel_no_pp FROM corepart WHERE vendor = $1
-				UNION
-				-- 2. Ambil semua panel yang vendor utamanya belum diatur (dianggap "terbuka" untuk semua K3)
-				SELECT no_pp FROM panels WHERE vendor_id IS NULL OR vendor_id = ''
-			`, argCounter)
+			panelIdsSubQuery = fmt.Sprintf(`SELECT no_pp FROM panels WHERE vendor_id = $%d UNION SELECT panel_no_pp FROM palet WHERE vendor = $%d UNION SELECT panel_no_pp FROM corepart WHERE vendor = $%d`, argCounter, argCounter, argCounter)
 			args = append(args, companyId)
 		case AppRoleK5:
 			panelIdsSubQuery = fmt.Sprintf(`SELECT panel_no_pp FROM busbars WHERE vendor = $%d UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)`, argCounter)
