@@ -695,12 +695,17 @@ func (a *App) getCompanyByNameHandler(w http.ResponseWriter, r *http.Request) {
 	err = a.DB.QueryRow("SELECT id, name, role FROM companies WHERE name = $1", name).Scan(&c.ID, &c.Name, &c.Role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatusNotFound, "Company not found")
+			// [FIX] Jangan kirim error 404.
+			// Kirim status 200 OK dengan body null/kosong.
+			// Ini menandakan pencarian sukses, tapi data tidak ada.
+			respondWithJSON(w, http.StatusOK, nil)
 			return
 		}
+		// Ini untuk error database yang sesungguhnya.
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Jika perusahaan ditemukan, kirim datanya seperti biasa.
 	respondWithJSON(w, http.StatusOK, c)
 }
 func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) {
