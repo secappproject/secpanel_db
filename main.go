@@ -228,6 +228,8 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/account/exists/{username}", a.isUsernameTakenHandler).Methods("GET")
 	a.Router.HandleFunc("/users/display", a.getAllUserAccountsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/users/colleagues/display", a.getColleagueAccountsForDisplayHandler).Methods("GET")
+	a.Router.HandleFunc("/accounts/search", a.searchUsernamesHandler).Methods("GET")
+
 
 	// Company Management
 	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST")
@@ -587,6 +589,43 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 		})
 	}
 	respondWithJSON(w, http.StatusOK, results)
+}
+
+func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Ambil query pencarian dari URL (?q=...)
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		// Jika query kosong, kembalikan list kosong agar tidak membebani server
+		respondWithJSON(w, http.StatusOK, []string{})
+		return
+	}
+
+	// 2. Siapkan SQL query untuk mencari username yang cocok (case-insensitive)
+	//    'LIKE' dengan '%' berarti "diawali dengan"
+	sqlQuery := "SELECT username FROM company_accounts WHERE username ILIKE $1 LIMIT 10"
+
+	// 3. Eksekusi query ke database
+	rows, err := a.DB.Query(sqlQuery, query+"%")
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	// 4. Kumpulkan hasil pencarian ke dalam sebuah slice
+	var usernames []string
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			// Jika ada error saat scan, log dan lanjutkan ke baris berikutnya
+			log.Printf("Error scanning username: %v", err)
+			continue
+		}
+		usernames = append(usernames, username)
+	}
+
+	// 5. Kirim hasilnya sebagai JSON
+	respondWithJSON(w, http.StatusOK, usernames)
 }
 func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.Request) {
 	query := `
