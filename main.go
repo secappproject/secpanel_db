@@ -944,7 +944,6 @@ func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusOK, p)
 }
-
 func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 	var exists bool
@@ -953,11 +952,9 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if exists {
-		respondWithJSON(w, http.StatusOK, map[string]bool{"exists": true})
-		return
-	}
-	w.WriteHeader(http.StatusNotFound)
+	// [FIX] Always respond with 200 OK and a clear JSON body.
+	// This single line handles both cases (exists or not).
+	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
 
 func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
