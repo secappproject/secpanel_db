@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
 	"github.com/xuri/excelize/v2"
@@ -196,9 +197,23 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 }
 
 func (a *App) Run(addr string) {
+	// [FIX] Bungkus router Anda dengan middleware CORS di sini
+	
+	// Tentukan domain yang diizinkan. Tanda '*' berarti mengizinkan semua domain.
+	// Untuk keamanan produksi, ganti '*' dengan domain web Flutter Anda (misal: "http://localhost:port", "https://nama-web-anda.com")
+	allowedOrigins := handlers.AllowedOrigins([]string{"*"})
+	
+	// Tentukan metode HTTP yang diizinkan
+	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
+	
+	// Tentukan header yang diizinkan
+	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization"})
+
 	log.Printf("Server berjalan di %s", addr)
-	log.Fatal(http.ListenAndServe(addr, jsonContentTypeMiddleware(a.Router)))
+	// Gunakan handler CORS yang sudah dikonfigurasi untuk menjalankan server
+	log.Fatal(http.ListenAndServe(addr, handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(a.Router)))
 }
+
 func main() {
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
