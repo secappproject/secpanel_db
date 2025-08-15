@@ -271,12 +271,18 @@ func (a *App) initializeRoutes() {
 	// a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
 
 	// Sub-Panel Parts Management
+	
 	a.Router.HandleFunc("/busbar", a.upsertGenericHandler("busbars", &Busbar{})).Methods("POST")
-	a.Router.HandleFunc("/busbar", a.deleteBusbarHandler).Methods("DELETE") 
-
 	a.Router.HandleFunc("/component", a.upsertGenericHandler("components", &Component{})).Methods("POST")
 	a.Router.HandleFunc("/palet", a.upsertGenericHandler("palet", &Palet{})).Methods("POST")
 	a.Router.HandleFunc("/corepart", a.upsertGenericHandler("corepart", &Corepart{})).Methods("POST")
+
+	// Gunakan handler generik untuk semua operasi DELETE
+	a.Router.HandleFunc("/busbar", a.deleteGenericRelationHandler("busbars")).Methods("DELETE")
+	a.Router.HandleFunc("/palet", a.deleteGenericRelationHandler("palet")).Methods("DELETE")
+	a.Router.HandleFunc("/corepart", a.deleteGenericRelationHandler("corepart")).Methods("DELETE")
+	
+	a.Router.HandleFunc("/busbar/remark-vendor", a.upsertBusbarRemarkandVendorHandler).Methods("POST")
 	a.Router.HandleFunc("/busbar/remark-vendor", a.upsertBusbarRemarkandVendorHandler).Methods("POST")
 	a.Router.HandleFunc("/busbars", a.getAllGenericHandler("busbars", func() interface{} { return &Busbar{} })).Methods("GET")
 	a.Router.HandleFunc("/components", a.getAllGenericHandler("components", func() interface{} { return &Component{} })).Methods("GET")
@@ -1130,6 +1136,41 @@ func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request)
 		respondWithJSON(w, http.StatusOK, map[string]bool{"is_unique": false})
 	} else {
 		w.WriteHeader(http.StatusNotFound)
+	}
+}// main.go
+
+// Fungsi generik untuk menghapus relasi panel-vendor
+func (a *App) deleteGenericRelationHandler(tableName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			PanelNoPp string `json:"panel_no_pp"`
+			Vendor    string `json:"vendor"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+			return
+		}
+
+		if payload.PanelNoPp == "" || payload.Vendor == "" {
+			respondWithError(w, http.StatusBadRequest, "panel_no_pp dan vendor wajib diisi")
+			return
+		}
+
+		// Query dibangun secara dinamis berdasarkan nama tabel
+		query := fmt.Sprintf("DELETE FROM %s WHERE panel_no_pp = $1 AND vendor = $2", tableName)
+		result, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal menghapus relasi %s: %v", tableName, err))
+			return
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Tidak ada relasi yang cocok untuk dihapus"})
+			return
+		}
+
+		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 	}
 }
 
