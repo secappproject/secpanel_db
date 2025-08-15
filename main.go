@@ -115,6 +115,8 @@ type Panel struct {
 	IsClosed        bool        `json:"is_closed"`
 	ClosedDate      *customTime `json:"closed_date"`
 	PanelType       *string     `json:"panel_type,omitempty"`
+	Remarks         *string     `json:"remarks,omitempty"`
+
 }
 type Busbar struct {
 	ID        int     `json:"id"`
@@ -140,6 +142,7 @@ type Corepart struct {
 type PanelDisplayData struct {
 	Panel                Panel           `json:"panel"`
 	PanelVendorName      *string         `json:"panel_vendor_name"`
+	PanelRemarks         *string         `json:"panel_remarks"`
 	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
 	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
 	BusbarRemarks        json.RawMessage `json:"busbar_remarks"` 
@@ -266,6 +269,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT")
+    a.Router.HandleFunc("/panel/remark-vendor", a.upsertPanelRemarkHandler).Methods("POST")
 
 	// Rute isPanelNumberUniqueHandler tidak lagi diperlukan karena no_panel tidak unik
 	// a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
@@ -282,7 +286,6 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/palet", a.deleteGenericRelationHandler("palet")).Methods("DELETE")
 	a.Router.HandleFunc("/corepart", a.deleteGenericRelationHandler("corepart")).Methods("DELETE")
 	
-	a.Router.HandleFunc("/busbar/remark-vendor", a.upsertBusbarRemarkandVendorHandler).Methods("POST")
 	a.Router.HandleFunc("/busbar/remark-vendor", a.upsertBusbarRemarkandVendorHandler).Methods("POST")
 	a.Router.HandleFunc("/busbars", a.getAllGenericHandler("busbars", func() interface{} { return &Busbar{} })).Methods("GET")
 	a.Router.HandleFunc("/components", a.getAllGenericHandler("components", func() interface{} { return &Component{} })).Methods("GET")
@@ -831,7 +834,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent,
 			&panel.StatusPalet, &panel.StatusCorepart, &panel.AoBusbarPcc,
 			&panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID,
-			&panel.IsClosed, &panel.ClosedDate, &panel.PanelType,
+			&panel.IsClosed, &panel.ClosedDate, &panel.PanelType, &panel.Remarks,
 			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks,
 			&pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds,
 			&pdd.CorepartVendorNames, &corepartVendorIds,
@@ -1112,6 +1115,24 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	
 	existingPanel.NoPp = pkToUpdateWith
 	respondWithJSON(w, http.StatusOK, existingPanel)
+}
+
+func (a *App) upsertPanelRemarkHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		PanelNoPp string `json:"panel_no_pp"`
+		Remarks   string `json:"remarks"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	query := `UPDATE panels SET remarks = $1 WHERE no_pp = $2`
+	_, err := a.DB.Exec(query, payload.Remarks, payload.PanelNoPp)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, payload)
 }
 
 func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request) {
@@ -2188,6 +2209,18 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal menjalankan migrasi untuk kolom panel_type: %v", err)
 	}
 
+	alterTableAddPanelRemarksSQL := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'remarks') THEN
+			ALTER TABLE panels ADD COLUMN remarks TEXT;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(alterTableAddPanelRemarksSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom panel.remarks: %v", err)
+	}
 
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM companies").Scan(&count); err != nil {
