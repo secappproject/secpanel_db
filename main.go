@@ -1018,7 +1018,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	querySelect := `
 		SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
 		status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart,
-		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type
+		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks
 		FROM panels WHERE no_pp = $1`
 	err = tx.QueryRow(querySelect, oldNoPp).Scan(
 		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
@@ -1026,7 +1026,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		&existingPanel.StatusBusbarPcc, &existingPanel.StatusBusbarMcc, &existingPanel.StatusComponent,
 		&existingPanel.StatusPalet, &existingPanel.StatusCorepart, &existingPanel.AoBusbarPcc,
 		&existingPanel.AoBusbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
-		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType,
+		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType, &existingPanel.Remarks,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1053,6 +1053,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	if payloadData.AoBusbarMcc != nil { existingPanel.AoBusbarMcc = payloadData.AoBusbarMcc }
 	if payloadData.VendorID != nil { existingPanel.VendorID = payloadData.VendorID }
 	if payloadData.PanelType != nil { existingPanel.PanelType = payloadData.PanelType }
+	if payloadData.Remarks != nil { existingPanel.Remarks = payloadData.Remarks } 
 	existingPanel.IsClosed = payloadData.IsClosed
 	existingPanel.ClosedDate = payloadData.ClosedDate
 	existingPanel.NoPp = payloadData.NoPp
@@ -1092,8 +1093,8 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			start_date = $5, target_delivery = $6, status_busbar_pcc = $7,
 			status_busbar_mcc = $8, status_component = $9, status_palet = $10,
 			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
-			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17
-		WHERE no_pp = $18`
+			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18
+    WHERE no_pp = $19`
 
 	_, err = tx.Exec(updateQuery,
 		existingPanel.NoPanel, existingPanel.NoWbs, existingPanel.Project, existingPanel.PercentProgress,
@@ -1101,6 +1102,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		existingPanel.StatusBusbarMcc, existingPanel.StatusComponent, existingPanel.StatusPalet,
 		existingPanel.StatusCorepart, existingPanel.AoBusbarPcc, existingPanel.AoBusbarMcc,
 		existingPanel.VendorID, existingPanel.IsClosed, existingPanel.ClosedDate, existingPanel.PanelType,
+		existingPanel.Remarks, 
 		pkToUpdateWith,
 	)
 	if err != nil {
