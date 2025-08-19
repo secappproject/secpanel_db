@@ -1864,6 +1864,19 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
+	// --- [MODIFIKASI] Ambil role dan company ID dari user yang login ---
+	var loggedInUserCompanyId string
+	var loggedInUserRole string
+	if payload.LoggedInUsername != nil && *payload.LoggedInUsername != "" {
+		query := `SELECT c.id, c.role FROM companies c JOIN company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
+		err := tx.QueryRow(query, *payload.LoggedInUsername).Scan(&loggedInUserCompanyId, &loggedInUserRole)
+		if err != nil && err != sql.ErrNoRows {
+			// Ini adalah error database sungguhan, bukan user tidak ditemukan
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data user: "+err.Error())
+			return
+		}
+	}
+
 	var errors []string
 	dataProcessed := false
 
@@ -1895,7 +1908,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			acronymToIdMap[acronym] = c.ID
 		}
 	}
-	
+
 	resolveVendor := func(vendorInput string) string {
 		trimmedInput := strings.TrimSpace(vendorInput)
 		if trimmedInput == "" {
@@ -1979,7 +1992,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			errors = append(errors, fmt.Sprintf("Kritis: Gagal mencari company 'Warehouse': %v", err))
 		}
 
-
 		for i, row := range panelSheetData {
 			rowNum := i + 2
 			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
@@ -2016,32 +2028,39 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
 				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
 			}
-			panelVendorInput := getValueCaseInsensitive(row, "Panel")
-			busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
 
-			if noPp == "" {
-				errors = append(errors, fmt.Sprintf("Panel baris %d: Kolom 'PP Panel' wajib diisi.", rowNum))
-				continue
-			}
-
+			// --- [MODIFIKASI] Logika baru untuk vendor Panel dan Busbar berdasarkan role ---
 			var panelVendorId, busbarVendorId sql.NullString
-			if panelVendorInput != "" {
-				resolvedId := resolveVendor(panelVendorInput)
-				if resolvedId == "" {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemukan.", rowNum, panelVendorInput))
-				} else {
-					panelVendorId = sql.NullString{String: resolvedId, Valid: true}
-				}
-			}
 
-			if busbarVendorInput != "" {
-				resolvedId := resolveVendor(busbarVendorInput)
-				if resolvedId == "" {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorInput))
-				} else {
-					busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
+			if loggedInUserRole == AppRoleK3 {
+				// LOGIKA KHUSUS UNTUK K3
+				// 1. Panel Vendor otomatis diisi dengan company K3 yang login
+				panelVendorId = sql.NullString{String: loggedInUserCompanyId, Valid: true}
+				// 2. Kolom Busbar diabaikan, busbarVendorId dibiarkan null (tidak valid)
+			} else {
+				// LOGIKA STANDAR UNTUK ROLE LAIN
+				panelVendorInput := getValueCaseInsensitive(row, "Panel")
+				busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
+
+				if panelVendorInput != "" {
+					resolvedId := resolveVendor(panelVendorInput)
+					if resolvedId == "" {
+						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemukan.", rowNum, panelVendorInput))
+					} else {
+						panelVendorId = sql.NullString{String: resolvedId, Valid: true}
+					}
+				}
+
+				if busbarVendorInput != "" {
+					resolvedId := resolveVendor(busbarVendorInput)
+					if resolvedId == "" {
+						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorInput))
+					} else {
+						busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
+					}
 				}
 			}
+			// --- AKHIR MODIFIKASI ---
 
 			lastErrorIndex := len(errors) - 1
 			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
@@ -2073,7 +2092,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				"status_corepart":   "Open",
 			}
 
-
 			if payload.LoggedInUsername != nil {
 				panelMap["created_by"] = *payload.LoggedInUsername
 			}
@@ -2100,7 +2118,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err))
 				}
 			}
-			
+
 			dataProcessed = true
 		}
 	}
@@ -2123,6 +2141,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
+
 // =============================================================================
 // HELPERS & DB INIT
 // =============================================================================
