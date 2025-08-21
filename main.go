@@ -1367,44 +1367,123 @@ func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.
 	}
 	respondWithJSON(w, http.StatusCreated, payload)
 }
-
 func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
+	// Definisikan struct untuk payload JSON yang dikirim oleh klien (role K5)
 	var payload struct {
-		PanelNoPp string `json:"panel_no_pp"`
-		Status    string `json:"status"`
+		PanelNoPp       string      `json:"panel_no_pp"`
+		VendorID        string      `json:"vendor"` // Field ini ada di payload tapi tidak digunakan untuk update DB
+		AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
+		AoBusbarMcc     *customTime `json:"ao_busbar_mcc"`
+		StatusBusbarPcc *string     `json:"status_busbar_pcc"`
+		StatusBusbarMcc *string     `json:"status_busbar_mcc"`
 	}
+
+	// Decode body request ke dalam struct payload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
-	query := `
-		INSERT INTO busbars (panel_no_pp, status_busbar_mcc) VALUES ($1, $2)
-		ON CONFLICT (panel_no_pp) DO UPDATE SET status_busbar_mcc = EXCLUDED.status_busbar_mcc`
-	_, err := a.DB.Exec(query, payload.PanelNoPp, payload.Status)
+
+	// Validasi dasar bahwa No. PP harus ada
+	if payload.PanelNoPp == "" {
+		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
+		return
+	}
+
+	// Siapkan untuk membangun query UPDATE secara dinamis
+	var updates []string
+	var args []interface{}
+	argCounter := 1
+
+	// Tambahkan field ke query hanya jika nilainya tidak nil di payload
+	if payload.StatusBusbarPcc != nil {
+		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
+		args = append(args, *payload.StatusBusbarPcc)
+		argCounter++
+	}
+	if payload.StatusBusbarMcc != nil {
+		updates = append(updates, fmt.Sprintf("status_busbar_mcc = $%d", argCounter))
+		args = append(args, *payload.StatusBusbarMcc)
+		argCounter++
+	}
+	if payload.AoBusbarPcc != nil {
+		updates = append(updates, fmt.Sprintf("ao_busbar_pcc = $%d", argCounter))
+		args = append(args, payload.AoBusbarPcc)
+		argCounter++
+	}
+	if payload.AoBusbarMcc != nil {
+		updates = append(updates, fmt.Sprintf("ao_busbar_mcc = $%d", argCounter))
+		args = append(args, payload.AoBusbarMcc)
+		argCounter++
+	}
+
+	// Jika tidak ada field yang perlu diupdate, kirim respon sukses
+	if len(updates) == 0 {
+		respondWithJSON(w, http.StatusOK, map[string]string{"message": "No fields to update."})
+		return
+	}
+
+	// Finalisasi query dengan klausa WHERE dan eksekusi
+	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
+	args = append(args, payload.PanelNoPp)
+
+	result, err := a.DB.Exec(query, args...)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		respondWithError(w, http.StatusInternalServerError, "Failed to update panel status for K5: "+err.Error())
 		return
 	}
-	respondWithJSON(w, http.StatusCreated, payload)
+
+	// Cek apakah ada baris yang berhasil diupdate
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
+
 func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
+	// Definisikan struct untuk payload JSON yang dikirim oleh klien (role Warehouse)
 	var payload struct {
-		PanelNoPp string `json:"panel_no_pp"`
-		Status    string `json:"status"`
+		PanelNoPp       string  `json:"panel_no_pp"`
+		VendorID        string  `json:"vendor"` // Field ini ada di payload tapi tidak digunakan untuk update DB
+		StatusComponent *string `json:"status_component"`
 	}
+
+	// Decode body request ke dalam struct payload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
-	query := `
-		INSERT INTO components (panel_no_pp, status_component) VALUES ($1, $2)
-		ON CONFLICT (panel_no_pp) DO UPDATE SET status_component = EXCLUDED.status_component`
-	_, err := a.DB.Exec(query, payload.PanelNoPp, payload.Status)
+
+	// Validasi dasar
+	if payload.PanelNoPp == "" {
+		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
+		return
+	}
+	if payload.StatusComponent == nil {
+		respondWithError(w, http.StatusBadRequest, "status_component is required")
+		return
+	}
+
+	// Query UPDATE yang sederhana dan langsung
+	query := `UPDATE panels SET status_component = $1 WHERE no_pp = $2`
+
+	result, err := a.DB.Exec(query, *payload.StatusComponent, payload.PanelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		respondWithError(w, http.StatusInternalServerError, "Failed to update panel component status: "+err.Error())
 		return
 	}
-	respondWithJSON(w, http.StatusCreated, payload)
+
+	// Cek apakah ada baris yang berhasil diupdate
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 func (a *App) getAllGenericHandler(tableName string, modelFactory func() interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
