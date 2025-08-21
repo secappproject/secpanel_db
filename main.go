@@ -262,6 +262,7 @@ func (a *App) initializeRoutes() {
 	// Panel Management
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
+	a.Router.HandleFunc("/panels", a.updatePanelHandler).Methods("PUT")
 	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
@@ -355,7 +356,64 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, p)
 }
 
+func (a *App) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    noPp, ok := vars["no_pp"]
+    if !ok {
+        respondWithError(w, http.StatusBadRequest, "No. PP tidak ditemukan di URL")
+        return
+    }
 
+    var p Panel
+    if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+        respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+        return
+    }
+
+    query := `
+        UPDATE panels SET
+            no_panel = $1,
+            no_wbs = $2,
+            project = $3,
+            percent_progress = $4,
+            start_date = $5,
+            target_delivery = $6,
+            status_busbar_pcc = $7,
+            status_busbar_mcc = $8,
+            status_component = $9,
+            status_palet = $10,
+            status_corepart = $11,
+            ao_busbar_pcc = $12,
+            ao_busbar_mcc = $13,
+            created_by = $14,
+            vendor_id = $15,
+            is_closed = $16,
+            closed_date = $17,
+            panel_type = $18,
+            remarks = $19
+        WHERE no_pp = $20`
+
+    res, err := a.DB.Exec(query,
+        p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery,
+        p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet,
+        p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID,
+        p.IsClosed, p.ClosedDate, p.PanelType, p.Remarks,
+        noPp, // Gunakan noPp dari URL untuk klausa WHERE
+    )
+
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal memperbarui panel: "+err.Error())
+        return
+    }
+
+    count, _ := res.RowsAffected()
+    if count == 0 {
+        respondWithError(w, http.StatusNotFound, "Panel dengan No. PP tersebut tidak ditemukan untuk diupdate")
+        return
+    }
+
+    respondWithJSON(w, http.StatusOK, p)
+}
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct{ Username, Password string }
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
