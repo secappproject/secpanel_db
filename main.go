@@ -357,62 +357,107 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    noPp, ok := vars["no_pp"]
-    if !ok {
-        respondWithError(w, http.StatusBadRequest, "No. PP tidak ditemukan di URL")
-        return
-    }
+	// 1. Ambil no_pp dari URL
+	vars := mux.Vars(r)
+	noPp, ok := vars["no_pp"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "No. PP tidak ditemukan di URL")
+		return
+	}
 
-    var p Panel
-    if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-        respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
-        return
-    }
+	// 2. Decode payload (data baru) dari request body
+	var payloadData Panel
+	if err := json.NewDecoder(r.Body).Decode(&payloadData); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+		return
+	}
+	
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+		return
+	}
+	defer tx.Rollback()
 
-    query := `
-        UPDATE panels SET
-            no_panel = $1,
-            no_wbs = $2,
-            project = $3,
-            percent_progress = $4,
-            start_date = $5,
-            target_delivery = $6,
-            status_busbar_pcc = $7,
-            status_busbar_mcc = $8,
-            status_component = $9,
-            status_palet = $10,
-            status_corepart = $11,
-            ao_busbar_pcc = $12,
-            ao_busbar_mcc = $13,
-            created_by = $14,
-            vendor_id = $15,
-            is_closed = $16,
-            closed_date = $17,
-            panel_type = $18,
-            remarks = $19
-        WHERE no_pp = $20`
+	// 3. Ambil data panel yang ada sekarang dari database
+	var existingPanel Panel
+	querySelect := `
+		SELECT 
+			no_pp, no_panel, no_wbs, project, percent_progress, start_date, 
+			target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, 
+			status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, 
+			vendor_id, is_closed, closed_date, panel_type, remarks
+		FROM panels WHERE no_pp = $1`
+	err = tx.QueryRow(querySelect, noPp).Scan(
+		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
+		&existingPanel.PercentProgress, &existingPanel.StartDate, &existingPanel.TargetDelivery,
+		&existingPanel.StatusBusbarPcc, &existingPanel.StatusBusbarMcc, &existingPanel.StatusComponent,
+		&existingPanel.StatusPalet, &existingPanel.StatusCorepart, &existingPanel.AoBusbarPcc,
+		&existingPanel.AoBusbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
+		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType, &existingPanel.Remarks,
+	)
 
-    res, err := a.DB.Exec(query,
-        p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery,
-        p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet,
-        p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID,
-        p.IsClosed, p.ClosedDate, p.PanelType, p.Remarks,
-        noPp, // Gunakan noPp dari URL untuk klausa WHERE
-    )
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Panel dengan No. PP tersebut tidak ditemukan untuk diupdate")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data panel yang ada: "+err.Error())
+		return
+	}
 
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal memperbarui panel: "+err.Error())
-        return
-    }
+	// 4. Timpa data lama dengan perubahan dari payload (hanya jika tidak nil)
+	// Ini mencegah data yang ada terhapus oleh payload yang kosong
+	if payloadData.NoPanel != nil { existingPanel.NoPanel = payloadData.NoPanel }
+	if payloadData.NoWbs != nil { existingPanel.NoWbs = payloadData.NoWbs }
+	if payloadData.Project != nil { existingPanel.Project = payloadData.Project }
+	if payloadData.PercentProgress != nil { existingPanel.PercentProgress = payloadData.PercentProgress }
+	if payloadData.StartDate != nil { existingPanel.StartDate = payloadData.StartDate }
+	if payloadData.TargetDelivery != nil { existingPanel.TargetDelivery = payloadData.TargetDelivery }
+	if payloadData.StatusBusbarPcc != nil { existingPanel.StatusBusbarPcc = payloadData.StatusBusbarPcc }
+	if payloadData.StatusBusbarMcc != nil { existingPanel.StatusBusbarMcc = payloadData.StatusBusbarMcc }
+	if payloadData.StatusComponent != nil { existingPanel.StatusComponent = payloadData.StatusComponent }
+	if payloadData.StatusPalet != nil { existingPanel.StatusPalet = payloadData.StatusPalet }
+	if payloadData.StatusCorepart != nil { existingPanel.StatusCorepart = payloadData.StatusCorepart }
+	if payloadData.AoBusbarPcc != nil { existingPanel.AoBusbarPcc = payloadData.AoBusbarPcc }
+	if payloadData.AoBusbarMcc != nil { existingPanel.AoBusbarMcc = payloadData.AoBusbarMcc }
+	if payloadData.VendorID != nil { existingPanel.VendorID = payloadData.VendorID }
+	if payloadData.PanelType != nil { existingPanel.PanelType = payloadData.PanelType }
+	if payloadData.Remarks != nil { existingPanel.Remarks = payloadData.Remarks }
+	existingPanel.IsClosed = payloadData.IsClosed // Boolean tidak bisa nil, jadi langsung timpa
+	existingPanel.ClosedDate = payloadData.ClosedDate
 
-    count, _ := res.RowsAffected()
-    if count == 0 {
-        respondWithError(w, http.StatusNotFound, "Panel dengan No. PP tersebut tidak ditemukan untuk diupdate")
-        return
-    }
+	// 5. Lakukan satu kali UPDATE final dengan data yang sudah lengkap
+	updateQuery := `
+		UPDATE panels SET
+			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
+			start_date = $5, target_delivery = $6, status_busbar_pcc = $7,
+			status_busbar_mcc = $8, status_component = $9, status_palet = $10,
+			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
+			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18
+		WHERE no_pp = $19`
 
-    respondWithJSON(w, http.StatusOK, p)
+	_, err = tx.Exec(updateQuery,
+		existingPanel.NoPanel, existingPanel.NoWbs, existingPanel.Project, existingPanel.PercentProgress,
+		existingPanel.StartDate, existingPanel.TargetDelivery, existingPanel.StatusBusbarPcc,
+		existingPanel.StatusBusbarMcc, existingPanel.StatusComponent, existingPanel.StatusPalet,
+		existingPanel.StatusCorepart, existingPanel.AoBusbarPcc, existingPanel.AoBusbarMcc,
+		existingPanel.VendorID, existingPanel.IsClosed, existingPanel.ClosedDate, existingPanel.PanelType,
+		existingPanel.Remarks,
+		noPp, // Gunakan noPp dari URL untuk klausa WHERE
+	)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengeksekusi update panel: "+err.Error())
+		return
+	}
+
+	// 6. Commit transaksi dan kirim respon sukses
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
+		return
+	}
+	
+	respondWithJSON(w, http.StatusOK, existingPanel)
 }
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct{ Username, Password string }
