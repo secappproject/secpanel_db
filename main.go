@@ -330,29 +330,102 @@ func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusCreated, c)
 }
+// Salin dan ganti seluruh fungsi upsertPanelHandler di main.go
 func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
-	var p Panel
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	var payload Panel
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
 
-	query := `
-        INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-        ON CONFLICT (no_pp) DO UPDATE SET
-        no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
-
-	_, err := a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
+	tx, err := a.DB.Begin()
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			respondWithError(w, http.StatusConflict, "Gagal menyimpan: Terdapat duplikasi pada No Panel.")
-			return
-		}
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
 		return
 	}
-	respondWithJSON(w, http.StatusCreated, p)
+	defer tx.Rollback()
+
+	// 1. Ambil data panel yang ada dari DB (pola BACA)
+	var existingPanel Panel
+	querySelect := `SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
+		status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart,
+		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks
+		FROM panels WHERE no_pp = $1`
+
+	err = tx.QueryRow(querySelect, payload.NoPp).Scan(
+		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
+		&existingPanel.PercentProgress, &existingPanel.StartDate, &existingPanel.TargetDelivery,
+		&existingPanel.StatusBusbarPcc, &existingPanel.StatusBusbarMcc, &existingPanel.StatusComponent,
+		&existingPanel.StatusPalet, &existingPanel.StatusCorepart, &existingPanel.AoBusbarPcc,
+		&existingPanel.AoBusbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
+		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType, &existingPanel.Remarks,
+	)
+
+	// Jika panel tidak ada, lakukan INSERT. Jika ada, lakukan UPDATE.
+	if err == sql.ErrNoRows {
+		// Panel baru, lakukan INSERT
+		queryInsert := `
+			INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
+		_, err = tx.Exec(queryInsert, payload.NoPp, payload.NoPanel, payload.NoWbs, payload.Project, payload.PercentProgress, payload.StartDate, payload.TargetDelivery, payload.StatusBusbarPcc, payload.StatusBusbarMcc, payload.StatusComponent, payload.StatusPalet, payload.StatusCorepart, payload.AoBusbarPcc, payload.AoBusbarMcc, payload.CreatedBy, payload.VendorID, payload.IsClosed, payload.ClosedDate, payload.PanelType, payload.Remarks)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal insert panel: "+err.Error())
+			return
+		}
+	} else if err != nil {
+		// Error database lain
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data panel: "+err.Error())
+		return
+	} else {
+		// Panel sudah ada, gabungkan perubahan (pola MODIFIKASI)
+		if payload.NoPanel != nil { existingPanel.NoPanel = payload.NoPanel }
+		if payload.NoWbs != nil { existingPanel.NoWbs = payload.NoWbs }
+		if payload.Project != nil { existingPanel.Project = payload.Project }
+		if payload.PercentProgress != nil { existingPanel.PercentProgress = payload.PercentProgress }
+		if payload.StartDate != nil { existingPanel.StartDate = payload.StartDate }
+		if payload.TargetDelivery != nil { existingPanel.TargetDelivery = payload.TargetDelivery }
+		if payload.StatusBusbarPcc != nil { existingPanel.StatusBusbarPcc = payload.StatusBusbarPcc }
+		if payload.StatusBusbarMcc != nil { existingPanel.StatusBusbarMcc = payload.StatusBusbarMcc }
+		if payload.StatusComponent != nil { existingPanel.StatusComponent = payload.StatusComponent }
+		if payload.StatusPalet != nil { existingPanel.StatusPalet = payload.StatusPalet }
+		if payload.StatusCorepart != nil { existingPanel.StatusCorepart = payload.StatusCorepart }
+		if payload.AoBusbarPcc != nil { existingPanel.AoBusbarPcc = payload.AoBusbarPcc }
+		if payload.AoBusbarMcc != nil { existingPanel.AoBusbarMcc = payload.AoBusbarMcc }
+		if payload.VendorID != nil { existingPanel.VendorID = payload.VendorID }
+		if payload.PanelType != nil { existingPanel.PanelType = payload.PanelType }
+		if payload.Remarks != nil { existingPanel.Remarks = payload.Remarks }
+		existingPanel.IsClosed = payload.IsClosed
+		existingPanel.ClosedDate = payload.ClosedDate
+		
+		// Lakukan UPDATE (pola TULIS)
+		updateQuery := `
+			UPDATE panels SET
+				no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
+				start_date = $5, target_delivery = $6, status_busbar_pcc = $7,
+				status_busbar_mcc = $8, status_component = $9, status_palet = $10,
+				status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
+				vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18
+			WHERE no_pp = $19`
+		_, err = tx.Exec(updateQuery,
+			existingPanel.NoPanel, existingPanel.NoWbs, existingPanel.Project, existingPanel.PercentProgress,
+			existingPanel.StartDate, existingPanel.TargetDelivery, existingPanel.StatusBusbarPcc,
+			existingPanel.StatusBusbarMcc, existingPanel.StatusComponent, existingPanel.StatusPalet,
+			existingPanel.StatusCorepart, existingPanel.AoBusbarPcc, existingPanel.AoBusbarMcc,
+			existingPanel.VendorID, existingPanel.IsClosed, existingPanel.ClosedDate, existingPanel.PanelType,
+			existingPanel.Remarks, existingPanel.NoPp,
+		)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal update panel: "+err.Error())
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
+		return
+	}
+	
+	respondWithJSON(w, http.StatusOK, payload)
 }
 
 
