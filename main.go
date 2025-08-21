@@ -262,9 +262,11 @@ func (a *App) initializeRoutes() {
 	// Panel Management
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
+	a.Router.HandleFunc("/panel/status-ao-k5", a.upsertStatusAOK5).Methods("POST")
+	a.Router.HandleFunc("/panel/status-whs", a.upsertStatusWHS).Methods("POST")
+
 	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
-	a.Router.HandleFunc("/panel/{no_pp}/status-ao", a.updateStatusAOHandler).Methods("PUT")
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/keys", a.getPanelKeysHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
@@ -1359,6 +1361,45 @@ func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.
         INSERT INTO busbars (panel_no_pp, vendor, remarks) VALUES ($1, $2, $3)
         ON CONFLICT (panel_no_pp, vendor) DO UPDATE SET remarks = EXCLUDED.remarks`
 	_, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor, payload.Remarks)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, payload)
+}
+
+func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		PanelNoPp string `json:"panel_no_pp"`
+		Status    string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	query := `
+		INSERT INTO busbars (panel_no_pp, status_busbar_mcc) VALUES ($1, $2)
+		ON CONFLICT (panel_no_pp) DO UPDATE SET status_busbar_mcc = EXCLUDED.status_busbar_mcc`
+	_, err := a.DB.Exec(query, payload.PanelNoPp, payload.Status)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, payload)
+}
+func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		PanelNoPp string `json:"panel_no_pp"`
+		Status    string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	query := `
+		INSERT INTO components (panel_no_pp, status_component) VALUES ($1, $2)
+		ON CONFLICT (panel_no_pp) DO UPDATE SET status_component = EXCLUDED.status_component`
+	_, err := a.DB.Exec(query, payload.PanelNoPp, payload.Status)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
