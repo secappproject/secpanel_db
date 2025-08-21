@@ -1396,6 +1396,12 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 	argCounter := 1
 
 	// Tambahkan field ke query hanya jika nilainya tidak nil di payload
+	
+	if payload.VendorID != "" {
+		updates = append(updates, fmt.Sprintf("vendor_id = $%d", argCounter))
+		args = append(args, payload.VendorID)
+		argCounter++	
+	}
 	if payload.StatusBusbarPcc != nil {
 		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
 		args = append(args, *payload.StatusBusbarPcc)
@@ -1945,6 +1951,7 @@ func (a *App) importDataHandler(w http.ResponseWriter, r *http.Request) {
 	for _, tableName := range tableOrder {
 		if items, ok := data[tableName]; ok {
 			for _, itemData := range items {
+				cleanMapData(itemData)
 				if err := insertMap(tx, tableName, itemData); err != nil {
 					respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to import to %s: %v", tableName, err))
 					return
@@ -2136,6 +2143,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 	if userSheetData, ok := payload.Data["user"]; ok {
 		for i, row := range userSheetData {
+			cleanMapData(row)
 			rowNum := i + 2
 			username := getValueCaseInsensitive(row, "Username")
 			companyName := getValueCaseInsensitive(row, "Company")
@@ -2196,6 +2204,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 		}
 
 		for i, row := range panelSheetData {
+			cleanMapData(row)
 			rowNum := i + 2
 			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
 			noPanel := getValueCaseInsensitive(row, "Panel No")
@@ -2344,7 +2353,21 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
-
+func cleanMapData(data map[string]interface{}) {
+	for key, value := range data {
+		// Cek apakah nilainya adalah string
+		if s, ok := value.(string); ok {
+			trimmedS := strings.TrimSpace(s)
+			if trimmedS == "" {
+				// Jika stringnya kosong setelah di-trim, hapus dari map
+				delete(data, key)
+			} else {
+				// Jika tidak, update map dengan nilai yang sudah bersih
+				data[key] = trimmedS
+			}
+		}
+	}
+}
 // =============================================================================
 // HELPERS & DB INIT
 // =============================================================================
