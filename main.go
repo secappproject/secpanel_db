@@ -262,7 +262,7 @@ func (a *App) initializeRoutes() {
 	// Panel Management
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
-	a.Router.HandleFunc("/panels", a.updatePanelHandler).Methods("PUT")
+	a.Router.HandleFunc("/panels/{no_pp}", a.updatePanelHandler).Methods("PUT")
 	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
