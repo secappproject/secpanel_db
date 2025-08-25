@@ -1405,11 +1405,11 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 
 	// Tambahkan field ke query hanya jika nilainya tidak nil di payload
 	
-	if payload.VendorID != "" {
-		updates = append(updates, fmt.Sprintf("vendor_id = $%d", argCounter))
-		args = append(args, payload.VendorID)
-		argCounter++	
-	}
+	// if payload.VendorID != "" {
+	// 	updates = append(updates, fmt.Sprintf("vendor_id = $%d", argCounter))
+	// 	args = append(args, payload.VendorID)
+	// 	argCounter++	
+	// }
 	if payload.StatusBusbarPcc != nil {
 		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
 		args = append(args, *payload.StatusBusbarPcc)
