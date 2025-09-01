@@ -2435,7 +2435,7 @@ func initDB(db *sql.DB) {
 		is_closed BOOLEAN DEFAULT false, 
 		closed_date TIMESTAMPTZ
     );
-	CREATE TåABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
+	CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS corepart ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
