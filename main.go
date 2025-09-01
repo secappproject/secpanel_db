@@ -116,6 +116,8 @@ type Panel struct {
 	ClosedDate      *customTime `json:"closed_date"`
 	PanelType       *string     `json:"panel_type,omitempty"`
 	Remarks         *string     `json:"remarks,omitempty"`
+	CloseDateBusbarPcc *customTime `json:"close_date_busbar_pcc,omitempty"`
+	CloseDateBusbarMcc *customTime `json:"close_date_busbar_mcc,omitempty"`
 
 }
 type Busbar struct {
@@ -1087,10 +1089,8 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// [PERBAIKAN] Hanya decode body satu kali ke dalam satu variabel
 	var payloadData Panel
 	if err := json.NewDecoder(r.Body).Decode(&payloadData); err != nil {
-		// Tambahkan pengecekan EOF untuk pesan error yang lebih jelas
 		if err.Error() == "EOF" {
 			respondWithError(w, http.StatusBadRequest, "Payload tidak valid: Body request kosong.")
 		} else {
@@ -1111,7 +1111,8 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	querySelect := `
 		SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
 		status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart,
-		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks
+		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks,
+        close_date_busbar_pcc, close_date_busbar_mcc
 		FROM panels WHERE no_pp = $1`
 	err = tx.QueryRow(querySelect, oldNoPp).Scan(
 		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
@@ -1120,6 +1121,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		&existingPanel.StatusPalet, &existingPanel.StatusCorepart, &existingPanel.AoBusbarPcc,
 		&existingPanel.AoBusbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
 		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType, &existingPanel.Remarks,
+        &existingPanel.CloseDateBusbarPcc, &existingPanel.CloseDateBusbarMcc,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1147,6 +1149,8 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	if payloadData.VendorID != nil { existingPanel.VendorID = payloadData.VendorID }
 	if payloadData.PanelType != nil { existingPanel.PanelType = payloadData.PanelType }
 	if payloadData.Remarks != nil { existingPanel.Remarks = payloadData.Remarks } 
+	existingPanel.CloseDateBusbarPcc = payloadData.CloseDateBusbarPcc
+    existingPanel.CloseDateBusbarMcc = payloadData.CloseDateBusbarMcc
 	existingPanel.IsClosed = payloadData.IsClosed
 	existingPanel.ClosedDate = payloadData.ClosedDate
 	existingPanel.NoPp = payloadData.NoPp
@@ -1186,7 +1190,8 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			start_date = $5, target_delivery = $6, status_busbar_pcc = $7,
 			status_busbar_mcc = $8, status_component = $9, status_palet = $10,
 			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
-			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18
+			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18,
+            close_date_busbar_pcc = $19, close_date_busbar_mcc = $20
     WHERE no_pp = $19`
 
 	_, err = tx.Exec(updateQuery,
@@ -1196,6 +1201,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		existingPanel.StatusCorepart, existingPanel.AoBusbarPcc, existingPanel.AoBusbarMcc,
 		existingPanel.VendorID, existingPanel.IsClosed, existingPanel.ClosedDate, existingPanel.PanelType,
 		existingPanel.Remarks, 
+		existingPanel.CloseDateBusbarPcc, existingPanel.CloseDateBusbarMcc,
 		pkToUpdateWith,
 	)
 	if err != nil {
@@ -2376,6 +2382,7 @@ func cleanMapData(data map[string]interface{}) {
 		}
 	}
 }
+
 // =============================================================================
 // HELPERS & DB INIT
 // =============================================================================
@@ -2404,27 +2411,26 @@ func initDB(db *sql.DB) {
     CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
     CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
     CREATE TABLE IF NOT EXISTS panels (
-      no_pp TEXT PRIMARY KEY, 
-      no_panel TEXT, 
-      no_wbs TEXT, 
-      project TEXT, 
-      percent_progress REAL,
-      start_date TIMESTAMPTZ, 
-      target_delivery TIMESTAMPTZ, 
-      status_busbar_pcc TEXT, 
-      status_busbar_mcc TEXT,
-      status_component TEXT, 
-      status_palet TEXT, 
-      status_corepart TEXT, 
-      ao_busbar_pcc TIMESTAMPTZ, 
-      ao_busbar_mcc TIMESTAMPTZ,
-      created_by TEXT, 
-      vendor_id TEXT, 
-      is_closed BOOLEAN DEFAULT false, 
-      closed_date TIMESTAMPTZ
-      -- Kolom panel_type sengaja tidak ditambahkan di sini agar migrasi berjalan
+		no_pp TEXT PRIMARY KEY, 
+		no_panel TEXT, 
+		no_wbs TEXT, 
+		project TEXT, 
+		percent_progress REAL,
+		start_date TIMESTAMPTZ, 
+		target_delivery TIMESTAMPTZ, 
+		status_busbar_pcc TEXT, 
+		status_busbar_mcc TEXT,
+		status_component TEXT, 
+		status_palet TEXT, 
+		status_corepart TEXT, 
+		ao_busbar_pcc TIMESTAMPTZ, 
+		ao_busbar_mcc TIMESTAMPTZ,
+		created_by TEXT, 
+		vendor_id TEXT, 
+		is_closed BOOLEAN DEFAULT false, 
+		closed_date TIMESTAMPTZ
     );
-	CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
+	CREATE TåABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS corepart ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
@@ -2449,8 +2455,6 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal mengubah constraint tabel panels: %v", err)
 	}
 
-	// [FIX] SCRIPT MIGRASI UNTUK MENAMBAHKAN KOLOM panel_type
-	// Script ini memastikan kolom 'panel_type' ada di tabel 'panels', baik untuk database baru maupun yang sudah ada.
 	alterTableAddPanelTypeSQL := `
 	DO $$
 	BEGIN
@@ -2485,7 +2489,34 @@ func initDB(db *sql.DB) {
 		log.Println("Database kosong, membuat data dummy...")
 		insertDummyData(db)
 	}
+
+	alterTableAddBusbarCloseDatesSQL := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'close_date_busbar_pcc') THEN
+			ALTER TABLE panels ADD COLUMN close_date_busbar_pcc TIMESTAMPTZ;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'close_date_busbar_mcc') THEN
+			ALTER TABLE panels ADD COLUMN close_date_busbar_mcc TIMESTAMPTZ;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(alterTableAddBusbarCloseDatesSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom close_date_busbar: %v", err)
+	}
+
+	var count_companies int
+	if err := db.QueryRow("SELECT COUNT(*) FROM companies").Scan(&count); err != nil {
+		log.Fatalf("Gagal cek data dummy: %v", err)
+	}
+	if count_companies == 0 {
+		log.Println("Database kosong, membuat data dummy...")
+		insertDummyData(db)
+	}
+
 }
+
 func insertDummyData(db *sql.DB) {
 	tx, err := db.Begin()
 	if err != nil {
