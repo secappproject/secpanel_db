@@ -879,12 +879,14 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 
 	// rawIDs := r.URL.Query().Get("raw_ids") == "true"
 
+	
 	finalQuery := fmt.Sprintf(`
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
 			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
 			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
+			p.close_date_busbar_pcc, p.close_date_busbar_mcc,
 			pu.name as panel_vendor_name,
 			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
@@ -909,6 +911,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		WHERE p.no_pp IN (`+panelIdsSubQuery+`)
 		ORDER BY p.start_date DESC`)
 
+
 	rows, err := a.DB.Query(finalQuery, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -930,6 +933,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			&panel.StatusPalet, &panel.StatusCorepart, &panel.AoBusbarPcc,
 			&panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID,
 			&panel.IsClosed, &panel.ClosedDate, &panel.PanelType, &panel.Remarks,
+			&panel.CloseDateBusbarPcc, &panel.CloseDateBusbarMcc,
 			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks,
 			&pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds,
 			&pdd.CorepartVendorNames, &corepartVendorIds,
@@ -938,6 +942,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			respondWithError(w, http.StatusInternalServerError, "Error scanning row: "+err.Error())
 			return
 		}
+
 		
 		// if !rawIDs && strings.HasPrefix(panel.NoPp, "TEMP_PP_") {
 		// 	panel.NoPp = ""
@@ -1192,7 +1197,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
 			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18,
             close_date_busbar_pcc = $19, close_date_busbar_mcc = $20
-    WHERE no_pp = $19`
+    WHERE no_pp = $21`
 
 	_, err = tx.Exec(updateQuery,
 		existingPanel.NoPanel, existingPanel.NoWbs, existingPanel.Project, existingPanel.PercentProgress,
