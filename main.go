@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -30,6 +31,62 @@ const (
 	AppRoleK3        = "k3"
 	AppRoleK5        = "k5"
 )
+type LogEntry struct {
+	Action    string    `json:"action"`    // e.g., "membuat issue", "menandai solved"
+	User      string    `json:"user"`      // The username who performed the action
+	Timestamp time.Time `json:"timestamp"` // When the action was performed
+}
+
+type Logs []LogEntry
+
+func (l Logs) Value() (driver.Value, error) {
+	if len(l) == 0 {
+		return json.Marshal([]LogEntry{}) 
+	}
+	return json.Marshal(l)
+}
+
+func (l *Logs) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed")
+	}
+	if b == nil || string(b) == "null" {
+		*l = []LogEntry{}
+		return nil
+	}
+	return json.Unmarshal(b, &l)
+}
+
+type Chat struct {
+	ID        int       `json:"chat_id"`
+	PanelNoPp string    `json:"panel_no_pp"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Issue struct {
+	ID          int       `json:"issue_id"`
+	ChatID      int       `json:"chat_id"`
+	Title       string    `json:"issue_title"`
+	Description string    `json:"issue_description"`
+	Type        string    `json:"issue_type"`   // Corresponds to RCA tag like "Masalah 3"
+	Status      string    `json:"issue_status"` // e.g., "solved", "unsolved"
+	Logs        Logs      `json:"logs"`         // Stored as JSONB
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type Photo struct {
+	ID        int    `json:"photo_id"`
+	IssueID   int    `json:"issue_id"`
+	PhotoData string `json:"photo"` 
+}
+
+type IssueWithPhotos struct {
+	Issue
+	Photos []Photo `json:"photos"`
+}
 
 type customTime struct {
 	time.Time
@@ -304,6 +361,17 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/import/database", a.importDataHandler).Methods("POST")
 	a.Router.HandleFunc("/import/template", a.generateImportTemplateHandler).Methods("GET")
 	a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST")
+
+	// Issue Management Routes
+	a.Router.HandleFunc("/panels/{no_pp}/issues", a.getIssuesByPanelHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/{no_pp}/issues", a.createIssueForPanelHandler).Methods("POST")
+	a.Router.HandleFunc("/issues/{id}", a.getIssueByIDHandler).Methods("GET")
+	a.Router.HandleFunc("/issues/{id}", a.updateIssueHandler).Methods("PUT")
+	a.Router.HandleFunc("/issues/{id}", a.deleteIssueHandler).Methods("DELETE")
+
+	// Photo Management Routes
+	a.Router.HandleFunc("/issues/{issue_id}/photos", a.addPhotoToIssueHandler).Methods("POST")
+	a.Router.HandleFunc("/photos/{id}", a.deletePhotoHandler).Methods("DELETE")
 }
 
 // =============================================================================
@@ -2372,6 +2440,294 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
+
+// getOrCreateChatByPanel is a helper function to find or create a chat for a panel.
+func (a *App) getOrCreateChatByPanel(panelNoPp string, tx *sql.Tx) (int, error) {
+	var chatID int
+	// Check if chat exists
+	err := tx.QueryRow("SELECT id FROM chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
+	if err == sql.ErrNoRows {
+		// Chat does not exist, create it
+		err = tx.QueryRow("INSERT INTO chats (panel_no_pp) VALUES ($1) RETURNING id", panelNoPp).Scan(&chatID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create chat: %w", err)
+		}
+	} else if err != nil {
+		return 0, fmt.Errorf("failed to query chat: %w", err)
+	}
+	return chatID, nil
+}
+
+// createIssueForPanelHandler creates a new issue associated with a panel.
+func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	panelNoPp, ok := vars["no_pp"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		return
+	}
+
+	var payload struct {
+		Title       string   `json:"issue_title"`
+		Description string   `json:"issue_description"`
+		Type        string   `json:"issue_type"`
+		CreatedBy   string   `json:"created_by"`
+		Photos      []string `json:"photos"` // Expecting a list of Base64 strings
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
+		return
+	}
+
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	chatID, err := a.getOrCreateChatByPanel(panelNoPp, tx)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Create the initial log entry
+	initialLog := Logs{
+		{Action: "membuat issue", User: payload.CreatedBy, Timestamp: time.Now()},
+	}
+
+	// Insert the issue
+	var issueID int
+	query := `INSERT INTO issues (chat_id, title, description, issue_type, created_by, logs, status) 
+              VALUES ($1, $2, $3, $4, $5, $6, 'unsolved') RETURNING id`
+	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.Type, payload.CreatedBy, initialLog).Scan(&issueID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create issue: "+err.Error())
+		return
+	}
+
+	// Insert photos if any
+	for _, photoBase64 := range payload.Photos {
+		_, err := tx.Exec("INSERT INTO photos (issue_id, photo_data) VALUES ($1, $2)", issueID, photoBase64)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to commit transaction")
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
+}
+
+// getIssuesByPanelHandler retrieves all issues for a given panel.
+func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	panelNoPp := vars["no_pp"]
+
+	// Find chat ID first
+	var chatID int
+	err := a.DB.QueryRow("SELECT id FROM chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
+	if err == sql.ErrNoRows {
+		respondWithJSON(w, http.StatusOK, []Issue{}) // No chat means no issues
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to find chat for panel: "+err.Error())
+		return
+	}
+
+	rows, err := a.DB.Query("SELECT id, chat_id, title, description, issue_type, status, logs, created_by, created_at, updated_at FROM issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var issues []Issue
+	for rows.Next() {
+		var issue Issue
+		if err := rows.Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Type, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan issue: "+err.Error())
+			return
+		}
+		issues = append(issues, issue)
+	}
+	respondWithJSON(w, http.StatusOK, issues)
+}
+
+// getIssueByIDHandler retrieves a single issue with its photos.
+func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
+	}
+
+	var issue Issue
+	err = a.DB.QueryRow("SELECT id, chat_id, title, description, issue_type, status, logs, created_by, created_at, updated_at FROM issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Type, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Issue not found")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	rows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM photos WHERE issue_id = $1", id)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve photos: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var photos []Photo
+	for rows.Next() {
+		var p Photo
+		if err := rows.Scan(&p.ID, &p.IssueID, &p.PhotoData); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan photo: "+err.Error())
+			return
+		}
+		photos = append(photos, p)
+	}
+
+	response := IssueWithPhotos{Issue: issue, Photos: photos}
+	respondWithJSON(w, http.StatusOK, response)
+}
+
+// updateIssueHandler updates an existing issue's details.
+func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
+	}
+
+	var payload struct {
+		Title       string `json:"issue_title"`
+		Description string `json:"issue_description"`
+		Type        string `json:"issue_type"`
+		Status      string `json:"issue_status"`
+		UpdatedBy   string `json:"updated_by"` // Username making the change
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	// Fetch current logs to append a new entry
+	var currentLogs Logs
+	err = a.DB.QueryRow("SELECT logs FROM issues WHERE id = $1", issueID).Scan(&currentLogs)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Issue not found or failed to get logs: "+err.Error())
+		return
+	}
+    
+    // Determine the log action
+    logAction := "mengubah issue"
+    if payload.Status == "solved" {
+        logAction = "menandai solved"
+    }
+
+	newLogEntry := LogEntry{Action: logAction, User: payload.UpdatedBy, Timestamp: time.Now()}
+	updatedLogs := append(currentLogs, newLogEntry)
+
+	query := `UPDATE issues SET title = $1, description = $2, issue_type = $3, status = $4, logs = $5 WHERE id = $6`
+	res, err := a.DB.Exec(query, payload.Title, payload.Description, payload.Type, payload.Status, updatedLogs, issueID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update issue: "+err.Error())
+		return
+	}
+
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Issue not found")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+// deleteIssueHandler deletes an issue and its associated photos.
+func (a *App) deleteIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
+	}
+
+	res, err := a.DB.Exec("DELETE FROM issues WHERE id = $1", id)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Issue not found")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// addPhotoToIssueHandler adds a new photo to an issue.
+func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
+	}
+
+	var payload struct {
+		PhotoData string `json:"photo"` // Base64 string
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	var photoID int
+	err = a.DB.QueryRow("INSERT INTO photos (issue_id, photo_data) VALUES ($1, $2) RETURNING id", issueID, payload.PhotoData).Scan(&photoID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, map[string]int{"photo_id": photoID})
+}
+
+// deletePhotoHandler removes a photo.
+func (a *App) deletePhotoHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid photo ID")
+		return
+	}
+
+	res, err := a.DB.Exec("DELETE FROM photos WHERE id = $1", id)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Photo not found")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func cleanMapData(data map[string]interface{}) {
 	for key, value := range data {
 		// Cek apakah nilainya adalah string
@@ -2442,6 +2798,62 @@ func initDB(db *sql.DB) {
     `
 	if _, err := db.Exec(createTablesSQL); err != nil {
 		log.Fatalf("Gagal membuat tabel awal: %v", err)
+	}
+
+	createTablesSQLChats:= `
+    CREATE TABLE IF NOT EXISTS chats (
+        id SERIAL PRIMARY KEY,
+        panel_no_pp VARCHAR(255) UNIQUE NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`
+	if _, err := db.Exec(createTablesSQLChats); err != nil {
+		log.Fatalf("Gagal membuat tabel chats: %v", err)
+	}
+
+	createTablesSQLIssues:= `
+    CREATE TABLE IF NOT EXISTS issues (
+        id SERIAL PRIMARY KEY,
+        chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        issue_type VARCHAR(100),
+        status VARCHAR(50) NOT NULL DEFAULT 'unsolved',
+        logs JSONB,
+        created_by VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`
+	if _, err := db.Exec(createTablesSQLIssues); err != nil {
+		log.Fatalf("Gagal membuat tabel issues: %v", err)
+	}
+
+	createTablesSQLPhotos:= `
+    CREATE TABLE IF NOT EXISTS photos (
+        id SERIAL PRIMARY KEY,
+        issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+        photo_data TEXT NOT NULL
+    );`
+	if _, err := db.Exec(createTablesSQLPhotos); err != nil {
+		log.Fatalf("Gagal membuat tabel photos: %v", err)
+	}
+
+	updateIssuesTrigger:= `
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+		NEW.updated_at = NOW();
+		RETURN NEW;
+    END;
+    $$ language 'plpgsql';
+
+    DROP TRIGGER IF EXISTS update_issues_updated_at ON issues;
+    CREATE TRIGGER update_issues_updated_at
+    BEFORE UPDATE ON issues
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+    `
+	if _, err := db.Exec(updateIssuesTrigger); err != nil {
+		log.Fatalf("Gagal membuat trigger updated_at di tabel issues: %v", err)
 	}
 
 	alterTableSQL := `
