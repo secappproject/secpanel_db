@@ -2538,7 +2538,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
-}// getIssuesByPanelHandler retrieves all issues for a given panel.
+}
 func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
@@ -2546,7 +2546,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var chatID int
 	err := a.DB.QueryRow("SELECT id FROM chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
-		respondWithJSON(w, http.StatusOK, []Issue{}) // No chat means no issues
+		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{}) // Return empty list
 		return
 	}
 	if err != nil {
@@ -2554,7 +2554,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ▼▼▼ FIX: Removed "issue_type" from the query ▼▼▼
+	// Query utama untuk mendapatkan semua isu
 	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -2562,19 +2562,53 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var issues []Issue
+	// Gunakan map untuk mapping issue ID ke issue-nya
+	issueMap := make(map[int]*IssueWithPhotos)
+	var issueIDs []int
+
 	for rows.Next() {
 		var issue Issue
-		// ▼▼▼ FIX: Scan no longer includes a variable for the removed column ▼▼▼
 		if err := rows.Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to scan issue: "+err.Error())
 			return
 		}
-		issues = append(issues, issue)
+		issueIDs = append(issueIDs, issue.ID)
+		issueMap[issue.ID] = &IssueWithPhotos{Issue: issue, Photos: []Photo{}} // Inisialisasi dengan slice foto kosong
 	}
-	respondWithJSON(w, http.StatusOK, issues)
-}
+	
+	if len(issueIDs) == 0 {
+		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{})
+		return
+	}
 
+	// Query kedua untuk mendapatkan semua foto yang relevan sekaligus
+	photoRows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM photos WHERE issue_id = ANY($1)", pq.Array(issueIDs))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve photos: "+err.Error())
+		return
+	}
+	defer photoRows.Close()
+
+	// Gabungkan foto ke dalam map isu
+	for photoRows.Next() {
+		var p Photo
+		if err := photoRows.Scan(&p.ID, &p.IssueID, &p.PhotoData); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan photo: "+err.Error())
+			return
+		}
+		if issue, ok := issueMap[p.IssueID]; ok {
+			issue.Photos = append(issue.Photos, p)
+		}
+	}
+
+	// Konversi map kembali ke slice untuk respons JSON
+	var issuesWithPhotos []IssueWithPhotos
+	for _, id := range issueIDs { // Iterasi sesuai urutan asli
+		issuesWithPhotos = append(issuesWithPhotos, *issueMap[id])
+	}
+	
+	respondWithJSON(w, http.StatusOK, issuesWithPhotos)
+}
 // getIssueByIDHandler retrieves a single issue with its photos.
 func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
