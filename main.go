@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
@@ -56,6 +58,28 @@ func (l *Logs) Scan(value interface{}) error {
 		return nil
 	}
 	return json.Unmarshal(b, &l)
+}
+type User struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+type CreateCommentPayload struct {
+	SenderID         string   `json:"sender_id"`
+	Text             string   `json:"text"`
+	ReplyToCommentID *string  `json:"reply_to_comment_id,omitempty"`
+	ReplyToUserID    *string  `json:"reply_to_user_id,omitempty"`
+	Images           []string `json:"images"`
+}
+type IssueComment struct {
+	ID               string    `json:"id"`
+	IssueID          int       `json:"issue_id"`
+	Sender           User      `json:"sender"`
+	Text             string    `json:"text"`
+	Timestamp        time.Time `json:"timestamp"`
+	ReplyTo          *User     `json:"reply_to,omitempty"`
+	ReplyToCommentID *string   `json:"reply_to_comment_id,omitempty"`
+	IsEdited         bool      `json:"is_edited"`
+	ImageUrls        []string  `json:"image_urls"`
 }
 
 type Chat struct {
@@ -384,6 +408,14 @@ func (a *App) initializeRoutes() {
 	// Chat Message Routes
 	a.Router.HandleFunc("/chats/{chat_id}/messages", a.getMessagesByChatIDHandler).Methods("GET")
 	a.Router.HandleFunc("/chats/{chat_id}/messages", a.createMessageHandler).Methods("POST")
+
+	// Issue Comment Routes
+	a.Router.HandleFunc("/issues/{issue_id}/comments", a.getCommentsByIssueHandler).Methods("GET")
+	a.Router.HandleFunc("/issues/{issue_id}/comments", a.createCommentHandler).Methods("POST")
+	a.Router.HandleFunc("/comments/{id}", a.updateCommentHandler).Methods("PUT")
+	a.Router.HandleFunc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE")
+	fs := http.FileServer(http.Dir("./uploads/"))
+	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 }
 
 // =============================================================================
@@ -2883,7 +2915,28 @@ func initDB(db *sql.DB) {
 	if _, err := db.Exec(createTablesSQLIssues); err != nil {
 		log.Fatalf("Gagal membuat tabel issues: %v", err)
 	}
-    
+    createIssueCommentsTableSQL := `
+	CREATE TABLE IF NOT EXISTS issue_comments (
+		id TEXT PRIMARY KEY,
+		issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+		sender_id TEXT NOT NULL REFERENCES company_accounts(username) ON DELETE CASCADE,
+		text TEXT,
+		timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		reply_to_comment_id TEXT REFERENCES issue_comments(id) ON DELETE SET NULL,
+		reply_to_user_id TEXT REFERENCES company_accounts(username) ON DELETE SET NULL,
+		is_edited BOOLEAN DEFAULT false,
+		image_urls JSONB
+	);
+	`
+	if _, err := db.Exec(createIssueCommentsTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel issue_comments: %v", err)
+	}
+
+	// Buat folder 'uploads' jika belum ada untuk menyimpan gambar
+	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
+		os.Mkdir("uploads", 0755)
+		log.Println("Folder 'uploads' berhasil dibuat.")
+	}
 	alterIssuesTableSQL := `
 	DO $$
 	BEGIN
@@ -3356,4 +3409,172 @@ func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, createdMessage)
+}
+
+func (a *App) getCommentsByIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
+		return
+	}
+
+	query := `
+		SELECT
+			ic.id,
+			ic.issue_id,
+			ic.text,
+			ic.timestamp,
+			ic.reply_to_comment_id,
+			ic.is_edited,
+			COALESCE(ic.image_urls, '[]'::jsonb),
+			sender.username as sender_id,
+			sender.username as sender_name, -- Bisa diganti dengan nama asli jika ada
+			reply_user.username as reply_to_user_id,
+			reply_user.username as reply_to_user_name
+		FROM issue_comments ic
+		JOIN company_accounts sender ON ic.sender_id = sender.username
+		LEFT JOIN company_accounts reply_user ON ic.reply_to_user_id = reply_user.username
+		WHERE ic.issue_id = $1
+		ORDER BY ic.timestamp ASC
+	`
+
+	rows, err := a.DB.Query(query, issueID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to query comments: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var comments []IssueComment
+	for rows.Next() {
+		var c IssueComment
+		var senderID, senderName, replyToUserID, replyToUserName sql.NullString
+		var imageUrlsJSON []byte
+
+		err := rows.Scan(
+			&c.ID, &c.IssueID, &c.Text, &c.Timestamp, &c.ReplyToCommentID, &c.IsEdited, &imageUrlsJSON,
+			&senderID, &senderName, &replyToUserID, &replyToUserName,
+		)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan comment: "+err.Error())
+			return
+		}
+
+		c.Sender = User{ID: senderID.String, Name: senderName.String}
+		if replyToUserID.Valid {
+			c.ReplyTo = &User{ID: replyToUserID.String, Name: replyToUserName.String}
+		}
+
+		if err := json.Unmarshal(imageUrlsJSON, &c.ImageUrls); err != nil {
+			c.ImageUrls = []string{}
+		}
+
+		comments = append(comments, c)
+	}
+
+	respondWithJSON(w, http.StatusOK, comments)
+}
+
+
+func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
+		return
+	}
+
+	var payload CreateCommentPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	var imageUrls []string
+	for _, base64Image := range payload.Images {
+		// Decode base64
+		parts := strings.Split(base64Image, ",")
+		if len(parts) != 2 {
+			log.Println("Invalid base64 image format")
+			continue
+		}
+		imgData, err := base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			log.Printf("Failed to decode base64: %v", err)
+			continue
+		}
+
+		// Simpan ke file
+		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+		filepath := fmt.Sprintf("uploads/%s", filename)
+		err = os.WriteFile(filepath, imgData, 0644)
+		if err != nil {
+			log.Printf("Failed to save image file: %v", err)
+			continue
+		}
+		// Simpan URL-nya
+		imageUrls = append(imageUrls, "/"+filepath)
+	}
+
+	imageUrlsJSON, _ := json.Marshal(imageUrls)
+	newCommentID := uuid.New().String()
+
+	query := `
+		INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_comment_id, reply_to_user_id, image_urls)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`
+	_, err = a.DB.Exec(query, newCommentID, issueID, payload.SenderID, payload.Text, payload.ReplyToCommentID, payload.ReplyToUserID, imageUrlsJSON)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create comment: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, map[string]string{"id": newCommentID})
+}
+
+func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
+	commentID := mux.Vars(r)["id"]
+
+	var payload struct {
+		Text   string   `json:"text"`
+		Images []string `json:"images"` // Ini berisi URL gambar yang sudah ada ATAU base64 gambar baru
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+
+	var finalImageUrls []string
+	for _, img := range payload.Images {
+		if strings.HasPrefix(img, "data:image") { // Ini gambar baru
+			parts := strings.Split(img, ",")
+			imgData, _ := base64.StdEncoding.DecodeString(parts[1])
+			filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+			filepath := fmt.Sprintf("uploads/%s", filename)
+			os.WriteFile(filepath, imgData, 0644)
+			finalImageUrls = append(finalImageUrls, "/"+filepath)
+		} else { // Ini URL lama yang dipertahankan
+			finalImageUrls = append(finalImageUrls, img)
+		}
+	}
+
+	imageUrlsJSON, _ := json.Marshal(finalImageUrls)
+	query := `UPDATE issue_comments SET text = $1, is_edited = true, image_urls = $2 WHERE id = $3`
+	_, err := a.DB.Exec(query, payload.Text, imageUrlsJSON, commentID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update comment")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
+	commentID := mux.Vars(r)["id"]
+	_, err := a.DB.Exec("DELETE FROM issue_comments WHERE id = $1", commentID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to delete comment")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
