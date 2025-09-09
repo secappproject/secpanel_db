@@ -2480,7 +2480,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	// Payload now expects 'issue_type' instead of 'issue_title'
 	var payload struct {
 		Description string   `json:"issue_description"`
-		Type        string   `json:"issue_type"` // This is the new title
+		Title        string   `json:"issue_title"` // This is the new title
 		CreatedBy   string   `json:"created_by"`
 		Photos      []string `json:"photos"`
 	}
@@ -2491,7 +2491,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 	
 	// Validation: Type (as Title) cannot be empty
-	if payload.Type == "" {
+	if payload.Title == "" {
 		respondWithError(w, http.StatusBadRequest, "Tipe Masalah tidak boleh kosong")
 		return
 	}
@@ -2518,7 +2518,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	// SQL query now inserts payload.Type into the 'title' column. The 'issue_type' column is ignored.
 	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status)
             	VALUES ($1, $2, $3, $4, $5, 'unsolved') RETURNING id`
-	err = tx.QueryRow(query, chatID, payload.Type, payload.Description, payload.CreatedBy, initialLog).Scan(&issueID)
+	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog).Scan(&issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create issue: "+err.Error())
 		return
@@ -2629,7 +2629,7 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	// Payload now expects 'issue_type' instead of 'issue_title'
 	var payload struct {
 		Description string `json:"issue_description"`
-		Type        string `json:"issue_type"`
+		Title        string `json:"issue_title"`
 		Status      string `json:"issue_status"`
 		UpdatedBy   string `json:"updated_by"`
 	}
@@ -2639,7 +2639,7 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Validation
-	if payload.Type == "" {
+	if payload.Title == "" {
 		respondWithError(w, http.StatusBadRequest, "Tipe Masalah tidak boleh kosong")
 		return
 	}
@@ -2666,7 +2666,7 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	
 	// SQL query now updates the 'title' column with payload.Type
 	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4 WHERE id = $5`
-	res, err := a.DB.Exec(query, payload.Type, payload.Description, payload.Status, updatedLogs, issueID)
+	res, err := a.DB.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update issue: "+err.Error())
 		return
