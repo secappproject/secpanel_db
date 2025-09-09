@@ -63,18 +63,26 @@ type Chat struct {
 	PanelNoPp string    `json:"panel_no_pp"`
 	CreatedAt time.Time `json:"created_at"`
 }
-
+type ChatMessage struct {
+	ID            int        `json:"id"`
+	ChatID        int        `json:"chat_id"`
+	SenderUsername string    `json:"sender_username"`
+	Text          *string    `json:"text"` // Pointer agar bisa null
+	ImageData     *string    `json:"image_data,omitempty"` // Pointer dan omitempty
+	RepliedIssueID *int       `json:"replied_issue_id,omitempty"` // Pointer dan omitempty
+	CreatedAt     time.Time `json:"created_at"`
+}
 type Issue struct {
 	ID          int       `json:"issue_id"`
 	ChatID      int       `json:"chat_id"`
-	Title       string    `json:"issue_title"`
+	Title       string    `json:"issue_title"` 
 	Description string    `json:"issue_description"`
-	Type        string    `json:"issue_type"`   // Corresponds to RCA tag like "Masalah 3"
-	Status      string    `json:"issue_status"` // e.g., "solved", "unsolved"
-	Logs        Logs      `json:"logs"`         // Stored as JSONB
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Type      string    `json:"issue_type,omitempty"`
+	Status    string    `json:"issue_status"`
+	Logs      Logs      `json:"logs"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Photo struct {
@@ -372,6 +380,10 @@ func (a *App) initializeRoutes() {
 	// Photo Management Routes
 	a.Router.HandleFunc("/issues/{issue_id}/photos", a.addPhotoToIssueHandler).Methods("POST")
 	a.Router.HandleFunc("/photos/{id}", a.deletePhotoHandler).Methods("DELETE")
+
+	// Chat Message Routes
+	a.Router.HandleFunc("/chats/{chat_id}/messages", a.getMessagesByChatIDHandler).Methods("GET")
+	a.Router.HandleFunc("/chats/{chat_id}/messages", a.createMessageHandler).Methods("POST")
 }
 
 // =============================================================================
@@ -2457,8 +2469,6 @@ func (a *App) getOrCreateChatByPanel(panelNoPp string, tx *sql.Tx) (int, error) 
 	}
 	return chatID, nil
 }
-
-// createIssueForPanelHandler creates a new issue associated with a panel.
 func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
@@ -2467,18 +2477,25 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Payload now expects 'issue_type' instead of 'issue_title'
 	var payload struct {
-		Title       string   `json:"issue_title"`
 		Description string   `json:"issue_description"`
-		Type        string   `json:"issue_type"`
+		Type        string   `json:"issue_type"` // This is the new title
 		CreatedBy   string   `json:"created_by"`
-		Photos      []string `json:"photos"` // Expecting a list of Base64 strings
+		Photos      []string `json:"photos"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
 		return
 	}
+	
+	// Validation: Type (as Title) cannot be empty
+	if payload.Type == "" {
+		respondWithError(w, http.StatusBadRequest, "Tipe Masalah tidak boleh kosong")
+		return
+	}
+
 
 	tx, err := a.DB.Begin()
 	if err != nil {
@@ -2493,22 +2510,20 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Create the initial log entry
 	initialLog := Logs{
 		{Action: "membuat issue", User: payload.CreatedBy, Timestamp: time.Now()},
 	}
 
-	// Insert the issue
 	var issueID int
-	query := `INSERT INTO issues (chat_id, title, description, issue_type, created_by, logs, status) 
-              VALUES ($1, $2, $3, $4, $5, $6, 'unsolved') RETURNING id`
-	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.Type, payload.CreatedBy, initialLog).Scan(&issueID)
+	// SQL query now inserts payload.Type into the 'title' column. The 'issue_type' column is ignored.
+	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status)
+            	VALUES ($1, $2, $3, $4, $5, 'unsolved') RETURNING id`
+	err = tx.QueryRow(query, chatID, payload.Type, payload.Description, payload.CreatedBy, initialLog).Scan(&issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create issue: "+err.Error())
 		return
 	}
 
-	// Insert photos if any
 	for _, photoBase64 := range payload.Photos {
 		_, err := tx.Exec("INSERT INTO photos (issue_id, photo_data) VALUES ($1, $2)", issueID, photoBase64)
 		if err != nil {
@@ -2524,7 +2539,6 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
 }
-
 // getIssuesByPanelHandler retrieves all issues for a given panel.
 func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -2611,37 +2625,47 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Payload now expects 'issue_type' instead of 'issue_title'
 	var payload struct {
-		Title       string `json:"issue_title"`
 		Description string `json:"issue_description"`
 		Type        string `json:"issue_type"`
 		Status      string `json:"issue_status"`
-		UpdatedBy   string `json:"updated_by"` // Username making the change
+		UpdatedBy   string `json:"updated_by"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
+	
+	// Validation
+	if payload.Type == "" {
+		respondWithError(w, http.StatusBadRequest, "Tipe Masalah tidak boleh kosong")
+		return
+	}
 
-	// Fetch current logs to append a new entry
 	var currentLogs Logs
-	err = a.DB.QueryRow("SELECT logs FROM issues WHERE id = $1", issueID).Scan(&currentLogs)
+    var currentStatus string
+	err = a.DB.QueryRow("SELECT logs, status FROM issues WHERE id = $1", issueID).Scan(&currentLogs, &currentStatus)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Issue not found or failed to get logs: "+err.Error())
 		return
 	}
     
-    // Determine the log action
     logAction := "mengubah issue"
-    if payload.Status == "solved" {
-        logAction = "menandai solved"
+    if payload.Status != currentStatus {
+        if payload.Status == "solved" {
+            logAction = "menandai solved"
+        } else if payload.Status == "unsolved" {
+             logAction = "membuka kembali issue"
+        }
     }
 
 	newLogEntry := LogEntry{Action: logAction, User: payload.UpdatedBy, Timestamp: time.Now()}
 	updatedLogs := append(currentLogs, newLogEntry)
-
-	query := `UPDATE issues SET title = $1, description = $2, issue_type = $3, status = $4, logs = $5 WHERE id = $6`
-	res, err := a.DB.Exec(query, payload.Title, payload.Description, payload.Type, payload.Status, updatedLogs, issueID)
+	
+	// SQL query now updates the 'title' column with payload.Type
+	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4 WHERE id = $5`
+	res, err := a.DB.Exec(query, payload.Type, payload.Description, payload.Status, updatedLogs, issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update issue: "+err.Error())
 		return
@@ -2655,7 +2679,6 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-
 // deleteIssueHandler deletes an issue and its associated photos.
 func (a *App) deleteIssueHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -2816,7 +2839,6 @@ func initDB(db *sql.DB) {
         chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
         title VARCHAR(255) NOT NULL,
         description TEXT,
-        issue_type VARCHAR(100),
         status VARCHAR(50) NOT NULL DEFAULT 'unsolved',
         logs JSONB,
         created_by VARCHAR(255),
@@ -2825,6 +2847,19 @@ func initDB(db *sql.DB) {
     );`
 	if _, err := db.Exec(createTablesSQLIssues); err != nil {
 		log.Fatalf("Gagal membuat tabel issues: %v", err)
+	}
+    
+	alterIssuesTableSQL := `
+	DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'issues' AND column_name = 'issue_type') THEN
+			ALTER TABLE issues DROP COLUMN issue_type;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(alterIssuesTableSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk menghapus kolom issue_type: %v", err)
 	}
 
 	createTablesSQLPhotos:= `
@@ -3210,4 +3245,80 @@ func parseDate(dateStr string) *string {
 	}
 	// Jika semua format gagal, kembalikan nil
 	return nil
+}
+// getMessagesByChatIDHandler mengambil semua pesan untuk sebuah chat ID.
+func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	chatID, err := strconv.Atoi(vars["chat_id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Chat ID")
+		return
+	}
+
+	rows, err := a.DB.Query(`
+		SELECT id, chat_id, sender_username, text, image_data, replied_issue_id, created_at 
+		FROM chat_messages 
+		WHERE chat_id = $1 
+		ORDER BY created_at ASC`, chatID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve messages: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var messages []ChatMessage
+	for rows.Next() {
+		var msg ChatMessage
+		if err := rows.Scan(&msg.ID, &msg.ChatID, &msg.SenderUsername, &msg.Text, &msg.ImageData, &msg.RepliedIssueID, &msg.CreatedAt); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan message: "+err.Error())
+			return
+		}
+		messages = append(messages, msg)
+	}
+
+	respondWithJSON(w, http.StatusOK, messages)
+}
+
+// createMessageHandler mengirim sebuah pesan baru ke dalam chat.
+func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	chatID, err := strconv.Atoi(vars["chat_id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Chat ID")
+		return
+	}
+
+	var payload struct {
+		SenderUsername string  `json:"sender_username"`
+		Text           *string `json:"text"`
+		ImageData      *string `json:"image_data"` // Base64 string
+		RepliedIssueID *int    `json:"replied_issue_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	if (payload.Text == nil || *payload.Text == "") && (payload.ImageData == nil || *payload.ImageData == "") {
+		respondWithError(w, http.StatusBadRequest, "Message cannot be empty (must have text or image)")
+		return
+	}
+
+	var createdMessage ChatMessage
+	query := `
+		INSERT INTO chat_messages (chat_id, sender_username, text, image_data, replied_issue_id) 
+		VALUES ($1, $2, $3, $4, $5) 
+		RETURNING id, chat_id, sender_username, text, image_data, replied_issue_id, created_at`
+	
+	err = a.DB.QueryRow(query, chatID, payload.SenderUsername, payload.Text, payload.ImageData, payload.RepliedIssueID).Scan(
+		&createdMessage.ID, &createdMessage.ChatID, &createdMessage.SenderUsername, &createdMessage.Text, &createdMessage.ImageData, &createdMessage.RepliedIssueID, &createdMessage.CreatedAt,
+	)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create message: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, createdMessage)
 }
