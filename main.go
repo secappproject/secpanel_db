@@ -3334,6 +3334,7 @@ func parseDate(dateStr string) *string {
 	// Jika semua format gagal, kembalikan nil
 	return nil
 }
+
 // getMessagesByChatIDHandler mengambil semua pesan untuk sebuah chat ID.
 func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -3398,7 +3399,7 @@ func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO chat_messages (chat_id, sender_username, text, image_data, replied_issue_id) 
 		VALUES ($1, $2, $3, $4, $5) 
 		RETURNING id, chat_id, sender_username, text, image_data, replied_issue_id, created_at`
-	
+
 	err = a.DB.QueryRow(query, chatID, payload.SenderUsername, payload.Text, payload.ImageData, payload.RepliedIssueID).Scan(
 		&createdMessage.ID, &createdMessage.ChatID, &createdMessage.SenderUsername, &createdMessage.Text, &createdMessage.ImageData, &createdMessage.RepliedIssueID, &createdMessage.CreatedAt,
 	)
@@ -3408,7 +3409,7 @@ func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, http.StatusCreated, createdMessage)
+	respondWithJSON(w, http.StatusOK, createdMessage)
 }
 
 func (a *App) getCommentsByIssueHandler(w http.ResponseWriter, r *http.Request) {
@@ -3475,7 +3476,6 @@ func (a *App) getCommentsByIssueHandler(w http.ResponseWriter, r *http.Request) 
 
 	respondWithJSON(w, http.StatusOK, comments)
 }
-
 
 func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
