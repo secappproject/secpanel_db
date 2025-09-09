@@ -2538,13 +2538,11 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
-}
-// getIssuesByPanelHandler retrieves all issues for a given panel.
+}// getIssuesByPanelHandler retrieves all issues for a given panel.
 func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
 
-	// Find chat ID first
 	var chatID int
 	err := a.DB.QueryRow("SELECT id FROM chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
@@ -2556,7 +2554,8 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := a.DB.Query("SELECT id, chat_id, title, description, issue_type, status, logs, created_by, created_at, updated_at FROM issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
+	// ▼▼▼ FIX: Removed "issue_type" from the query ▼▼▼
+	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2566,7 +2565,8 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var issues []Issue
 	for rows.Next() {
 		var issue Issue
-		if err := rows.Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Type, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
+		// ▼▼▼ FIX: Scan no longer includes a variable for the removed column ▼▼▼
+		if err := rows.Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to scan issue: "+err.Error())
 			return
 		}
@@ -2585,7 +2585,8 @@ func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var issue Issue
-	err = a.DB.QueryRow("SELECT id, chat_id, title, description, issue_type, status, logs, created_by, created_at, updated_at FROM issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Type, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
+	// ▼▼▼ FIX: REMOVED "issue_type" FROM THE QUERY ▼▼▼
+	err = a.DB.QueryRow("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusNotFound, "Issue not found")
