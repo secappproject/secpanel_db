@@ -3012,7 +3012,33 @@ func initDB(db *sql.DB) {
 		os.Mkdir("uploads", 0755)
 		log.Println("Folder 'uploads' berhasil dibuat.")
 	}
+	updateCommentConstraintSQL := `
+	DO $$
+	DECLARE
+		constraint_name TEXT;
+	BEGIN
+		-- Cari nama constraint foreign key yang ada saat ini
+		SELECT conname INTO constraint_name
+		FROM pg_constraint
+		WHERE conrelid = 'issue_comments'::regclass
+		AND confrelid = 'issue_comments'::regclass
+		AND contype = 'f';
 
+		-- Jika constraint ditemukan, hapus dan buat yang baru dengan ON DELETE CASCADE
+		IF constraint_name IS NOT NULL THEN
+			EXECUTE 'ALTER TABLE issue_comments DROP CONSTRAINT ' || quote_ident(constraint_name);
+			ALTER TABLE issue_comments
+				ADD CONSTRAINT issue_comments_reply_to_comment_id_fkey
+				FOREIGN KEY (reply_to_comment_id)
+				REFERENCES issue_comments(id)
+				ON DELETE CASCADE; -- <--- INI BAGIAN PENTINGNYA
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(updateCommentConstraintSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi constraint untuk issue_comments: %v", err)
+	}
 	alterCommentsTableSQL := `
 	DO $$
 	BEGIN
