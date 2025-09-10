@@ -2510,60 +2510,48 @@ func (a *App) getOrCreateChatByPanel(panelNoPp string, tx *sql.Tx) (int, error) 
 	return chatID, nil
 }
 func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
+		vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
 	if !ok {
 		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
 		return
 	}
-
-	// Payload now expects 'issue_type' instead of 'issue_title'
 	var payload struct {
 		Description string   `json:"issue_description"`
-		Title        string   `json:"issue_title"` // This is the new title
+		Title       string   `json:"issue_title"`
 		CreatedBy   string   `json:"created_by"`
 		Photos      []string `json:"photos"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
 		return
 	}
-	
-	// Validation: Type (as Title) cannot be empty
 	if payload.Title == "" {
-		respondWithError(w, http.StatusBadRequest, "Tipe Masalah tidak boleh kosong")
+		respondWithError(w, http.StatusBadRequest, "Root cause tidak boleh kosong")
 		return
 	}
-
-
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to start transaction")
 		return
 	}
 	defer tx.Rollback()
-
 	chatID, err := a.getOrCreateChatByPanel(panelNoPp, tx)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
 	initialLog := Logs{
 		{Action: "membuat issue", User: payload.CreatedBy, Timestamp: time.Now()},
 	}
-
 	var issueID int
-	// SQL query now inserts payload.Type into the 'title' column. The 'issue_type' column is ignored.
 	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status)
-            	VALUES ($1, $2, $3, $4, $5, 'unsolved') RETURNING id`
+              VALUES ($1, $2, $3, $4, $5, 'unsolved') RETURNING id`
 	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog).Scan(&issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create issue: "+err.Error())
 		return
 	}
-
 	for _, photoBase64 := range payload.Photos {
 		_, err := tx.Exec("INSERT INTO photos (issue_id, photo_data) VALUES ($1, $2)", issueID, photoBase64)
 		if err != nil {
@@ -2572,11 +2560,43 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	commentText := fmt.Sprintf("**%s**", payload.Title)
+	if payload.Description != "" {
+		commentText = fmt.Sprintf("**%s**: %s", payload.Title, payload.Description)
+	}
+
+	var imageUrls []string
+	for _, photoBase64 := range payload.Photos {
+		parts := strings.Split(photoBase64, ",")
+		if len(parts) != 2 { continue }
+		imgData, err := base64.StdEncoding.DecodeString(parts[1])
+		if err != nil { continue }
+		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+		filepath := fmt.Sprintf("uploads/%s", filename)
+		err = os.WriteFile(filepath, imgData, 0644)
+		if err != nil { continue }
+		imageUrls = append(imageUrls, "/"+filepath)
+	}
+	imageUrlsJSON, _ := json.Marshal(imageUrls)
+	newCommentID := uuid.New().String()
+
+	// --- ▼▼▼ PERUBAHAN DI SINI ▼▼▼ ---
+	// Tambahkan is_system_comment ke query
+	commentQuery := `
+		INSERT INTO issue_comments (id, issue_id, sender_id, text, image_urls, is_system_comment)
+		VALUES ($1, $2, $3, $4, $5, TRUE)` // Set nilainya menjadi TRUE
+	_, err = tx.Exec(commentQuery, newCommentID, issueID, payload.CreatedBy, commentText, imageUrlsJSON)
+	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
+	
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create initial comment: "+err.Error())
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to commit transaction")
 		return
 	}
-
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
 }
 func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
@@ -2690,8 +2710,6 @@ func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
 	response := IssueWithPhotos{Issue: issue, Photos: photos}
 	respondWithJSON(w, http.StatusOK, response)
 }
-
-// updateIssueHandler updates an existing issue's details.
 func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	issueID, err := strconv.Atoi(vars["id"])
@@ -2699,11 +2717,9 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
-
-	// Payload now expects 'issue_type' instead of 'issue_title'
 	var payload struct {
 		Description string `json:"issue_description"`
-		Title        string `json:"issue_title"`
+		Title       string `json:"issue_title"`
 		Status      string `json:"issue_status"`
 		UpdatedBy   string `json:"updated_by"`
 	}
@@ -2711,46 +2727,77 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
-	
-	// Validation
 	if payload.Title == "" {
 		respondWithError(w, http.StatusBadRequest, "Tipe Masalah tidak boleh kosong")
 		return
 	}
 
+	// --- ▼▼▼ PERUBAHAN DIMULAI DI SINI ▼▼▼ ---
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
+		return
+	}
+	defer tx.Rollback()
+
 	var currentLogs Logs
-    var currentStatus string
-	err = a.DB.QueryRow("SELECT logs, status FROM issues WHERE id = $1", issueID).Scan(&currentLogs, &currentStatus)
+	var currentStatus string
+	err = tx.QueryRow("SELECT logs, status FROM issues WHERE id = $1", issueID).Scan(&currentLogs, &currentStatus)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Issue not found or failed to get logs: "+err.Error())
 		return
 	}
-    
-    logAction := "mengubah issue"
-    if payload.Status != currentStatus {
-        if payload.Status == "solved" {
-            logAction = "menandai solved"
-        } else if payload.Status == "unsolved" {
-             logAction = "membuka kembali issue"
-        }
-    }
-
+	
+	logAction := "mengubah issue"
+	if payload.Status != currentStatus {
+		if payload.Status == "solved" {
+			logAction = "menandai solved"
+		} else if payload.Status == "unsolved" {
+			logAction = "membuka kembali issue"
+		}
+	}
 	newLogEntry := LogEntry{Action: logAction, User: payload.UpdatedBy, Timestamp: time.Now()}
 	updatedLogs := append(currentLogs, newLogEntry)
-	
-	// SQL query now updates the 'title' column with payload.Type
+
+	// 1. Update tabel 'issues' seperti biasa
 	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4 WHERE id = $5`
-	res, err := a.DB.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, issueID)
+	res, err := tx.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update issue: "+err.Error())
 		return
 	}
-
 	count, _ := res.RowsAffected()
 	if count == 0 {
 		respondWithError(w, http.StatusNotFound, "Issue not found")
 		return
 	}
+
+	// 2. Buat teks komentar yang baru
+	updatedCommentText := fmt.Sprintf("**%s**", payload.Title)
+	if payload.Description != "" {
+		updatedCommentText = fmt.Sprintf("**%s**: %s", payload.Title, payload.Description)
+	}
+
+	// 3. Update komentar sistem yang sesuai
+	// Kita juga set is_edited menjadi true untuk menandakan ada perubahan
+	commentQuery := `
+		UPDATE issue_comments 
+		SET text = $1, is_edited = TRUE
+		WHERE issue_id = $2 AND is_system_comment = TRUE`
+	_, err = tx.Exec(commentQuery, updatedCommentText, issueID)
+	if err != nil {
+		// Transaksi akan di-rollback jika ini gagal
+		respondWithError(w, http.StatusInternalServerError, "Failed to update system comment: "+err.Error())
+		return
+	}
+
+	// 4. Commit transaksi jika semua berhasil
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
+		return
+	}
+	
+	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
@@ -2965,6 +3012,20 @@ func initDB(db *sql.DB) {
 		os.Mkdir("uploads", 0755)
 		log.Println("Folder 'uploads' berhasil dibuat.")
 	}
+
+	alterCommentsTableSQL := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'issue_comments' AND column_name = 'is_system_comment') THEN
+			ALTER TABLE issue_comments ADD COLUMN is_system_comment BOOLEAN DEFAULT false;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(alterCommentsTableSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom is_system_comment: %v", err)
+	}
+	
 	alterIssuesTableSQL := `
 	DO $$
 	BEGIN
