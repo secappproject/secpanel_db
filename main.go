@@ -3647,6 +3647,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusCreated, map[string]string{"id": newCommentID})
 }
+// Ganti fungsi lama dengan versi final ini di main.go
 func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 	commentID := mux.Vars(r)["id"]
 
@@ -3659,9 +3660,6 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- ▼▼▼ PERUBAHAN DIMULAI DI SINI ▼▼▼ ---
-
-	// 1. Mulai transaksi karena kita mungkin akan mengubah dua tabel (issues dan issue_comments)
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
@@ -3669,9 +3667,8 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// 2. Ambil detail komentar untuk memeriksa apakah ini komentar sistem
 	var issueID int
-	var isSystemComment sql.NullBool // Gunakan NullBool untuk keamanan
+	var isSystemComment sql.NullBool
 	err = tx.QueryRow("SELECT issue_id, is_system_comment FROM issue_comments WHERE id = $1", commentID).Scan(&issueID, &isSystemComment)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -3682,7 +3679,7 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Update komentar itu sendiri seperti biasa
+	// Update komentar itu sendiri seperti biasa
 	var finalImageUrls []string
 	for _, img := range payload.Images {
 		if strings.HasPrefix(img, "data:image") {
@@ -3699,37 +3696,35 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	imageUrlsJSON, _ := json.Marshal(finalImageUrls)
 	
-	// Set `is_edited` menjadi true, dan hapus penanda `is_system_comment` agar tidak bisa disinkronkan lagi
-	// Ini mencegah überschreiben manual jika isu diedit lagi nanti.
 	updateCommentQuery := `UPDATE issue_comments SET text = $1, is_edited = true, image_urls = $2, is_system_comment = false WHERE id = $3`
 	_, err = tx.Exec(updateCommentQuery, payload.Text, imageUrlsJSON, commentID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal update komentar")
 		return
 	}
-	
-	// 4. Jika komentar yang diedit ADALAH komentar sistem, update juga isunya
-	if isSystemComment.Valid && isSystemComment.Bool {
-		// 4a. Parse teks baru untuk mendapatkan title dan description
-		var newTitle, newDescription string
-		text := payload.Text
-		
-		// Cari title di antara "**"
-		start := strings.Index(text, "**")
-		end := strings.Index(text[start+2:], "**")
-		if start != -1 && end != -1 {
-			newTitle = text[start+2 : start+2+end]
-		}
 
-		// Cari description setelah ": "
-		descIndex := strings.Index(text, ": ")
-		if descIndex > -1 && descIndex > (start+2+end) {
-			newDescription = strings.TrimSpace(text[descIndex+2:])
-		}
+	// Jika komentar yang diedit ADALAH komentar sistem, update juga isunya
+	if isSystemComment.Valid && isSystemComment.Bool {
 		
-		// Jika parsing gagal, title akan kosong. Kita bisa mengabaikan update isu.
+		// --- ▼▼▼ LOGIKA PARSING BARU YANG LEBIH FLEKSIBEL ▼▼▼ ---
+		var newTitle, newDescription string
+		
+		// Gunakan SplitN untuk membagi string hanya pada kemunculan ": " pertama
+		parts := strings.SplitN(payload.Text, ": ", 2)
+
+		if len(parts) == 2 {
+			// Jika ada pemisah ": ", bagian pertama adalah title, kedua adalah description
+			newTitle = strings.Trim(parts[0], "* ") // Hapus markdown ** dan spasi
+			newDescription = strings.TrimSpace(parts[1])
+		} else {
+			// Jika tidak ada pemisah, seluruh teks adalah title
+			newTitle = strings.Trim(payload.Text, "* ")
+			newDescription = "" // Kosongkan deskripsi
+		}
+		// --- ▲▲▲ AKHIR LOGIKA PARSING BARU ▲▲▲ ---
+
+		// Lanjutkan hanya jika title tidak kosong setelah parsing
 		if newTitle != "" {
-			// 4b. Update tabel 'issues'
 			updateIssueQuery := `UPDATE issues SET title = $1, description = $2 WHERE id = $3`
 			_, err = tx.Exec(updateIssueQuery, newTitle, newDescription, issueID)
 			if err != nil {
@@ -3739,13 +3734,10 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 5. Commit transaksi jika semua berhasil
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
 		return
 	}
-	
-	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
 	
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
