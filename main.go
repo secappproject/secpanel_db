@@ -2560,9 +2560,9 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	commentText := fmt.Sprintf("**%s**", payload.Title)
+	commentText := fmt.Sprintf("%s", payload.Title)
 	if payload.Description != "" {
-		commentText = fmt.Sprintf("**%s**: %s", payload.Title, payload.Description)
+		commentText = fmt.Sprintf("%s: %s", payload.Title, payload.Description)
 	}
 
 	var imageUrls []string
