@@ -3647,43 +3647,108 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusCreated, map[string]string{"id": newCommentID})
 }
-
 func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 	commentID := mux.Vars(r)["id"]
 
 	var payload struct {
 		Text   string   `json:"text"`
-		Images []string `json:"images"` // Ini berisi URL gambar yang sudah ada ATAU base64 gambar baru
+		Images []string `json:"images"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload")
 		return
 	}
 
+	// --- ▼▼▼ PERUBAHAN DIMULAI DI SINI ▼▼▼ ---
+
+	// 1. Mulai transaksi karena kita mungkin akan mengubah dua tabel (issues dan issue_comments)
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
+		return
+	}
+	defer tx.Rollback()
+
+	// 2. Ambil detail komentar untuk memeriksa apakah ini komentar sistem
+	var issueID int
+	var isSystemComment sql.NullBool // Gunakan NullBool untuk keamanan
+	err = tx.QueryRow("SELECT issue_id, is_system_comment FROM issue_comments WHERE id = $1", commentID).Scan(&issueID, &isSystemComment)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Komentar tidak ditemukan")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengambil detail komentar: "+err.Error())
+		}
+		return
+	}
+
+	// 3. Update komentar itu sendiri seperti biasa
 	var finalImageUrls []string
 	for _, img := range payload.Images {
-		if strings.HasPrefix(img, "data:image") { // Ini gambar baru
+		if strings.HasPrefix(img, "data:image") {
 			parts := strings.Split(img, ",")
+			if len(parts) < 2 { continue }
 			imgData, _ := base64.StdEncoding.DecodeString(parts[1])
 			filename := fmt.Sprintf("%s.jpg", uuid.New().String())
 			filepath := fmt.Sprintf("uploads/%s", filename)
 			os.WriteFile(filepath, imgData, 0644)
 			finalImageUrls = append(finalImageUrls, "/"+filepath)
-		} else { // Ini URL lama yang dipertahankan
+		} else {
 			finalImageUrls = append(finalImageUrls, img)
 		}
 	}
-
 	imageUrlsJSON, _ := json.Marshal(finalImageUrls)
-	query := `UPDATE issue_comments SET text = $1, is_edited = true, image_urls = $2 WHERE id = $3`
-	_, err := a.DB.Exec(query, payload.Text, imageUrlsJSON, commentID)
+	
+	// Set `is_edited` menjadi true, dan hapus penanda `is_system_comment` agar tidak bisa disinkronkan lagi
+	// Ini mencegah überschreiben manual jika isu diedit lagi nanti.
+	updateCommentQuery := `UPDATE issue_comments SET text = $1, is_edited = true, image_urls = $2, is_system_comment = false WHERE id = $3`
+	_, err = tx.Exec(updateCommentQuery, payload.Text, imageUrlsJSON, commentID)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to update comment")
+		respondWithError(w, http.StatusInternalServerError, "Gagal update komentar")
 		return
 	}
+	
+	// 4. Jika komentar yang diedit ADALAH komentar sistem, update juga isunya
+	if isSystemComment.Valid && isSystemComment.Bool {
+		// 4a. Parse teks baru untuk mendapatkan title dan description
+		var newTitle, newDescription string
+		text := payload.Text
+		
+		// Cari title di antara "**"
+		start := strings.Index(text, "**")
+		end := strings.Index(text[start+2:], "**")
+		if start != -1 && end != -1 {
+			newTitle = text[start+2 : start+2+end]
+		}
+
+		// Cari description setelah ": "
+		descIndex := strings.Index(text, ": ")
+		if descIndex > -1 && descIndex > (start+2+end) {
+			newDescription = strings.TrimSpace(text[descIndex+2:])
+		}
+		
+		// Jika parsing gagal, title akan kosong. Kita bisa mengabaikan update isu.
+		if newTitle != "" {
+			// 4b. Update tabel 'issues'
+			updateIssueQuery := `UPDATE issues SET title = $1, description = $2 WHERE id = $3`
+			_, err = tx.Exec(updateIssueQuery, newTitle, newDescription, issueID)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Gagal sinkronisasi update ke isu: "+err.Error())
+				return
+			}
+		}
+	}
+
+	// 5. Commit transaksi jika semua berhasil
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
+		return
+	}
+	
+	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
+	
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-
 func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
 	commentID := mux.Vars(r)["id"]
 	_, err := a.DB.Exec("DELETE FROM issue_comments WHERE id = $1", commentID)
