@@ -70,6 +70,10 @@ type CreateCommentPayload struct {
 	ReplyToUserID    *string  `json:"reply_to_user_id,omitempty"`
 	Images           []string `json:"images"`
 }
+type IssueTitle struct {
+    ID    int    `json:"id"`
+    Title string `json:"title"`
+}
 type IssueComment struct {
 	ID               string    `json:"id"`
 	IssueID          int       `json:"issue_id"`
@@ -400,6 +404,10 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/issues/{id}", a.getIssueByIDHandler).Methods("GET")
 	a.Router.HandleFunc("/issues/{id}", a.updateIssueHandler).Methods("PUT")
 	a.Router.HandleFunc("/issues/{id}", a.deleteIssueHandler).Methods("DELETE")
+	a.Router.HandleFunc("/issue-titles", a.getAllIssueTitlesHandler).Methods("GET")
+	a.Router.HandleFunc("/issue-titles", a.createIssueTitleHandler).Methods("POST")
+	a.Router.HandleFunc("/issue-titles/{id}", a.updateIssueTitleHandler).Methods("PUT")
+	a.Router.HandleFunc("/issue-titles/{id}", a.deleteIssueTitleHandler).Methods("DELETE")
 
 	// Photo Management Routes
 	a.Router.HandleFunc("/issues/{issue_id}/photos", a.addPhotoToIssueHandler).Methods("POST")
@@ -2915,6 +2923,26 @@ func initDB(db *sql.DB) {
 	if _, err := db.Exec(createTablesSQLIssues); err != nil {
 		log.Fatalf("Gagal membuat tabel issues: %v", err)
 	}
+
+	createIssueTitlesTableSQL := `
+	CREATE TABLE IF NOT EXISTS issue_titles (
+		id SERIAL PRIMARY KEY,
+		title TEXT UNIQUE NOT NULL
+	);`
+	if _, err := db.Exec(createIssueTitlesTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel issue_titles: %v", err)
+	}
+
+	// Tambahkan beberapa data awal jika tabel baru dibuat
+	var count_titles int
+	if err := db.QueryRow("SELECT COUNT(*) FROM issue_titles").Scan(&count_titles); err == nil && count_titles == 0 {
+		log.Println("Tabel issue_titles kosong, menambahkan data awal...")
+		initialTitles := []string{"Kerusakan Komponen", "Masalah Instalasi", "Error Software", "Lainnya"}
+		for _, title := range initialTitles {
+			db.Exec("INSERT INTO issue_titles (title) VALUES ($1) ON CONFLICT (title) DO NOTHING", title)
+		}
+	}
+
     createIssueCommentsTableSQL := `
 	CREATE TABLE IF NOT EXISTS issue_comments (
 		id TEXT PRIMARY KEY,
@@ -3577,4 +3605,141 @@ func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+func (a *App) getAllIssueTitlesHandler(w http.ResponseWriter, r *http.Request) {
+    rows, err := a.DB.Query("SELECT id, title FROM issue_titles ORDER BY title ASC")
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, err.Error())
+        return
+    }
+    defer rows.Close()
+
+    var titles []IssueTitle
+    for rows.Next() {
+        var it IssueTitle
+        if err := rows.Scan(&it.ID, &it.Title); err != nil {
+            respondWithError(w, http.StatusInternalServerError, "Gagal scan title: "+err.Error())
+            return
+        }
+        titles = append(titles, it)
+    }
+    respondWithJSON(w, http.StatusOK, titles)
+}
+
+func (a *App) createIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
+    var payload struct {
+        Title string `json:"title"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        respondWithError(w, http.StatusBadRequest, "Invalid payload")
+        return
+    }
+    if payload.Title == "" {
+        respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
+        return
+    }
+
+    var newTitle IssueTitle
+    query := "INSERT INTO issue_titles (title) VALUES ($1) RETURNING id, title"
+    err := a.DB.QueryRow(query, payload.Title).Scan(&newTitle.ID, &newTitle.Title)
+    if err != nil {
+        if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+            respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
+            return
+        }
+        respondWithError(w, http.StatusInternalServerError, "Gagal membuat tipe masalah: "+err.Error())
+        return
+    }
+    respondWithJSON(w, http.StatusCreated, newTitle)
+}
+
+func (a *App) updateIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
+    id, err := strconv.Atoi(mux.Vars(r)["id"])
+    if err != nil {
+        respondWithError(w, http.StatusBadRequest, "Invalid ID")
+        return
+    }
+    var payload struct {
+        Title string `json:"title"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        respondWithError(w, http.StatusBadRequest, "Invalid payload")
+        return
+    }
+    if payload.Title == "" {
+        respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
+        return
+    }
+
+    tx, err := a.DB.Begin()
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
+        return
+    }
+    defer tx.Rollback()
+
+    var oldTitle string
+    err = tx.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
+    if err != nil {
+        respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
+        return
+    }
+
+    _, err = tx.Exec("UPDATE issue_titles SET title = $1 WHERE id = $2", payload.Title, id)
+    if err != nil {
+        if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+             respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
+            return
+        }
+        respondWithError(w, http.StatusInternalServerError, "Gagal update master title: "+err.Error())
+        return
+    }
+
+    _, err = tx.Exec("UPDATE issues SET title = $1 WHERE title = $2", payload.Title, oldTitle)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal update issue yang ada: "+err.Error())
+        return
+    }
+
+    if err := tx.Commit(); err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
+        return
+    }
+
+    respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
+    id, err := strconv.Atoi(mux.Vars(r)["id"])
+    if err != nil {
+        respondWithError(w, http.StatusBadRequest, "Invalid ID")
+        return
+    }
+
+    var oldTitle string
+    err = a.DB.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
+     if err != nil {
+        respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
+        return
+    }
+
+    var count int
+    err = a.DB.QueryRow("SELECT COUNT(*) FROM issues WHERE title = $1", oldTitle).Scan(&count)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal memeriksa penggunaan title: "+err.Error())
+        return
+    }
+
+    if count > 0 {
+        respondWithError(w, http.StatusConflict, fmt.Sprintf("Tidak dapat menghapus. Tipe masalah ini digunakan oleh %d isu.", count))
+        return
+    }
+
+    _, err = a.DB.Exec("DELETE FROM issue_titles WHERE id = $1", id)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal menghapus: "+err.Error())
+        return
+    }
+
+    respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
