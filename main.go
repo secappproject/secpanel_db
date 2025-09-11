@@ -3941,10 +3941,7 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 	
-    // Definisikan tools di sini (copy-paste dari blok kode di atas)
-    // var tools = []*genai.Tool{ ... }
-
-	model := client.GenerativeModel("gemini-pro")
+	model := client.GenerativeModel("gemini-1.5-flash")
 	model.Tools = tools // <-- Tempelkan tools ke model
 
 	// 2. Kirim prompt user ke Gemini untuk mendeteksi Function Call
