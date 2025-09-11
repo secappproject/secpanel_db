@@ -4141,13 +4141,16 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (strin
 	}
 }
 // FUNGSI HELPER BARU untuk mem-posting komentar dari AI
-func (a *App) postAiComment(issueID int, senderID string, text string) {
-    newCommentID := uuid.New().String()
-    geminiUserID := "gemini_ai"
-    aiReplyText := fmt.Sprintf("@%s %s", senderID, text)
+func (a *App) postAiComment(issueID int, senderID string, text string, replyToCommentID string) { // <-- UBAH DI SINI
+	newCommentID := uuid.New().String()
+	geminiUserID := "gemini_ai"
 
-    query := `INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id) VALUES ($1, $2, $3, $4, $5)`
-    _, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, aiReplyText, senderID)
+	// Query INSERT sekarang harus menyertakan reply_to_comment_id
+	query := `
+		INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id, reply_to_comment_id) 
+		VALUES ($1, $2, $3, $4, $5, $6)` 
+		
+	_, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, text, senderID, replyToCommentID) // <-- UBAH DI SINI
 }
 
 // FUNGSI HELPER BARU untuk mengekstrak teks dari response Gemini
