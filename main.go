@@ -3916,8 +3916,9 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		Question string `json:"question"`
-		SenderID string `json:"sender_id"`
+		Question       string `json:"question"`
+		SenderID       string `json:"sender_id"`
+		ReplyToCommentID string `json:"reply_to_comment_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -4031,10 +4032,12 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda."
 	}
 	log.Printf("Jawaban final dari Gemini: %s", finalResponseText)
-    
-	a.postAiComment(issueID, payload.SenderID, finalResponseText)
+
+	// Kirim ID komentar asli ke fungsi postAiComment
+	a.postAiComment(issueID, payload.SenderID, finalResponseText, payload.ReplyToCommentID) // <-- UBAH DI SINI
 	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
 }
+
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (string, error) {
 	// Dapatkan No. PP panel dari issue ID (diperlukan oleh semua fungsi update)
 	var panelNoPp string
@@ -4140,7 +4143,7 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (strin
 		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
 }
-// FUNGSI HELPER BARU untuk mem-posting komentar dari AI
+
 func (a *App) postAiComment(issueID int, senderID string, text string, replyToCommentID string) { // <-- UBAH DI SINI
 	newCommentID := uuid.New().String()
 	geminiUserID := "gemini_ai"
@@ -4152,7 +4155,6 @@ func (a *App) postAiComment(issueID int, senderID string, text string, replyToCo
 		
 	_, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, text, senderID, replyToCommentID) // <-- UBAH DI SINI
 }
-
 // FUNGSI HELPER BARU untuk mengekstrak teks dari response Gemini
 func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
 	if resp != nil && len(resp.Candidates) > 0 {
