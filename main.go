@@ -4214,7 +4214,7 @@ var tools = []*genai.Tool{
                     Required: []string{"new_status"},
                 },
             },
-
+ 
             // 4. Fungsi khusus untuk Corepart
             {
                 Name:        "update_corepart_status",
