@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
@@ -17,10 +18,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/google/generative-ai-go/genai"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
 	"github.com/xuri/excelize/v2"
+	"google.golang.org/api/option"
 )
 
 // =============================================================================
@@ -420,6 +423,8 @@ func (a *App) initializeRoutes() {
 	// Issue Comment Routes
 	a.Router.HandleFunc("/issues/{issue_id}/comments", a.getCommentsByIssueHandler).Methods("GET")
 	a.Router.HandleFunc("/issues/{issue_id}/comments", a.createCommentHandler).Methods("POST")
+	a.Router.HandleFunc("/issues/{issue_id}/ask-gemini", a.askGeminiHandler).Methods("POST")
+
 	a.Router.HandleFunc("/comments/{id}", a.updateCommentHandler).Methods("PUT")
 	a.Router.HandleFunc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE")
 	fs := http.FileServer(http.Dir("./uploads/"))
@@ -2560,7 +2565,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	commentText := fmt.Sprintf("%s", payload.Title)
+	commentText := fmt.Sprintf(payload.Title)
 	if payload.Description != "" {
 		commentText = fmt.Sprintf("%s: %s", payload.Title, payload.Description)
 	}
@@ -3159,6 +3164,20 @@ func initDB(db *sql.DB) {
 	`
 	if _, err := db.Exec(alterTableAddBusbarCloseDatesSQL); err != nil {
 		log.Fatalf("Gagal menjalankan migrasi untuk kolom close_date_busbar: %v", err)
+	}
+
+	log.Println("Memastikan user sistem untuk Gemini AI ada...")
+	createAiUserSQL := `
+		INSERT INTO companies (id, name, role)
+		VALUES ('gemini_ai_system', 'Gemini AI', 'viewer')
+		ON CONFLICT (id) DO NOTHING;
+
+		INSERT INTO company_accounts (username, password, company_id)
+		VALUES ('gemini_ai', NULL, 'gemini_ai_system')
+		ON CONFLICT (username) DO NOTHING;
+	`
+	if _, err := db.Exec(createAiUserSQL); err != nil {
+		log.Fatalf("Gagal membuat user sistem untuk Gemini AI: %v", err)
 	}
 
 	var count_companies int
@@ -3886,4 +3905,97 @@ func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    issueID, err := strconv.Atoi(vars["issue_id"])
+    if err != nil {
+        respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
+        return
+    }
+
+    var payload struct {
+        Question string `json:"question"`
+        SenderID string `json:"sender_id"` // Siapa yang bertanya
+    }
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+        return
+    }
+
+    // 1. Ambil konteks dari isu yang ada
+    var issueTitle, issueDesc string
+    err = a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
+    if err != nil {
+        respondWithError(w, http.StatusNotFound, "Issue not found")
+        return
+    }
+
+    // 2. Setup koneksi ke Gemini API
+    ctx := context.Background()
+    // apiKey := os.Getenv("GEMINI_API_KEY")
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
+    if apiKey == "" {
+        respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY environment variable not set")
+        return
+    }
+
+    client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error())
+        return
+    }
+    defer client.Close()
+
+    model := client.GenerativeModel("gemini-pro") // atau model lain yang sesuai
+
+    // 3. Buat prompt yang kontekstual
+    prompt := fmt.Sprintf(
+        "Anda adalah asisten AI yang membantu menyelesaikan masalah teknis panel listrik. Jawab pertanyaan berikut dengan jelas dan ringkas dalam Bahasa Indonesia.\n\n"+
+            "--- Konteks Masalah ---\n"+
+            "Judul Isu: %s\n"+
+            "Deskripsi: %s\n"+
+            "-----------------------\n\n"+
+            "Pertanyaan dari user: %s",
+        issueTitle, issueDesc, payload.Question,
+    )
+
+    // 4. Kirim prompt ke Gemini
+    resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to get response from Gemini: "+err.Error())
+        return
+    }
+
+    // 5. Ambil teks jawaban
+    var geminiResponseText string
+    if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
+        if txt, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
+            geminiResponseText = string(txt)
+        }
+    }
+
+    if geminiResponseText == "" {
+        geminiResponseText = "Maaf, saya tidak bisa memberikan jawaban saat ini."
+    }
+
+    // 6. Simpan jawaban sebagai komentar baru dari user 'gemini_ai'
+    newCommentID := uuid.New().String()
+    geminiUserID := "gemini_ai" // User yang kita buat tadi
+    
+    // Teks balasan akan me-mention user yang bertanya
+    aiReplyText := fmt.Sprintf("@%s %s", payload.SenderID, geminiResponseText)
+
+    query := `
+        INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id)
+        VALUES ($1, $2, $3, $4, $5)
+    `
+    _, err = a.DB.Exec(query, newCommentID, issueID, geminiUserID, aiReplyText, payload.SenderID)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to save Gemini's comment: "+err.Error())
+        return
+    }
+
+    respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success", "message": "Gemini has responded."})
 }
