@@ -3906,6 +3906,7 @@ func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
 
     respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+
 func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	issueID, err := strconv.Atoi(vars["issue_id"])
@@ -3923,9 +3924,44 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ▼▼▼ BAGIAN BARU: Ambil Konteks dari Isu DAN Komentar ▼▼▼
+	var issueTitle, issueDesc string
+	err = a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Issue not found")
+		return
+	}
+
+	// Query untuk mengambil semua komentar sebelumnya
+	rows, err := a.DB.Query(`
+		SELECT ca.username, ic.text 
+		FROM issue_comments ic
+		JOIN company_accounts ca ON ic.sender_id = ca.username
+		WHERE ic.issue_id = $1 ORDER BY ic.timestamp ASC
+	`, issueID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil histori komentar")
+		return
+	}
+	defer rows.Close()
+
+	var commentHistory strings.Builder
+	for rows.Next() {
+		var username, text string
+		if err := rows.Scan(&username, &text); err != nil {
+			continue // Lewati jika ada error scan
+		}
+		// Format histori komentar agar mudah dibaca AI
+		commentHistory.WriteString(fmt.Sprintf("%s: %s\n", username, text))
+	}
+	// ▲▲▲ AKHIR BAGIAN BARU ▲▲▲
+
 	// 1. Setup Gemini Client
 	ctx := context.Background()
-	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		apiKey = "YOUR_API_KEY_HERE" 
+	}
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
 		return
@@ -3941,36 +3977,48 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	// 2. Setup Model dan Chat Session
 	model := client.GenerativeModel("gemini-1.5-flash")
 	model.Tools = tools
-	
-	// Gunakan ChatSession untuk mengelola histori secara otomatis
 	cs := model.StartChat()
 
-	// 3. Kirim prompt awal dari user
-	log.Printf("Mengirim prompt ke Gemini: %s", payload.Question)
-	resp, err := cs.SendMessage(ctx, genai.Text(payload.Question))
+	// ▼▼▼ PROMPT BARU YANG LEBIH LENGKAP ▼▼▼
+	fullPrompt := fmt.Sprintf(
+		"Anda adalah asisten AI. Berdasarkan konteks isu dan histori komentar berikut, jawab pertanyaan user.\n\n"+
+		"--- Konteks Isu ---\n"+
+		"Judul: %s\n"+
+		"Deskripsi: %s\n\n"+
+		"--- Histori Komentar Sejauh Ini ---\n"+
+		"%s\n"+ // <-- Histori komentar disisipkan di sini
+		"-----------------------------------\n\n"+
+		"Pertanyaan dari user '%s': %s",
+		issueTitle,
+		issueDesc,
+		commentHistory.String(),
+		payload.SenderID,
+		payload.Question,
+	)
+	// ▲▲▲ AKHIR PROMPT BARU ▲▲▲
+
+	// 3. Kirim prompt lengkap ke Gemini
+	log.Printf("Mengirim prompt ke Gemini: %s", fullPrompt)
+	resp, err := cs.SendMessage(ctx, genai.Text(fullPrompt)) // Menggunakan fullPrompt
 	if err != nil {
 		log.Printf("ERROR saat SendMessage pertama: %v", err)
 		respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error())
 		return
 	}
 
-	// 4. Proses jawaban dari Gemini
+	// ... (Sisa dari fungsi ini tidak berubah, sudah benar)
 	if resp.Candidates[0].Content != nil {
 		part := resp.Candidates[0].Content.Parts[0]
 		if fc, ok := part.(genai.FunctionCall); ok {
 			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 			
-			// Eksekusi fungsi
 			functionResult, err := a.executeDatabaseFunction(fc, issueID)
 			if err != nil {
-				// Jika eksekusi gagal, kirim pesan error kembali ke Gemini
 				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err)
 			}
 			
 			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
 			
-			// Kirim kembali HANYA FunctionResponse ke Gemini
-			// ChatSession secara otomatis akan mengingat histori sebelumnya.
 			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
 			if err != nil {
 				log.Printf("ERROR saat SendMessage kedua (konfirmasi): %v", err)
@@ -3980,7 +4028,6 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	// 5. Ekstrak teks final dan simpan sebagai komentar
 	finalResponseText := extractTextFromResponse(resp)
 	if finalResponseText == "" {
 		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda."
