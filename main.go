@@ -3958,10 +3958,8 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Setup Gemini Client
 	ctx := context.Background()
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		apiKey = "YOUR_API_KEY_HERE" 
-	}
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
+
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
 		return
