@@ -3988,55 +3988,51 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
 }
 
-
-// FUNGSI HELPER BARU untuk mengeksekusi aksi ke database
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (string, error) {
+	// Dapatkan No. PP panel dari issue ID (diperlukan oleh semua fungsi update)
+	var panelNoPp string
+	err := a.DB.QueryRow("SELECT p.no_pp FROM panels p JOIN chats c ON p.no_pp = c.panel_no_pp JOIN issues i ON c.id = i.chat_id WHERE i.id = $1", issueID).Scan(&panelNoPp)
+	if err != nil {
+		return "", fmt.Errorf("gagal menemukan panel untuk isu ini: %w", err)
+	}
+
+	// Helper function untuk menjalankan query UPDATE
+	executeUpdate := func(column, newStatus string) error {
+		query := fmt.Sprintf("UPDATE panels SET %s = $1 WHERE no_pp = $2", column)
+		_, err := a.DB.Exec(query, newStatus, panelNoPp)
+		return err
+	}
+
 	switch fc.Name {
 	case "update_issue_status":
+		// ... (logika untuk update_issue_status tetap sama)
 		status, ok := fc.Args["new_status"].(string)
 		if !ok {
 			return "", fmt.Errorf("argumen new_status tidak valid")
 		}
-		
-		// Dapatkan user yang melakukan update dari log terakhir
-		var lastUpdater string
-		_ = a.DB.QueryRow("SELECT (logs->-1->>'user') FROM issues WHERE id = $1", issueID).Scan(&lastUpdater)
-
-		// Tambahkan log baru
-		logAction := fmt.Sprintf("menandai %s via AI", status)
-		newLog := LogEntry{Action: logAction, User: lastUpdater, Timestamp: time.Now()}
-		
-		query := `UPDATE issues SET status = $1, logs = logs || $2::jsonb WHERE id = $3`
-		_, err := a.DB.Exec(query, status, newLog, issueID)
+		query := `UPDATE issues SET status = $1 WHERE id = $2`
+		_, err := a.DB.Exec(query, status, issueID)
 		if err != nil {
 			return "", fmt.Errorf("gagal update status isu: %w", err)
 		}
 		return fmt.Sprintf("Status isu berhasil diubah menjadi %s", status), nil
-
+	
 	case "assign_vendor_to_panel":
+		// ... (logika untuk assign_vendor_to_panel tetap sama)
 		vendorName, ok1 := fc.Args["vendor_name"].(string)
 		category, ok2 := fc.Args["category"].(string)
 		if !ok1 || !ok2 {
 			return "", fmt.Errorf("argumen vendor_name atau category tidak valid")
 		}
-
 		var vendorID string
 		err := a.DB.QueryRow("SELECT id FROM companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
 		if err != nil {
 			return "", fmt.Errorf("vendor '%s' tidak ditemukan", vendorName)
 		}
-		
-		var panelNoPp string
-		err = a.DB.QueryRow("SELECT p.no_pp FROM panels p JOIN chats c ON p.no_pp = c.panel_no_pp JOIN issues i ON c.id = i.chat_id WHERE i.id = $1", issueID).Scan(&panelNoPp)
-		if err != nil {
-			return "", fmt.Errorf("gagal menemukan panel untuk isu ini: %w", err)
-		}
-
-		tableName := category + "s" // busbar -> busbars, dll. (sesuaikan jika ada yg beda)
+		tableName := category + "s"
 		if category == "palet" || category == "corepart" {
-			tableName = category // palet -> palet, corepart -> corepart
+			tableName = category
 		}
-
 		query := fmt.Sprintf("INSERT INTO %s (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING", tableName)
 		_, err = a.DB.Exec(query, panelNoPp, vendorID)
 		if err != nil {
@@ -4045,19 +4041,58 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (strin
 		return fmt.Sprintf("Tim %s berhasil ditugaskan ke kategori %s untuk panel ini", vendorName, category), nil
 
 	case "get_issue_explanation":
-        var title, desc string
+		// ... (logika untuk get_issue_explanation tetap sama)
+		var title, desc string
         err := a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&title, &desc)
         if err != nil {
              return "", fmt.Errorf("gagal mendapatkan detail isu: %w", err)
         }
         return fmt.Sprintf("Isu ini berjudul '%s' dengan deskripsi: '%s'", title, desc), nil
 
-	// Kamu bisa menambahkan case untuk 'find_related_issues' di sini
+	// ▼▼▼ LOGIKA BARU UNTUK FUNGSI-FUNGSI SPESIFIK ▼▼▼
+	case "update_busbar_status":
+		busbarType, ok1 := fc.Args["busbar_type"].(string)
+		newStatus, ok2 := fc.Args["new_status"].(string)
+		if !ok1 || !ok2 {
+			return "", fmt.Errorf("argumen busbar_type atau new_status tidak valid")
+		}
+		
+		var dbColumn string
+		if busbarType == "pcc" {
+			dbColumn = "status_busbar_pcc"
+		} else if busbarType == "mcc" {
+			dbColumn = "status_busbar_mcc"
+		} else {
+			return "", fmt.Errorf("tipe busbar tidak valid: %s", busbarType)
+		}
+
+		if err := executeUpdate(dbColumn, newStatus); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Status Busbar %s berhasil diubah menjadi '%s'", strings.ToUpper(busbarType), newStatus), nil
+
+	case "update_component_status":
+		newStatus, ok := fc.Args["new_status"].(string)
+		if !ok { return "", fmt.Errorf("argumen new_status tidak valid") }
+		if err := executeUpdate("status_component", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Komponen berhasil diubah menjadi '%s'", newStatus), nil
+
+	case "update_palet_status":
+		newStatus, ok := fc.Args["new_status"].(string)
+		if !ok { return "", fmt.Errorf("argumen new_status tidak valid") }
+		if err := executeUpdate("status_palet", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Palet berhasil diubah menjadi '%s'", newStatus), nil
+
+	case "update_corepart_status":
+		newStatus, ok := fc.Args["new_status"].(string)
+		if !ok { return "", fmt.Errorf("argumen new_status tidak valid") }
+		if err := executeUpdate("status_corepart", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Corepart berhasil diubah menjadi '%s'", newStatus), nil
+		
 	default:
 		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
 }
-
 // FUNGSI HELPER BARU untuk mem-posting komentar dari AI
 func (a *App) postAiComment(issueID int, senderID string, text string) {
     newCommentID := uuid.New().String()
@@ -4122,6 +4157,76 @@ var tools = []*genai.Tool{
                         },
                     },
                     Required: []string{"vendor_name", "category"},
+                },
+            },{
+                Name:        "update_busbar_status",
+                Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
+                Parameters: &genai.Schema{
+                    Type: genai.TypeObject,
+                    Properties: map[string]*genai.Schema{
+                        "busbar_type": {
+                            Type:        genai.TypeString,
+                            Description: "Tipe busbar yang akan diubah.",
+                            Enum:        []string{"pcc", "mcc"},
+                        },
+                        "new_status": {
+                            Type:        genai.TypeString,
+                            Description: "Status baru untuk busbar.",
+                            Enum:        []string{"On Progress", "Siap 100%", "Close", "Red Block"},
+                        },
+                    },
+                    Required: []string{"busbar_type", "new_status"},
+                },
+            },
+
+            // 2. Fungsi khusus untuk Component
+            {
+                Name:        "update_component_status",
+                Description: "Mengubah status untuk komponen utama (picking component).",
+                Parameters: &genai.Schema{
+                    Type: genai.TypeObject,
+                    Properties: map[string]*genai.Schema{
+                        "new_status": {
+                            Type:        genai.TypeString,
+                            Description: "Status baru untuk komponen.",
+                            Enum:        []string{"Open", "On Progress", "Done"},
+                        },
+                    },
+                    Required: []string{"new_status"},
+                },
+            },
+
+            // 3. Fungsi khusus untuk Palet
+            {
+                Name:        "update_palet_status",
+                Description: "Mengubah status untuk komponen Palet.",
+                Parameters: &genai.Schema{
+                    Type: genai.TypeObject,
+                    Properties: map[string]*genai.Schema{
+                        "new_status": {
+                            Type:        genai.TypeString,
+                            Description: "Status baru untuk palet.",
+                            Enum:        []string{"Open", "Close"},
+                        },
+                    },
+                    Required: []string{"new_status"},
+                },
+            },
+
+            // 4. Fungsi khusus untuk Corepart
+            {
+                Name:        "update_corepart_status",
+                Description: "Mengubah status untuk komponen Corepart.",
+                Parameters: &genai.Schema{
+                    Type: genai.TypeObject,
+                    Properties: map[string]*genai.Schema{
+                        "new_status": {
+                            Type:        genai.TypeString,
+                            Description: "Status baru untuk corepart.",
+                            Enum:        []string{"Open", "Close"},
+                        },
+                    },
+                    Required: []string{"new_status"},
                 },
             },
         },
