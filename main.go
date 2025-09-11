@@ -3906,10 +3906,8 @@ func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
 
     respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
-
 func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
-    
-		vars := mux.Vars(r)
+	vars := mux.Vars(r)
 	issueID, err := strconv.Atoi(vars["issue_id"])
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
@@ -3925,14 +3923,16 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Setup Gemini Client dengan Tools
+	// 1. Setup Gemini Client
 	ctx := context.Background()
-    // apiKey := os.Getenv("GEMINI_API_KEY")
-	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
-    if apiKey == "" {
-        respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY environment variable not set")
-        return
-    }
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		apiKey = "YOUR_API_KEY_HERE" // Ganti dengan API Key Anda jika tidak menggunakan env var
+	}
+	if apiKey == "" {
+		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
+		return
+	}
 
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
@@ -3941,53 +3941,58 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 	
+	// 2. Setup Model dan Chat Session
 	model := client.GenerativeModel("gemini-1.5-flash")
-	model.Tools = tools // <-- Tempelkan tools ke model
+	model.Tools = tools
+	
+	// Gunakan ChatSession untuk mengelola histori secara otomatis
+	cs := model.StartChat()
 
-	// 2. Kirim prompt user ke Gemini untuk mendeteksi Function Call
-	prompt := genai.Text(payload.Question)
-	resp, err := model.GenerateContent(ctx, prompt)
+	// 3. Kirim prompt awal dari user
+	log.Printf("Mengirim prompt ke Gemini: %s", payload.Question)
+	resp, err := cs.SendMessage(ctx, genai.Text(payload.Question))
 	if err != nil {
+		log.Printf("ERROR saat SendMessage pertama: %v", err)
 		respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error())
 		return
 	}
 
-	// 3. Proses Jawaban dari Gemini
-	part := resp.Candidates[0].Content.Parts[0]
-	if fc, ok := part.(genai.FunctionCall); ok {
-		// Gemini meminta kita untuk memanggil sebuah fungsi
-		functionResult, err := a.executeDatabaseFunction(fc, issueID)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-
-		// 4. Kirim hasil eksekusi kembali ke Gemini untuk dibuatkan kalimat konfirmasi
-		// Buat konten baru yang berisi history percakapan + hasil fungsi
-
-		conversationHistory := []genai.Part{
-			prompt, // 1. Prompt asli dari user
-			fc,     // 2. Jawaban dari model yang meminta pemanggilan fungsi
-			genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}}, // 3. Hasil dari eksekusi fungsi Anda
-		}
-
-		// Berikan history tersebut ke GenerateContent menggunakan operator '...' untuk membongkarnya
-		resp, err = model.GenerateContent(ctx, conversationHistory...)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error())
-			return
+	// 4. Proses jawaban dari Gemini
+	if resp.Candidates[0].Content != nil {
+		part := resp.Candidates[0].Content.Parts[0]
+		if fc, ok := part.(genai.FunctionCall); ok {
+			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
+			
+			// Eksekusi fungsi
+			functionResult, err := a.executeDatabaseFunction(fc, issueID)
+			if err != nil {
+				// Jika eksekusi gagal, kirim pesan error kembali ke Gemini
+				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err)
+			}
+			
+			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
+			
+			// Kirim kembali HANYA FunctionResponse ke Gemini
+			// ChatSession secara otomatis akan mengingat histori sebelumnya.
+			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
+			if err != nil {
+				log.Printf("ERROR saat SendMessage kedua (konfirmasi): %v", err)
+				respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error())
+				return
+			}
 		}
 	}
-    
-    // 5. Simpan Jawaban Final ke Database
+	
+	// 5. Ekstrak teks final dan simpan sebagai komentar
 	finalResponseText := extractTextFromResponse(resp)
 	if finalResponseText == "" {
 		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda."
 	}
-    a.postAiComment(issueID, payload.SenderID, finalResponseText)
+	log.Printf("Jawaban final dari Gemini: %s", finalResponseText)
+    
+	a.postAiComment(issueID, payload.SenderID, finalResponseText)
 	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
 }
-
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (string, error) {
 	// Dapatkan No. PP panel dari issue ID (diperlukan oleh semua fungsi update)
 	var panelNoPp string
