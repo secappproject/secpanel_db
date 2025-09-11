@@ -3908,32 +3908,25 @@ func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    issueID, err := strconv.Atoi(vars["issue_id"])
-    if err != nil {
-        respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
-        return
-    }
+    
+		vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
+		return
+	}
 
-    var payload struct {
-        Question string `json:"question"`
-        SenderID string `json:"sender_id"` // Siapa yang bertanya
-    }
-    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-        respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
-        return
-    }
+	var payload struct {
+		Question string `json:"question"`
+		SenderID string `json:"sender_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
 
-    // 1. Ambil konteks dari isu yang ada
-    var issueTitle, issueDesc string
-    err = a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
-    if err != nil {
-        respondWithError(w, http.StatusNotFound, "Issue not found")
-        return
-    }
-
-    // 2. Setup koneksi ke Gemini API
-    ctx := context.Background()
+	// 1. Setup Gemini Client dengan Tools
+	ctx := context.Background()
     // apiKey := os.Getenv("GEMINI_API_KEY")
 	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
     if apiKey == "" {
@@ -3941,61 +3934,199 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error())
-        return
-    }
-    defer client.Close()
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error())
+		return
+	}
+	defer client.Close()
+	
+    // Definisikan tools di sini (copy-paste dari blok kode di atas)
+    // var tools = []*genai.Tool{ ... }
 
-    model := client.GenerativeModel("gemini-pro") // atau model lain yang sesuai
+	model := client.GenerativeModel("gemini-pro")
+	model.Tools = tools // <-- Tempelkan tools ke model
 
-    // 3. Buat prompt yang kontekstual
-    prompt := fmt.Sprintf(
-        "Anda adalah asisten AI yang membantu menyelesaikan masalah teknis panel listrik. Jawab pertanyaan berikut dengan jelas dan ringkas dalam Bahasa Indonesia.\n\n"+
-            "--- Konteks Masalah ---\n"+
-            "Judul Isu: %s\n"+
-            "Deskripsi: %s\n"+
-            "-----------------------\n\n"+
-            "Pertanyaan dari user: %s",
-        issueTitle, issueDesc, payload.Question,
-    )
+	// 2. Kirim prompt user ke Gemini untuk mendeteksi Function Call
+	prompt := genai.Text(payload.Question)
+	resp, err := model.GenerateContent(ctx, prompt)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error())
+		return
+	}
 
-    // 4. Kirim prompt ke Gemini
-    resp, err := model.GenerateContent(ctx, genai.Text(prompt))
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Failed to get response from Gemini: "+err.Error())
-        return
-    }
+	// 3. Proses Jawaban dari Gemini
+	part := resp.Candidates[0].Content.Parts[0]
+	if fc, ok := part.(genai.FunctionCall); ok {
+		// Gemini meminta kita untuk memanggil sebuah fungsi
+		functionResult, err := a.executeDatabaseFunction(fc, issueID)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
-    // 5. Ambil teks jawaban
-    var geminiResponseText string
-    if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
-        if txt, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
-            geminiResponseText = string(txt)
-        }
-    }
+		// 4. Kirim hasil eksekusi kembali ke Gemini untuk dibuatkan kalimat konfirmasi
+		// Buat konten baru yang berisi history percakapan + hasil fungsi
 
-    if geminiResponseText == "" {
-        geminiResponseText = "Maaf, saya tidak bisa memberikan jawaban saat ini."
-    }
+		conversationHistory := []genai.Part{
+			prompt, // 1. Prompt asli dari user
+			fc,     // 2. Jawaban dari model yang meminta pemanggilan fungsi
+			genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}}, // 3. Hasil dari eksekusi fungsi Anda
+		}
 
-    // 6. Simpan jawaban sebagai komentar baru dari user 'gemini_ai'
-    newCommentID := uuid.New().String()
-    geminiUserID := "gemini_ai" // User yang kita buat tadi
+		// Berikan history tersebut ke GenerateContent menggunakan operator '...' untuk membongkarnya
+		resp, err = model.GenerateContent(ctx, conversationHistory...)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error())
+			return
+		}
+	}
     
-    // Teks balasan akan me-mention user yang bertanya
-    aiReplyText := fmt.Sprintf("@%s %s", payload.SenderID, geminiResponseText)
+    // 5. Simpan Jawaban Final ke Database
+	finalResponseText := extractTextFromResponse(resp)
+	if finalResponseText == "" {
+		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda."
+	}
+    a.postAiComment(issueID, payload.SenderID, finalResponseText)
+	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
+}
 
-    query := `
-        INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id)
-        VALUES ($1, $2, $3, $4, $5)
-    `
-    _, err = a.DB.Exec(query, newCommentID, issueID, geminiUserID, aiReplyText, payload.SenderID)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Failed to save Gemini's comment: "+err.Error())
-        return
-    }
 
-    respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success", "message": "Gemini has responded."})
+// FUNGSI HELPER BARU untuk mengeksekusi aksi ke database
+func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (string, error) {
+	switch fc.Name {
+	case "update_issue_status":
+		status, ok := fc.Args["new_status"].(string)
+		if !ok {
+			return "", fmt.Errorf("argumen new_status tidak valid")
+		}
+		
+		// Dapatkan user yang melakukan update dari log terakhir
+		var lastUpdater string
+		_ = a.DB.QueryRow("SELECT (logs->-1->>'user') FROM issues WHERE id = $1", issueID).Scan(&lastUpdater)
+
+		// Tambahkan log baru
+		logAction := fmt.Sprintf("menandai %s via AI", status)
+		newLog := LogEntry{Action: logAction, User: lastUpdater, Timestamp: time.Now()}
+		
+		query := `UPDATE issues SET status = $1, logs = logs || $2::jsonb WHERE id = $3`
+		_, err := a.DB.Exec(query, status, newLog, issueID)
+		if err != nil {
+			return "", fmt.Errorf("gagal update status isu: %w", err)
+		}
+		return fmt.Sprintf("Status isu berhasil diubah menjadi %s", status), nil
+
+	case "assign_vendor_to_panel":
+		vendorName, ok1 := fc.Args["vendor_name"].(string)
+		category, ok2 := fc.Args["category"].(string)
+		if !ok1 || !ok2 {
+			return "", fmt.Errorf("argumen vendor_name atau category tidak valid")
+		}
+
+		var vendorID string
+		err := a.DB.QueryRow("SELECT id FROM companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
+		if err != nil {
+			return "", fmt.Errorf("vendor '%s' tidak ditemukan", vendorName)
+		}
+		
+		var panelNoPp string
+		err = a.DB.QueryRow("SELECT p.no_pp FROM panels p JOIN chats c ON p.no_pp = c.panel_no_pp JOIN issues i ON c.id = i.chat_id WHERE i.id = $1", issueID).Scan(&panelNoPp)
+		if err != nil {
+			return "", fmt.Errorf("gagal menemukan panel untuk isu ini: %w", err)
+		}
+
+		tableName := category + "s" // busbar -> busbars, dll. (sesuaikan jika ada yg beda)
+		if category == "palet" || category == "corepart" {
+			tableName = category // palet -> palet, corepart -> corepart
+		}
+
+		query := fmt.Sprintf("INSERT INTO %s (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING", tableName)
+		_, err = a.DB.Exec(query, panelNoPp, vendorID)
+		if err != nil {
+			return "", fmt.Errorf("gagal assign vendor: %w", err)
+		}
+		return fmt.Sprintf("Tim %s berhasil ditugaskan ke kategori %s untuk panel ini", vendorName, category), nil
+
+	case "get_issue_explanation":
+        var title, desc string
+        err := a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&title, &desc)
+        if err != nil {
+             return "", fmt.Errorf("gagal mendapatkan detail isu: %w", err)
+        }
+        return fmt.Sprintf("Isu ini berjudul '%s' dengan deskripsi: '%s'", title, desc), nil
+
+	// Kamu bisa menambahkan case untuk 'find_related_issues' di sini
+	default:
+		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
+	}
+}
+
+// FUNGSI HELPER BARU untuk mem-posting komentar dari AI
+func (a *App) postAiComment(issueID int, senderID string, text string) {
+    newCommentID := uuid.New().String()
+    geminiUserID := "gemini_ai"
+    aiReplyText := fmt.Sprintf("@%s %s", senderID, text)
+
+    query := `INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id) VALUES ($1, $2, $3, $4, $5)`
+    _, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, aiReplyText, senderID)
+}
+
+// FUNGSI HELPER BARU untuk mengekstrak teks dari response Gemini
+func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
+	if resp != nil && len(resp.Candidates) > 0 {
+		if content := resp.Candidates[0].Content; content != nil && len(content.Parts) > 0 {
+			if txt, ok := content.Parts[0].(genai.Text); ok {
+				return string(txt)
+			}
+		}
+	}
+	return ""
+}
+var tools = []*genai.Tool{
+    {
+        FunctionDeclarations: []*genai.FunctionDeclaration{
+            {
+                Name:        "get_issue_explanation",
+                Description: "Memberikan penjelasan dan ringkasan tentang isu yang sedang dibahas berdasarkan judul dan deskripsinya.",
+            },
+            {
+                Name:        "find_related_issues",
+                Description: "Mencari dan memberikan daftar isu-isu lain yang relevan di dalam panel yang sama.",
+            },
+            {
+                Name:        "update_issue_status",
+                Description: "Mengubah status dari sebuah isu. Status 'done' atau 'selesai' akan dianggap sebagai 'solved'.",
+                Parameters: &genai.Schema{
+                    Type: genai.TypeObject,
+                    Properties: map[string]*genai.Schema{
+                        "new_status": {
+                            Type:        genai.TypeString,
+                            Description: "Status baru untuk isu ini. Pilihan: 'solved' atau 'unsolved'.",
+                            Enum:        []string{"solved", "unsolved"},
+                        },
+                    },
+                    Required: []string{"new_status"},
+                },
+            },
+            {
+                Name:        "assign_vendor_to_panel",
+                Description: "Menugaskan (assign) sebuah vendor/tim ke sebuah kategori pekerjaan di panel ini.",
+                Parameters: &genai.Schema{
+                    Type: genai.TypeObject,
+                    Properties: map[string]*genai.Schema{
+                        "vendor_name": {
+                            Type:        genai.TypeString,
+                            Description: "Nama vendor atau tim yang akan ditugaskan, contoh: 'GPE', 'DSM', 'Warehouse'.",
+                        },
+                        "category": {
+                            Type:        genai.TypeString,
+                            Description: "Kategori pekerjaan yang akan ditugaskan. Pilihan: 'busbar', 'component', 'palet', 'corepart'.",
+                            Enum:        []string{"busbar", "component", "palet", "corepart"},
+                        },
+                    },
+                    Required: []string{"vendor_name", "category"},
+                },
+            },
+        },
+    },
 }
