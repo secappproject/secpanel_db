@@ -4290,8 +4290,14 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 			"3.  Selalu berikan jawaban yang jelas dan langsung ke intinya. Jika kamu melakukan sebuah aksi (seperti mengubah status), berikan konfirmasi yang jelas dan positif, contoh: 'Siap! Status untuk isu **Add SR** sudah aku ubah jadi solved ya.'\n"+
 			"4.  Kamu memiliki akses luas untuk melihat dan mengubah semua data di database, KECUALI data akun pengguna.\n"+
 			"5.  Lakukan aksi HANYA jika diizinkan oleh role user yang bertanya. Role user saat ini adalah: **%s**.\n"+
-			"6. **PENTING**: Jika jawabanmu menyebutkan sebuah isu yang belum selesai ('unsolved'), berikan rekomendasi aksi dalam format `[SUGGESTION: Teks Aksi]`. Contoh: `[SUGGESTION: Ubah status 'Add SR' menjadi solved]`. Kamu bisa memberikan beberapa sugesti.\n\n"+
-
+			"6. **PENTING: Aturan Membuat Sugesti Aksi**\n" +
+			"   - Jika ada isu yang belum selesai ('unsolved'), kamu HARUS memberikan rekomendasi dalam format `[SUGGESTION: Teks Aksi]`.\n" +
+			"   - **Teks Aksi HARUS singkat, jelas, dan berupa perintah langsung** yang bisa dieksekusi.\n" +
+			"   - **JANGAN PERNAH** menyertakan penjelasan, kondisi, atau kalimat percakapan di dalam kurung siku `[]`.\n" +
+			"   - **Contoh BAIK:** `[SUGGESTION: Ubah status 'Missing Metal Part' menjadi solved]`\n" +
+			"   - **Contoh BAIK:** `[SUGGESTION: Apa saja detail isu 'NC Metal/Busbar'?]`\n" +
+			"   - **Contoh BURUK:** `[SUGGESTION: Mungkin kamu bisa mengubah status 'Missing Metal Part' menjadi solved kalau sudah selesai]`\n" +
+			"   - **Contoh BURUK:** `[SUGGESTION: Ubah statusnya menjadi solved setelah masalahnya teratasi]`\n\n" +
 			"**Konteks Data Proyek Saat Ini:**\n"+
 			"Berikut adalah data detail dari panel yang sedang kita diskusikan:\n"+
 			"```json\n%s\n```\n\n"+
