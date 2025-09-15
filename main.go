@@ -74,8 +74,8 @@ type CreateCommentPayload struct {
 	Images           []string `json:"images"`
 }
 type IssueTitle struct {
-    ID    int    `json:"id"`
-    Title string `json:"title"`
+	ID    int    `json:"id"`
+	Title string `json:"title"`
 }
 type IssueComment struct {
 	ID               string    `json:"id"`
@@ -370,7 +370,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT")
-    a.Router.HandleFunc("/panel/remark-vendor", a.upsertPanelRemarkHandler).Methods("POST")
+	a.Router.HandleFunc("/panel/remark-vendor", a.upsertPanelRemarkHandler).Methods("POST")
 
 	// Rute isPanelNumberUniqueHandler tidak lagi diperlukan karena no_panel tidak unik
 	// a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
@@ -443,10 +443,10 @@ func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-        INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)
-        ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            role = EXCLUDED.role`
+		INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			role = EXCLUDED.role`
 
 	_, err := a.DB.Exec(query, c.ID, c.Name, c.Role)
 	if err != nil {
@@ -468,10 +468,10 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-        INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-        ON CONFLICT (no_pp) DO UPDATE SET
-        no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
+		INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		ON CONFLICT (no_pp) DO UPDATE SET
+		no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
 
 	_, err := a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
 	if err != nil {
@@ -765,11 +765,11 @@ func (a *App) isUsernameTakenHandler(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) getAllUserAccountsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	query := `
-        SELECT ca.username, ca.company_id, c.name AS company_name, c.role
-        FROM company_accounts ca
-        JOIN companies c ON ca.company_id = c.id
-        WHERE ca.username != 'admin'
-        ORDER BY c.name, ca.username`
+		SELECT ca.username, ca.company_id, c.name AS company_name, c.role
+		FROM company_accounts ca
+		JOIN companies c ON ca.company_id = c.id
+		WHERE ca.username != 'admin'
+		ORDER BY c.name, ca.username`
 	rows, err := a.DB.Query(query)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -798,11 +798,11 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 	currentUsername := r.URL.Query().Get("current_username")
 
 	query := `
-        SELECT ca.username, ca.company_id, c.name AS company_name, c.role
-        FROM company_accounts ca
-        JOIN companies c ON ca.company_id = c.id
-        WHERE c.name = $1 AND ca.username != $2
-        ORDER BY ca.username`
+		SELECT ca.username, ca.company_id, c.name AS company_name, c.role
+		FROM company_accounts ca
+		JOIN companies c ON ca.company_id = c.id
+		WHERE c.name = $1 AND ca.username != $2
+		ORDER BY ca.username`
 	rows, err := a.DB.Query(query, companyName, currentUsername)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1146,13 +1146,13 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
 	query := `
-        SELECT
-            CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
-            no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
-            status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
-            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
-            is_closed, closed_date, panel_type
-        FROM panels`
+		SELECT
+			CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
+			no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
+			status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
+			status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
+			is_closed, closed_date, panel_type
+		FROM panels`
 
 	rows, err := a.DB.Query(query)
 	if err != nil {
@@ -1177,13 +1177,13 @@ func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	var p Panel
 
 	query := `
-        SELECT
-            CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
-            no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
-            status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
-            status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
-            is_closed, closed_date, panel_type
-        FROM panels WHERE no_pp = $1`
+		SELECT
+			CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
+			no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
+			status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
+			status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
+			is_closed, closed_date, panel_type
+		FROM panels WHERE no_pp = $1`
 
 	err := a.DB.QueryRow(query, noPp).Scan(
 		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType)
@@ -1242,7 +1242,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
 		status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart,
 		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks,
-        close_date_busbar_pcc, close_date_busbar_mcc
+		close_date_busbar_pcc, close_date_busbar_mcc
 		FROM panels WHERE no_pp = $1`
 	err = tx.QueryRow(querySelect, oldNoPp).Scan(
 		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
@@ -1251,7 +1251,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		&existingPanel.StatusPalet, &existingPanel.StatusCorepart, &existingPanel.AoBusbarPcc,
 		&existingPanel.AoBusbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
 		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType, &existingPanel.Remarks,
-        &existingPanel.CloseDateBusbarPcc, &existingPanel.CloseDateBusbarMcc,
+		&existingPanel.CloseDateBusbarPcc, &existingPanel.CloseDateBusbarMcc,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1280,7 +1280,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	if payloadData.PanelType != nil { existingPanel.PanelType = payloadData.PanelType }
 	if payloadData.Remarks != nil { existingPanel.Remarks = payloadData.Remarks } 
 	existingPanel.CloseDateBusbarPcc = payloadData.CloseDateBusbarPcc
-    existingPanel.CloseDateBusbarMcc = payloadData.CloseDateBusbarMcc
+	existingPanel.CloseDateBusbarMcc = payloadData.CloseDateBusbarMcc
 	existingPanel.IsClosed = payloadData.IsClosed
 	existingPanel.ClosedDate = payloadData.ClosedDate
 	existingPanel.NoPp = payloadData.NoPp
@@ -1321,8 +1321,8 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			status_busbar_mcc = $8, status_component = $9, status_palet = $10,
 			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
 			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18,
-            close_date_busbar_pcc = $19, close_date_busbar_mcc = $20
-    WHERE no_pp = $21`
+			close_date_busbar_pcc = $19, close_date_busbar_mcc = $20
+	WHERE no_pp = $21`
 
 	_, err = tx.Exec(updateQuery,
 		existingPanel.NoPanel, existingPanel.NoWbs, existingPanel.Project, existingPanel.PercentProgress,
@@ -1502,8 +1502,8 @@ func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.
 		return
 	}
 	query := `
-        INSERT INTO busbars (panel_no_pp, vendor, remarks) VALUES ($1, $2, $3)
-        ON CONFLICT (panel_no_pp, vendor) DO UPDATE SET remarks = EXCLUDED.remarks`
+		INSERT INTO busbars (panel_no_pp, vendor, remarks) VALUES ($1, $2, $3)
+		ON CONFLICT (panel_no_pp, vendor) DO UPDATE SET remarks = EXCLUDED.remarks`
 	_, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor, payload.Remarks)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1869,11 +1869,11 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			panelQuery += " AND (" + strings.Join(statusConditions, " OR ") + ")"
 		}
 	}
-    
-    // Filter Arsip
-    if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
-        panelQuery += " AND (p.is_closed = false OR p.closed_date > NOW() - INTERVAL '2 days')"
-    }
+	
+	// Filter Arsip
+	if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
+		panelQuery += " AND (p.is_closed = false OR p.closed_date > NOW() - INTERVAL '2 days')"
+	}
 
 
 	// Akhiri query dengan GROUP BY untuk menghilangkan duplikat karena JOIN
@@ -2551,7 +2551,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 	var issueID int
 	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status)
-              VALUES ($1, $2, $3, $4, $5, 'unsolved') RETURNING id`
+			VALUES ($1, $2, $3, $4, $5, 'unsolved') RETURNING id`
 	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog).Scan(&issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create issue: "+err.Error())
@@ -2919,9 +2919,9 @@ func splitIds(ns sql.NullString) []string {
 }
 func initDB(db *sql.DB) {
 	createTablesSQL := `
-    CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
-    CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
-    CREATE TABLE IF NOT EXISTS panels (
+	CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
+	CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
+	CREATE TABLE IF NOT EXISTS panels (
 		no_pp TEXT PRIMARY KEY, 
 		no_panel TEXT, 
 		no_wbs TEXT, 
@@ -2940,38 +2940,38 @@ func initDB(db *sql.DB) {
 		vendor_id TEXT, 
 		is_closed BOOLEAN DEFAULT false, 
 		closed_date TIMESTAMPTZ
-    );
+	);
 	CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS corepart ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
-    `
+	`
 	if _, err := db.Exec(createTablesSQL); err != nil {
 		log.Fatalf("Gagal membuat tabel awal: %v", err)
 	}
 
 	createTablesSQLChats:= `
-    CREATE TABLE IF NOT EXISTS chats (
-        id SERIAL PRIMARY KEY,
-        panel_no_pp VARCHAR(255) UNIQUE NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );`
+	CREATE TABLE IF NOT EXISTS chats (
+		id SERIAL PRIMARY KEY,
+		panel_no_pp VARCHAR(255) UNIQUE NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
 	if _, err := db.Exec(createTablesSQLChats); err != nil {
 		log.Fatalf("Gagal membuat tabel chats: %v", err)
 	}
 
 	createTablesSQLIssues:= `
-    CREATE TABLE IF NOT EXISTS issues (
-        id SERIAL PRIMARY KEY,
-        chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-        title VARCHAR(255) NOT NULL,
-        description TEXT,
-        status VARCHAR(50) NOT NULL DEFAULT 'unsolved',
-        logs JSONB,
-        created_by VARCHAR(255),
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );`
+	CREATE TABLE IF NOT EXISTS issues (
+		id SERIAL PRIMARY KEY,
+		chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+		title VARCHAR(255) NOT NULL,
+		description TEXT,
+		status VARCHAR(50) NOT NULL DEFAULT 'unsolved',
+		logs JSONB,
+		created_by VARCHAR(255),
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
 	if _, err := db.Exec(createTablesSQLIssues); err != nil {
 		log.Fatalf("Gagal membuat tabel issues: %v", err)
 	}
@@ -2995,7 +2995,7 @@ func initDB(db *sql.DB) {
 		}
 	}
 
-    createIssueCommentsTableSQL := `
+	createIssueCommentsTableSQL := `
 	CREATE TABLE IF NOT EXISTS issue_comments (
 		id TEXT PRIMARY KEY,
 		issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
@@ -3071,46 +3071,46 @@ func initDB(db *sql.DB) {
 	}
 
 	createTablesSQLPhotos:= `
-    CREATE TABLE IF NOT EXISTS photos (
-        id SERIAL PRIMARY KEY,
-        issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-        photo_data TEXT NOT NULL
-    );`
+	CREATE TABLE IF NOT EXISTS photos (
+		id SERIAL PRIMARY KEY,
+		issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+		photo_data TEXT NOT NULL
+	);`
 	if _, err := db.Exec(createTablesSQLPhotos); err != nil {
 		log.Fatalf("Gagal membuat tabel photos: %v", err)
 	}
 
 	updateIssuesTrigger:= `
-    CREATE OR REPLACE FUNCTION update_updated_at_column()
-    RETURNS TRIGGER AS $$
-    BEGIN
+	CREATE OR REPLACE FUNCTION update_updated_at_column()
+	RETURNS TRIGGER AS $$
+	BEGIN
 		NEW.updated_at = NOW();
 		RETURN NEW;
-    END;
-    $$ language 'plpgsql';
+	END;
+	$$ language 'plpgsql';
 
-    DROP TRIGGER IF EXISTS update_issues_updated_at ON issues;
-    CREATE TRIGGER update_issues_updated_at
-    BEFORE UPDATE ON issues
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-    `
+	DROP TRIGGER IF EXISTS update_issues_updated_at ON issues;
+	CREATE TRIGGER update_issues_updated_at
+	BEFORE UPDATE ON issues
+	FOR EACH ROW
+	EXECUTE FUNCTION update_updated_at_column();
+	`
 	if _, err := db.Exec(updateIssuesTrigger); err != nil {
 		log.Fatalf("Gagal membuat trigger updated_at di tabel issues: %v", err)
 	}
 
 	alterTableSQL := `
-    DO $$
-    BEGIN
-        IF EXISTS (
-            SELECT 1 FROM pg_constraint
-            WHERE conname = 'panels_no_panel_key' AND conrelid = 'panels'::regclass
-        ) THEN
-            ALTER TABLE panels DROP CONSTRAINT panels_no_panel_key;
-        END IF;
-    END;
-    $$;
-    `
+	DO $$
+	BEGIN
+		IF EXISTS (
+			SELECT 1 FROM pg_constraint
+			WHERE conname = 'panels_no_panel_key' AND conrelid = 'panels'::regclass
+		) THEN
+			ALTER TABLE panels DROP CONSTRAINT panels_no_panel_key;
+		END IF;
+	END;
+	$$;
+	`
 	if _, err := db.Exec(alterTableSQL); err != nil {
 		log.Fatalf("Gagal mengubah constraint tabel panels: %v", err)
 	}
@@ -3770,141 +3770,141 @@ func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 func (a *App) getAllIssueTitlesHandler(w http.ResponseWriter, r *http.Request) {
-    rows, err := a.DB.Query("SELECT id, title FROM issue_titles ORDER BY title ASC")
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, err.Error())
-        return
-    }
-    defer rows.Close()
+	rows, err := a.DB.Query("SELECT id, title FROM issue_titles ORDER BY title ASC")
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
 
-    var titles []IssueTitle
-    for rows.Next() {
-        var it IssueTitle
-        if err := rows.Scan(&it.ID, &it.Title); err != nil {
-            respondWithError(w, http.StatusInternalServerError, "Gagal scan title: "+err.Error())
-            return
-        }
-        titles = append(titles, it)
-    }
-    respondWithJSON(w, http.StatusOK, titles)
+	var titles []IssueTitle
+	for rows.Next() {
+		var it IssueTitle
+		if err := rows.Scan(&it.ID, &it.Title); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal scan title: "+err.Error())
+			return
+		}
+		titles = append(titles, it)
+	}
+	respondWithJSON(w, http.StatusOK, titles)
 }
 
 func (a *App) createIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
-    var payload struct {
-        Title string `json:"title"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-        respondWithError(w, http.StatusBadRequest, "Invalid payload")
-        return
-    }
-    if payload.Title == "" {
-        respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
-        return
-    }
+	var payload struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	if payload.Title == "" {
+		respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
+		return
+	}
 
-    var newTitle IssueTitle
-    query := "INSERT INTO issue_titles (title) VALUES ($1) RETURNING id, title"
-    err := a.DB.QueryRow(query, payload.Title).Scan(&newTitle.ID, &newTitle.Title)
-    if err != nil {
-        if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-            respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
-            return
-        }
-        respondWithError(w, http.StatusInternalServerError, "Gagal membuat tipe masalah: "+err.Error())
-        return
-    }
-    respondWithJSON(w, http.StatusCreated, newTitle)
+	var newTitle IssueTitle
+	query := "INSERT INTO issue_titles (title) VALUES ($1) RETURNING id, title"
+	err := a.DB.QueryRow(query, payload.Title).Scan(&newTitle.ID, &newTitle.Title)
+	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Gagal membuat tipe masalah: "+err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, newTitle)
 }
 
 func (a *App) updateIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
-    id, err := strconv.Atoi(mux.Vars(r)["id"])
-    if err != nil {
-        respondWithError(w, http.StatusBadRequest, "Invalid ID")
-        return
-    }
-    var payload struct {
-        Title string `json:"title"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-        respondWithError(w, http.StatusBadRequest, "Invalid payload")
-        return
-    }
-    if payload.Title == "" {
-        respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
-        return
-    }
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid ID")
+		return
+	}
+	var payload struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	if payload.Title == "" {
+		respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
+		return
+	}
 
-    tx, err := a.DB.Begin()
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
-        return
-    }
-    defer tx.Rollback()
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
+		return
+	}
+	defer tx.Rollback()
 
-    var oldTitle string
-    err = tx.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
-    if err != nil {
-        respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
-        return
-    }
+	var oldTitle string
+	err = tx.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
+		return
+	}
 
-    _, err = tx.Exec("UPDATE issue_titles SET title = $1 WHERE id = $2", payload.Title, id)
-    if err != nil {
-        if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-             respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
-            return
-        }
-        respondWithError(w, http.StatusInternalServerError, "Gagal update master title: "+err.Error())
-        return
-    }
+	_, err = tx.Exec("UPDATE issue_titles SET title = $1 WHERE id = $2", payload.Title, id)
+	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Gagal update master title: "+err.Error())
+		return
+	}
 
-    _, err = tx.Exec("UPDATE issues SET title = $1 WHERE title = $2", payload.Title, oldTitle)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal update issue yang ada: "+err.Error())
-        return
-    }
+	_, err = tx.Exec("UPDATE issues SET title = $1 WHERE title = $2", payload.Title, oldTitle)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal update issue yang ada: "+err.Error())
+		return
+	}
 
-    if err := tx.Commit(); err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
-        return
-    }
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
+		return
+	}
 
-    respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
 func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
-    id, err := strconv.Atoi(mux.Vars(r)["id"])
-    if err != nil {
-        respondWithError(w, http.StatusBadRequest, "Invalid ID")
-        return
-    }
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid ID")
+		return
+	}
 
-    var oldTitle string
-    err = a.DB.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
-     if err != nil {
-        respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
-        return
-    }
+	var oldTitle string
+	err = a.DB.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
+		return
+	}
 
-    var count int
-    err = a.DB.QueryRow("SELECT COUNT(*) FROM issues WHERE title = $1", oldTitle).Scan(&count)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal memeriksa penggunaan title: "+err.Error())
-        return
-    }
+	var count int
+	err = a.DB.QueryRow("SELECT COUNT(*) FROM issues WHERE title = $1", oldTitle).Scan(&count)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memeriksa penggunaan title: "+err.Error())
+		return
+	}
 
-    if count > 0 {
-        respondWithError(w, http.StatusConflict, fmt.Sprintf("Tidak dapat menghapus. Tipe masalah ini digunakan oleh %d isu.", count))
-        return
-    }
+	if count > 0 {
+		respondWithError(w, http.StatusConflict, fmt.Sprintf("Tidak dapat menghapus. Tipe masalah ini digunakan oleh %d isu.", count))
+		return
+	}
 
-    _, err = a.DB.Exec("DELETE FROM issue_titles WHERE id = $1", id)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal menghapus: "+err.Error())
-        return
-    }
+	_, err = a.DB.Exec("DELETE FROM issue_titles WHERE id = $1", id)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus: "+err.Error())
+		return
+	}
 
-    respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
@@ -4093,11 +4093,11 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, issueID int) (strin
 	case "get_issue_explanation":
 		// ... (logika untuk get_issue_explanation tetap sama)
 		var title, desc string
-        err := a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&title, &desc)
-        if err != nil {
-             return "", fmt.Errorf("gagal mendapatkan detail isu: %w", err)
-        }
-        return fmt.Sprintf("Isu ini berjudul '%s' dengan deskripsi: '%s'", title, desc), nil
+		err := a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&title, &desc)
+		if err != nil {
+			return "", fmt.Errorf("gagal mendapatkan detail isu: %w", err)
+		}
+		return fmt.Sprintf("Isu ini berjudul '%s' dengan deskripsi: '%s'", title, desc), nil
 
 	// ▼▼▼ LOGIKA BARU UNTUK FUNGSI-FUNGSI SPESIFIK ▼▼▼
 	case "update_busbar_status":
@@ -4167,120 +4167,120 @@ func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
 	return ""
 }
 var tools = []*genai.Tool{
-    {
-        FunctionDeclarations: []*genai.FunctionDeclaration{
-            {
-                Name:        "get_issue_explanation",
-                Description: "Memberikan penjelasan dan ringkasan tentang isu yang sedang dibahas berdasarkan judul dan deskripsinya.",
-            },
-            {
-                Name:        "find_related_issues",
-                Description: "Mencari dan memberikan daftar isu-isu lain yang relevan di dalam panel yang sama.",
-            },
-            {
-                Name:        "update_issue_status",
-                Description: "Mengubah status dari sebuah isu. Status 'done' atau 'selesai' akan dianggap sebagai 'solved'.",
-                Parameters: &genai.Schema{
-                    Type: genai.TypeObject,
-                    Properties: map[string]*genai.Schema{
-                        "new_status": {
-                            Type:        genai.TypeString,
-                            Description: "Status baru untuk isu ini. Pilihan: 'solved' atau 'unsolved'.",
-                            Enum:        []string{"solved", "unsolved"},
-                        },
-                    },
-                    Required: []string{"new_status"},
-                },
-            },
-            {
-                Name:        "assign_vendor_to_panel",
-                Description: "Menugaskan (assign) sebuah vendor/tim ke sebuah kategori pekerjaan di panel ini.",
-                Parameters: &genai.Schema{
-                    Type: genai.TypeObject,
-                    Properties: map[string]*genai.Schema{
-                        "vendor_name": {
-                            Type:        genai.TypeString,
-                            Description: "Nama vendor atau tim yang akan ditugaskan, contoh: 'GPE', 'DSM', 'Warehouse'.",
-                        },
-                        "category": {
-                            Type:        genai.TypeString,
-                            Description: "Kategori pekerjaan yang akan ditugaskan. Pilihan: 'busbar', 'component', 'palet', 'corepart'.",
-                            Enum:        []string{"busbar", "component", "palet", "corepart"},
-                        },
-                    },
-                    Required: []string{"vendor_name", "category"},
-                },
-            },{
-                Name:        "update_busbar_status",
-                Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
-                Parameters: &genai.Schema{
-                    Type: genai.TypeObject,
-                    Properties: map[string]*genai.Schema{
-                        "busbar_type": {
-                            Type:        genai.TypeString,
-                            Description: "Tipe busbar yang akan diubah.",
-                            Enum:        []string{"pcc", "mcc"},
-                        },
-                        "new_status": {
-                            Type:        genai.TypeString,
-                            Description: "Status baru untuk busbar.",
-                            Enum:        []string{"On Progress", "Siap 100%", "Close", "Red Block"},
-                        },
-                    },
-                    Required: []string{"busbar_type", "new_status"},
-                },
-            },
+	{
+		FunctionDeclarations: []*genai.FunctionDeclaration{
+			{
+				Name:        "get_issue_explanation",
+				Description: "Memberikan penjelasan dan ringkasan tentang isu yang sedang dibahas berdasarkan judul dan deskripsinya.",
+			},
+			{
+				Name:        "find_related_issues",
+				Description: "Mencari dan memberikan daftar isu-isu lain yang relevan di dalam panel yang sama.",
+			},
+			{
+				Name:        "update_issue_status",
+				Description: "Mengubah status dari sebuah isu. Status 'done' atau 'selesai' akan dianggap sebagai 'solved'.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk isu ini. Pilihan: 'solved' atau 'unsolved'.",
+							Enum:        []string{"solved", "unsolved"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
+			{
+				Name:        "assign_vendor_to_panel",
+				Description: "Menugaskan (assign) sebuah vendor/tim ke sebuah kategori pekerjaan di panel ini.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"vendor_name": {
+							Type:        genai.TypeString,
+							Description: "Nama vendor atau tim yang akan ditugaskan, contoh: 'GPE', 'DSM', 'Warehouse'.",
+						},
+						"category": {
+							Type:        genai.TypeString,
+							Description: "Kategori pekerjaan yang akan ditugaskan. Pilihan: 'busbar', 'component', 'palet', 'corepart'.",
+							Enum:        []string{"busbar", "component", "palet", "corepart"},
+						},
+					},
+					Required: []string{"vendor_name", "category"},
+				},
+			},{
+				Name:        "update_busbar_status",
+				Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"busbar_type": {
+							Type:        genai.TypeString,
+							Description: "Tipe busbar yang akan diubah.",
+							Enum:        []string{"pcc", "mcc"},
+						},
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk busbar.",
+							Enum:        []string{"On Progress", "Siap 100%", "Close", "Red Block"},
+						},
+					},
+					Required: []string{"busbar_type", "new_status"},
+				},
+			},
 
-            // 2. Fungsi khusus untuk Component
-            {
-                Name:        "update_component_status",
-                Description: "Mengubah status untuk komponen utama (picking component).",
-                Parameters: &genai.Schema{
-                    Type: genai.TypeObject,
-                    Properties: map[string]*genai.Schema{
-                        "new_status": {
-                            Type:        genai.TypeString,
-                            Description: "Status baru untuk komponen.",
-                            Enum:        []string{"Open", "On Progress", "Done"},
-                        },
-                    },
-                    Required: []string{"new_status"},
-                },
-            },
+			// 2. Fungsi khusus untuk Component
+			{
+				Name:        "update_component_status",
+				Description: "Mengubah status untuk komponen utama (picking component).",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk komponen.",
+							Enum:        []string{"Open", "Punching/Bending","Plating/Epoxy","100% Siap Kirim", "Close"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
 
-            // 3. Fungsi khusus untuk Palet
-            {
-                Name:        "update_palet_status",
-                Description: "Mengubah status untuk komponen Palet.",
-                Parameters: &genai.Schema{
-                    Type: genai.TypeObject,
-                    Properties: map[string]*genai.Schema{
-                        "new_status": {
-                            Type:        genai.TypeString,
-                            Description: "Status baru untuk palet.",
-                            Enum:        []string{"Open", "Close"},
-                        },
-                    },
-                    Required: []string{"new_status"},
-                },
-            },
+			// 3. Fungsi khusus untuk Palet
+			{
+				Name:        "update_palet_status",
+				Description: "Mengubah status untuk komponen Palet.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk palet.",
+							Enum:        []string{"Open", "Close"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
 
-            // 4. Fungsi khusus untuk Corepart
-            {
-                Name:        "update_corepart_status",
-                Description: "Mengubah status untuk komponen Corepart.",
-                Parameters: &genai.Schema{
-                    Type: genai.TypeObject,
-                    Properties: map[string]*genai.Schema{
-                        "new_status": {
-                            Type:        genai.TypeString,
-                            Description: "Status baru untuk corepart.",
-                            Enum:        []string{"Open", "Close"},
-                        },
-                    },
-                    Required: []string{"new_status"},
-                },
-            },
-        },
-    },
+			// 4. Fungsi khusus untuk Corepart
+			{
+				Name:        "update_corepart_status",
+				Description: "Mengubah status untuk komponen Corepart.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk corepart.",
+							Enum:        []string{"Open", "Close"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
+		},
+	},
 }
