@@ -4184,7 +4184,20 @@ var tools = []*genai.Tool{
 		},
 	},
 }
-
+type pdd struct {
+	NoPp               sql.NullString  `json:"no_pp"`
+	NoPanel            sql.NullString  `json:"no_panel"`
+	Project            sql.NullString  `json:"project"`
+	NoWbs              sql.NullString  `json:"no_wbs"`
+	PercentProgress    sql.NullFloat64 `json:"percent_progress"`
+	StatusBusbarPcc    sql.NullString  `json:"status_busbar_pcc"`
+	StatusBusbarMcc    sql.NullString  `json:"status_busbar_mcc"`
+	StatusComponent    sql.NullString  `json:"status_component"`
+	StatusPalet        sql.NullString  `json:"status_palet"`
+	StatusCorepart     sql.NullString  `json:"status_corepart"`
+	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
+	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
+}
 
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -4256,7 +4269,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	// 4. Setup Gemini Client & Prompt yang disempurnakan
 	ctx := context.Background()
-	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
+	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set on the server")
 		return
@@ -4265,7 +4278,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error()); return }
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-2.5-flash-lite")
+	model := client.GenerativeModel("gemini-1.5-flash")
 	model.Tools = getToolsForRole(senderRole)
 	cs := model.StartChat()
 	
@@ -4301,6 +4314,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// 5. Kirim ke Gemini dan LAKUKAN FUNCTION CALL JIKA PERLU
 	log.Printf("Mengirim prompt ke Gemini untuk user role: %s", senderRole)
 	resp, err := cs.SendMessage(ctx, promptParts...)
 	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
@@ -4308,14 +4322,23 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	actionTaken := false
 	if resp.Candidates != nil && len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
 		part := resp.Candidates[0].Content.Parts[0]
+		// ▼▼▼ BAGIAN KUNCI: Cek apakah AI ingin memanggil fungsi ▼▼▼
 		if fc, ok := part.(genai.FunctionCall); ok {
-			actionTaken = true
+			actionTaken = true // Tandai bahwa aksi akan dilakukan
+			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
+
+			// Jalankan fungsi di database
 			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
-			if err != nil { functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err) }
+			if err != nil { 
+				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err) 
+			}
+			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
 			
+			// Kirim hasil eksekusi kembali ke Gemini agar ia bisa merangkai kalimat konfirmasi
 			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error()); return }
 		}
+		// ▲▲▲ AKHIR BAGIAN KUNCI ▲▲▲
 	}
 	
 	finalResponseText := extractTextFromResponse(resp)
@@ -4331,28 +4354,14 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 	finalResponseText = re.ReplaceAllString(finalResponseText, "")
 	
+	// 6. Kirim Response ke Frontend
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":   uuid.New().String(),
 		"text": strings.TrimSpace(finalResponseText),
-		"action_taken": actionTaken,
+		"action_taken": actionTaken, // Kirim status apakah aksi telah dilakukan
 		"suggested_actions": suggestions,
 	})
 }
-type pdd struct {
-	NoPp               sql.NullString  `json:"no_pp"`
-	NoPanel            sql.NullString  `json:"no_panel"`
-	Project            sql.NullString  `json:"project"`
-	NoWbs              sql.NullString  `json:"no_wbs"`
-	PercentProgress    sql.NullFloat64 `json:"percent_progress"`
-	StatusBusbarPcc    sql.NullString  `json:"status_busbar_pcc"`
-	StatusBusbarMcc    sql.NullString  `json:"status_busbar_mcc"`
-	StatusComponent    sql.NullString  `json:"status_component"`
-	StatusPalet        sql.NullString  `json:"status_palet"`
-	StatusCorepart     sql.NullString  `json:"status_corepart"`
-	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
-	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
-}
-
 
 // Fungsi ini mendefinisikan SEMUA kemampuan yang bisa dimiliki AI
 func getToolsForRole(role string) []*genai.Tool {
