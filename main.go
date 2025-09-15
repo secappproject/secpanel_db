@@ -4224,7 +4224,7 @@ var tools = []*genai.Tool{
 						"new_status": {
 							Type:        genai.TypeString,
 							Description: "Status baru untuk busbar.",
-							Enum:        []string{"On Progress", "Siap 100%", "Close", "Red Block"},
+							Enum:        []string{"Open", "Punching/Bending","Plating/Epoxy","100% Siap Kirim", "Close"},
 						},
 					},
 					Required: []string{"busbar_type", "new_status"},
@@ -4241,7 +4241,7 @@ var tools = []*genai.Tool{
 						"new_status": {
 							Type:        genai.TypeString,
 							Description: "Status baru untuk komponen.",
-							Enum:        []string{"Open", "Punching/Bending","Plating/Epoxy","100% Siap Kirim", "Close"},
+							Enum:        []string{"Open", "On Progress", "Done"},
 						},
 					},
 					Required: []string{"new_status"},
