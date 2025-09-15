@@ -4198,6 +4198,7 @@ type pdd struct {
 	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
 	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
 }
+// File: main.go
 
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -4241,7 +4242,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	// 3. Kumpulkan konteks histori isu & komentar
 	rows, err := a.DB.Query(`
-		SELECT i.title, i.description, i.status, ic.sender_id, ic.text
+		SELECT i.id, i.title, i.description, i.status, ic.sender_id, ic.text
 		FROM issues i
 		JOIN chats ch ON i.chat_id = ch.id
 		LEFT JOIN issue_comments ic ON i.id = ic.issue_id
@@ -4254,13 +4255,15 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	defer rows.Close()
 
 	var issuesHistory strings.Builder
-	currentIssueTitle := ""
+	currentIssueID := -1 // Lacak berdasarkan ID
 	for rows.Next() {
+		var issueID int
 		var issueTitle, issueDesc, issueStatus, commentSender, commentText sql.NullString
-		if err := rows.Scan(&issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil { continue }
-		if issueTitle.String != currentIssueTitle {
-			issuesHistory.WriteString(fmt.Sprintf("\n--- ISU BARU ---\nJudul: %s\nDeskripsi: %s\nStatus: %s\n", issueTitle.String, issueDesc.String, issueStatus.String))
-			currentIssueTitle = issueTitle.String
+		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil { continue }
+		
+		if issueID != currentIssueID {
+			issuesHistory.WriteString(fmt.Sprintf("\n--- ISU BARU (ID: %d) ---\nJudul: %s\nDeskripsi: %s\nStatus: %s\n", issueID, issueTitle.String, issueDesc.String, issueStatus.String))
+			currentIssueID = issueID
 		}
 		if commentSender.Valid {
 			issuesHistory.WriteString(fmt.Sprintf(" - Komentar dari %s: %s\n", commentSender.String, commentText.String))
@@ -4301,7 +4304,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 			"   - **Contoh BURUK:** `[SUGGESTION: Mungkin kamu bisa mengubah status 'Missing Metal Part' menjadi solved kalau sudah selesai]`\n" +
 			"   - **Contoh BURUK:** `[SUGGESTION: Ubah statusnya menjadi solved setelah masalahnya teratasi]`\n\n" +
 			"**Konteks Data Proyek Saat Ini:**\n"+
-			"Berikut adalah data detail dari panel yang sedang kita diskusikan:\n"+
+			"Berikut adalah data detail dari panel yang sedang kita diskusikan (gunakan `issue_id` jika ingin melakukan aksi pada isu tertentu):\n"+ // Ditambahkan instruksi
 			"```json\n%s\n```\n\n"+
 			"Dan ini adalah riwayat semua isu dan komentar yang pernah ada di panel ini:\n"+
 			"```\n%s\n```\n\n"+
@@ -4371,7 +4374,6 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// Fungsi ini mendefinisikan SEMUA kemampuan yang bisa dimiliki AI
 func getToolsForRole(role string) []*genai.Tool {
 	// 1. Definisikan semua kemungkinan "alat" (kemampuan)
 	viewTools := []*genai.FunctionDeclaration{
@@ -4384,18 +4386,22 @@ func getToolsForRole(role string) []*genai.Tool {
 	issueEditTools := []*genai.FunctionDeclaration{
 		{
 			Name: "update_issue_status",
-			Description: "Mengubah status dari sebuah isu spesifik di dalam panel. Gunakan judul isu untuk mengidentifikasinya.",
+			Description: "Mengubah status dari sebuah isu spesifik di dalam panel menggunakan ID uniknya.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
 				Properties: map[string]*genai.Schema{
-					"issue_title": {Type: genai.TypeString, Description: "Judul isu yang statusnya ingin diubah. Harus sama persis."},
+					"issue_id": {
+						Type: genai.TypeNumber, 
+						Description: "ID unik dari isu yang statusnya ingin diubah. Harus sama persis seperti yang ada di konteks.",
+					},
 					"new_status":  {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
 				},
-				Required: []string{"issue_title", "new_status"},
+				Required: []string{"issue_id", "new_status"},
 			},
 		},
 	}
-
+    
+    // ... sisa fungsi ini tidak berubah ...
 	adminTools := []*genai.FunctionDeclaration{
 		{
 			Name: "update_panel_progress",
@@ -4528,20 +4534,26 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		return summary, nil
 
 	case "update_issue_status":
-		title, ok1 := fc.Args["issue_title"].(string)
+		issueIDFloat, ok1 := fc.Args["issue_id"].(float64)
 		newStatus, ok2 := fc.Args["new_status"].(string)
-		if !ok1 || !ok2 { return "", fmt.Errorf("argumen issue_title atau new_status tidak valid") }
+		if !ok1 || !ok2 {
+			return "", fmt.Errorf("argumen issue_id atau new_status tidak valid")
+		}
+		issueID := int(issueIDFloat)
 
-		var issueID int
 		var currentLogs Logs
 		var currentStatus string
+		var issueTitle string
+		
 		err := a.DB.QueryRow(`
-			SELECT i.id, i.logs, i.status FROM issues i
-			JOIN chats ch ON i.chat_id = ch.id
-			WHERE ch.panel_no_pp = $1 AND i.title ILIKE $2`, panelNoPp, "%"+title+"%").Scan(&issueID, &currentLogs, &currentStatus)
+			SELECT title, logs, status FROM issues WHERE id = $1`, 
+			issueID).Scan(&issueTitle, &currentLogs, &currentStatus)
+			
 		if err != nil {
-			if err == sql.ErrNoRows { return "", fmt.Errorf("Isu dengan judul yang mengandung '%s' tidak ditemukan di panel ini.", title) }
-			return "", fmt.Errorf("Gagal mencari isu: %w", err)
+			if err == sql.ErrNoRows {
+				return "", fmt.Errorf("Isu dengan ID %d tidak ditemukan di panel ini.", issueID)
+			}
+			return "", fmt.Errorf("gagal mencari isu: %w", err)
 		}
 
 		logAction := "mengubah issue"
@@ -4552,9 +4564,9 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		updatedLogs := append(currentLogs, newLogEntry)
 		
 		_, err = a.DB.Exec("UPDATE issues SET status = $1, logs = $2 WHERE id = $3", newStatus, updatedLogs, issueID)
-		if err != nil { return "", fmt.Errorf("Gagal mengupdate status isu di database: %w", err) }
+		if err != nil { return "", fmt.Errorf("gagal mengupdate status isu di database: %w", err) }
 
-		return fmt.Sprintf("Status untuk isu '%s' berhasil diubah menjadi '%s'.", title, newStatus), nil
+		return fmt.Sprintf("Status untuk isu '%s' (ID: %d) berhasil diubah menjadi '%s'.", issueTitle, issueID, newStatus), nil
 
 	case "update_panel_progress":
 		progress, ok := fc.Args["new_progress"].(float64)
@@ -4562,7 +4574,8 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		if progress < 0 || progress > 100 { return "", fmt.Errorf("nilai progres harus antara 0 dan 100") }
 		if err := executeUpdate("percent_progress", progress); err != nil { return "", err }
 		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%.", progress), nil
-
+    
+    // ... sisa fungsi ini tidak berubah ...
 	case "update_busbar_status":
 		busbarType, _ := fc.Args["busbar_type"].(string)
 		newStatus, _ := fc.Args["new_status"].(string)
