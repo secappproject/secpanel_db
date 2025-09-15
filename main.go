@@ -4184,101 +4184,126 @@ var tools = []*genai.Tool{
 	},
 }
 func getToolsForRole(role string) []*genai.Tool {
-    // Semua role bisa melihat informasi
-    viewTools := []*genai.FunctionDeclaration{
-        {
-            Name: "get_panel_summary",
-            Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
-        },
-    }
+	// Semua role bisa melihat informasi
+	viewTools := []*genai.FunctionDeclaration{
+		{
+			Name:        "get_panel_summary",
+			Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
+		},
+	}
 
-    // Tools khusus admin
-    adminTools := []*genai.FunctionDeclaration{
-        {
-            Name: "update_panel_progress",
-            Description: "Mengubah persentase progres dari sebuah panel.",
-            Parameters: &genai.Schema{
-                Type: genai.TypeObject,
-                Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNumber, Description: "Nilai progres baru antara 0-100."}},
-                Required: []string{"new_progress"},
-            },
-        },
-        // Admin bisa melakukan semua hal yang bisa dilakukan role lain
-    }
-    
-    // Tools khusus K3
-    k3Tools := []*genai.FunctionDeclaration{
-        {
-            Name: "update_palet_status",
-            Description: "Mengubah status untuk komponen Palet.",
-            Parameters: &genai.Schema{
-                Type: genai.TypeObject,
-                Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-                Required: []string{"new_status"},
-            },
-        },
-        {
-            Name: "update_corepart_status",
-            Description: "Mengubah status untuk komponen Corepart.",
-            Parameters: &genai.Schema{
-                Type: genai.TypeObject,
-                Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-                Required: []string{"new_status"},
-            },
-        },
-    }
+	// Alat umum untuk mengedit isu, bisa diakses oleh banyak role
+	issueEditTools := []*genai.FunctionDeclaration{
+		{
+			Name:        "update_issue_status",
+			Description: "Mengubah status dari sebuah isu spesifik di dalam panel. Gunakan judul isu untuk mengidentifikasinya.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"issue_title": {
+						Type:        genai.TypeString,
+						Description: "Judul isu yang statusnya ingin diubah. Harus sama persis dengan yang ada di histori.",
+					},
+					"new_status": {
+						Type:        genai.TypeString,
+						Description: "Status baru untuk isu ini. Pilihan: 'solved' atau 'unsolved'. Kata-kata seperti 'done', 'selesai', 'beres' harus dipetakan ke 'solved'.",
+						Enum:        []string{"solved", "unsolved"},
+					},
+				},
+				Required: []string{"issue_title", "new_status"},
+			},
+		},
+	}
 
-    // Tools khusus K5
-    k5Tools := []*genai.FunctionDeclaration{
-         {
-            Name: "update_busbar_status",
-            Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
-            Parameters: &genai.Schema{
-                Type: genai.TypeObject,
-                Properties: map[string]*genai.Schema{
-                    "busbar_type": {Type: genai.TypeString, Enum: []string{"pcc", "mcc"}},
-                    "new_status": {Type: genai.TypeString, Enum: []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"}},
-                },
-                Required: []string{"busbar_type", "new_status"},
-            },
-        },
-    }
+	// Tools khusus admin
+	adminTools := []*genai.FunctionDeclaration{
+		{
+			Name:        "update_panel_progress",
+			Description: "Mengubah persentase progres dari sebuah panel.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNumber, Description: "Nilai progres baru antara 0-100."}},
+				Required:   []string{"new_progress"},
+			},
+		},
+	}
 
-    // Tools khusus Warehouse
-    whsTools := []*genai.FunctionDeclaration{
-        {
-            Name: "update_component_status",
-            Description: "Mengubah status untuk komponen utama (picking component).",
-            Parameters: &genai.Schema{
-                Type: genai.TypeObject,
-                Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
-                Required: []string{"new_status"},
-            },
-        },
-    }
+	// Tools khusus K3
+	k3Tools := []*genai.FunctionDeclaration{
+		{
+			Name:        "update_palet_status",
+			Description: "Mengubah status untuk komponen Palet.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required:   []string{"new_status"},
+			},
+		},
+		{
+			Name:        "update_corepart_status",
+			Description: "Mengubah status untuk komponen Corepart.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required:   []string{"new_status"},
+			},
+		},
+	}
 
-    var availableTools []*genai.FunctionDeclaration
-    availableTools = append(availableTools, viewTools...)
+	// Tools khusus K5
+	k5Tools := []*genai.FunctionDeclaration{
+		{
+			Name:        "update_busbar_status",
+			Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"busbar_type": {Type: genai.TypeString, Enum: []string{"pcc", "mcc"}},
+					"new_status":  {Type: genai.TypeString, Enum: []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"}},
+				},
+				Required: []string{"busbar_type", "new_status"},
+			},
+		},
+	}
 
-    switch role {
-    case AppRoleAdmin:
-        availableTools = append(availableTools, adminTools...)
-        availableTools = append(availableTools, k3Tools...)
-        availableTools = append(availableTools, k5Tools...)
-        availableTools = append(availableTools, whsTools...)
-    case AppRoleK3:
-        availableTools = append(availableTools, k3Tools...)
-    case AppRoleK5:
-        availableTools = append(availableTools, k5Tools...)
-    case AppRoleWarehouse:
-        availableTools = append(availableTools, whsTools...)
-    }
+	// Tools khusus Warehouse
+	whsTools := []*genai.FunctionDeclaration{
+		{
+			Name:        "update_component_status",
+			Description: "Mengubah status untuk komponen utama (picking component).",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
+				Required:   []string{"new_status"},
+			},
+		},
+	}
 
-    return []*genai.Tool{{FunctionDeclarations: availableTools}}
+	var availableTools []*genai.FunctionDeclaration
+	availableTools = append(availableTools, viewTools...)
+	availableTools = append(availableTools, issueEditTools...) // Semua role bisa edit status isu
+
+	switch role {
+	case AppRoleAdmin:
+		availableTools = append(availableTools, adminTools...)
+		availableTools = append(availableTools, k3Tools...)
+		availableTools = append(availableTools, k5Tools...)
+		availableTools = append(availableTools, whsTools...)
+	case AppRoleK3:
+		availableTools = append(availableTools, k3Tools...)
+	case AppRoleK5:
+		availableTools = append(availableTools, k5Tools...)
+	case AppRoleWarehouse:
+		availableTools = append(availableTools, whsTools...)
+	}
+
+	return []*genai.Tool{{FunctionDeclarations: availableTools}}
 }
 
 
+// Fungsi ini mengeksekusi aksi di database berdasarkan perintah dari AI
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
+	// Helper function untuk menjalankan query UPDATE panel
 	executeUpdate := func(column, newStatus string) error {
 		query := fmt.Sprintf("UPDATE panels SET %s = $1 WHERE no_pp = $2", column)
 		_, err := a.DB.Exec(query, newStatus, panelNoPp)
@@ -4286,48 +4311,108 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 	}
 
 	switch fc.Name {
-    case "get_panel_summary":
-        var panel pdd
-        err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
-        if err != nil { return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err) }
-        summary := fmt.Sprintf("Progres panel saat ini %.0f%%. Status Busbar PCC: %s, Busbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatusBusbarPcc.String, panel.StatusBusbarMcc.String, panel.StatusComponent.String, panel.StatusPalet.String, panel.StatusCorepart.String)
-        return summary, nil
+	case "get_panel_summary":
+		var panel pdd // Menggunakan struct pdd yang sudah ada
+		err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
+		if err != nil {
+			return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err)
+		}
+		summary := fmt.Sprintf("Progres panel saat ini %.0f%%. Status Busbar PCC: %s, Busbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatusBusbarPcc.String, panel.StatusBusbarMcc.String, panel.StatusComponent.String, panel.StatusPalet.String, panel.StatusCorepart.String)
+		return summary, nil
 
-    case "update_panel_progress":
-        progress, ok := fc.Args["new_progress"].(float64)
-        if !ok { return "", fmt.Errorf("argumen new_progress tidak valid") }
-        if progress < 0 || progress > 100 { return "", fmt.Errorf("nilai progres harus antara 0 dan 100") }
-        _, err := a.DB.Exec("UPDATE panels SET percent_progress = $1 WHERE no_pp = $2", progress, panelNoPp)
-        if err != nil { return "", err }
-        return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%", progress), nil
-        
+	case "update_issue_status":
+		title, ok1 := fc.Args["issue_title"].(string)
+		newStatus, ok2 := fc.Args["new_status"].(string)
+		if !ok1 || !ok2 {
+			return "", fmt.Errorf("argumen issue_title atau new_status tidak valid")
+		}
+
+		var issueID int
+		var currentLogs Logs
+		var currentStatus string
+		err := a.DB.QueryRow(`
+			SELECT i.id, i.logs, i.status FROM issues i
+			JOIN chats ch ON i.chat_id = ch.id
+			WHERE ch.panel_no_pp = $1 AND i.title ILIKE $2`, panelNoPp, "%"+title+"%").Scan(&issueID, &currentLogs, &currentStatus)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return "", fmt.Errorf("Isu dengan judul yang mengandung '%s' tidak ditemukan di panel ini.", title)
+			}
+			return "", fmt.Errorf("Gagal mencari isu: %w", err)
+		}
+
+		logAction := "mengubah issue"
+		if newStatus != currentStatus {
+			if newStatus == "solved" {
+				logAction = "menandai solved"
+			} else if newStatus == "unsolved" {
+				logAction = "membuka kembali issue"
+			}
+		}
+		newLogEntry := LogEntry{Action: logAction, User: "gemini_ai", Timestamp: time.Now()}
+		updatedLogs := append(currentLogs, newLogEntry)
+
+		_, err = a.DB.Exec("UPDATE issues SET status = $1, logs = $2 WHERE id = $3", newStatus, updatedLogs, issueID)
+		if err != nil {
+			return "", fmt.Errorf("Gagal mengupdate status isu di database: %w", err)
+		}
+
+		return fmt.Sprintf("Status untuk isu '%s' berhasil diubah menjadi '%s'.", title, newStatus), nil
+
+	case "update_panel_progress":
+		progress, ok := fc.Args["new_progress"].(float64)
+		if !ok {
+			return "", fmt.Errorf("argumen new_progress tidak valid")
+		}
+		if progress < 0 || progress > 100 {
+			return "", fmt.Errorf("nilai progres harus antara 0 dan 100")
+		}
+		_, err := a.DB.Exec("UPDATE panels SET percent_progress = $1 WHERE no_pp = $2", progress, panelNoPp)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%", progress), nil
+
 	case "update_busbar_status":
-		busbarType, _ := fc.Args["busbar_type"].(string)
-		newStatus, _ := fc.Args["new_status"].(string)
+		busbarType, ok1 := fc.Args["busbar_type"].(string)
+		newStatus, ok2 := fc.Args["new_status"].(string)
+		if !ok1 || !ok2 { return "", fmt.Errorf("argumen busbar_type atau new_status tidak valid") }
+		
 		var dbColumn string
-		if busbarType == "pcc" { dbColumn = "status_busbar_pcc" } else { dbColumn = "status_busbar_mcc" }
+		if busbarType == "pcc" {
+			dbColumn = "status_busbar_pcc"
+		} else if busbarType == "mcc" {
+			dbColumn = "status_busbar_mcc"
+		} else {
+			return "", fmt.Errorf("tipe busbar tidak valid: %s", busbarType)
+		}
+
 		if err := executeUpdate(dbColumn, newStatus); err != nil { return "", err }
 		return fmt.Sprintf("Status Busbar %s berhasil diubah menjadi '%s'", strings.ToUpper(busbarType), newStatus), nil
 
 	case "update_component_status":
-		newStatus, _ := fc.Args["new_status"].(string)
+		newStatus, ok := fc.Args["new_status"].(string)
+		if !ok { return "", fmt.Errorf("argumen new_status tidak valid") }
 		if err := executeUpdate("status_component", newStatus); err != nil { return "", err }
 		return fmt.Sprintf("Status Komponen berhasil diubah menjadi '%s'", newStatus), nil
 
 	case "update_palet_status":
-		newStatus, _ := fc.Args["new_status"].(string)
+		newStatus, ok := fc.Args["new_status"].(string)
+		if !ok { return "", fmt.Errorf("argumen new_status tidak valid") }
 		if err := executeUpdate("status_palet", newStatus); err != nil { return "", err }
 		return fmt.Sprintf("Status Palet berhasil diubah menjadi '%s'", newStatus), nil
 
 	case "update_corepart_status":
-		newStatus, _ := fc.Args["new_status"].(string)
+		newStatus, ok := fc.Args["new_status"].(string)
+		if !ok { return "", fmt.Errorf("argumen new_status tidak valid") }
 		if err := executeUpdate("status_corepart", newStatus); err != nil { return "", err }
 		return fmt.Sprintf("Status Corepart berhasil diubah menjadi '%s'", newStatus), nil
-		
+
 	default:
 		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
 }
+
 type pdd struct {
 	NoPp               sql.NullString  `json:"no_pp"`
 	NoPanel            sql.NullString  `json:"no_panel"`
