@@ -4269,7 +4269,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	// 4. Setup Gemini Client & Prompt yang disempurnakan
 	ctx := context.Background()
-	apiKey := os.Getenv("GEMINI_API_KEY")
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set on the server")
 		return
