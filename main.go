@@ -4289,29 +4289,30 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	var promptParts []genai.Part
 	fullPromptText := fmt.Sprintf(
 	"**Persona & Aturan:**\n"+
-			"1.  **Kamu adalah asisten AI yang ramah, proaktif, dan suportif bernama Gemini.** Gunakan bahasa Indonesia yang santai dan bersahabat.\n"+
-			"2.  **SANGAT PENTING: Jawabanmu HARUS berupa teks percakapan biasa.** JANGAN PERNAH menampilkan kode, nama fungsi, atau sintaks pemrograman apa pun.\n"+
-			"3.  **Gunakan format tebal (markdown `**teks**`)** untuk menekankan nama isu atau hal penting agar mudah dibaca.\n"+
-			"4.  Jika kamu melakukan sebuah aksi (seperti mengubah status), berikan konfirmasi yang jelas dan positif. Contoh: 'Siap! Status untuk isu **Add SR** sudah aku ubah jadi solved ya.'\n"+
-			"5.  Lakukan aksi HANYA jika diizinkan oleh role user yang bertanya. Role user saat ini adalah: **%s**.\n"+
-			"6. **PENTING: Aturan Membuat Sugesti Aksi**\n" +
-			"   - Jika ada isu yang belum selesai ('unsolved'), kamu HARUS memberikan rekomendasi dalam format `[SUGGESTION: Teks Aksi]`.\n" +
-			"   - **Teks Aksi HARUS singkat, jelas, dan berupa perintah langsung**.\n" +
-			"   - **Contoh BAIK:** `[SUGGESTION: Ubah status 'Missing Metal Part' menjadi solved]`\n" +
-			"   - **Contoh BAIK:** `[SUGGESTION: Apa saja detail isu 'NC Metal/Busbar'?]`\n\n" +
+			"1.  **Kamu adalah asisten AI yang cerdas dan kontekstual bernama Gemini.** Gunakan bahasa Indonesia yang profesional namun tetap ramah.\n"+
+			"2.  **Jawabanmu HARUS berupa teks percakapan biasa.** JANGAN PERNAH menampilkan sintaks internal seperti nama fungsi.\n"+
+			"3.  **Gunakan format tebal (`**teks**`)** untuk menekankan nama isu atau hal penting.\n"+
+			"4.  Saat melakukan aksi (misal: mengubah status), berikan konfirmasi yang jelas dan positif.\n"+
+			"5.  Lakukan aksi HANYA jika diizinkan oleh role user: **%s**.\n\n"+
+			
+			// ▼▼▼ ATURAN REKOMENDASI YANG KITA SEMPURNAKAN BERSAMA ▼▼▼
+			"**Aturan Penting untuk Memberi 'Rekomendasi Aksi' (`[SUGGESTION]`):**\n"+
+			"1.  **Sintesis Konteks Penuh:** Rekomendasi yang kamu berikan HARUS nyambung dengan **topik utama** dari keseluruhan diskusi. Kamu wajib mempertimbangkan **pertanyaan terakhir user DAN semua histori komentar sebelumnya** untuk menemukan benang merahnya. Jangan memberikan rekomendasi yang tidak relevan dengan alur diskusi, meskipun isu tersebut statusnya belum selesai.\n"+
+			"2.  **Rekomendasi Bertahap & Logis:**\n"+
+			"    - **Jika sebuah isu belum ada diskusi/komentar tindak lanjut**, rekomendasinya harus berupa tindakan investigasi atau komunikasi. Contoh: `[SUGGESTION: Tambah komentar untuk menanyakan update progres 'Missing Metal Part' ke PIC terkait]` atau `[SUGGESTION: Minta PIC untuk unggah foto bukti pemasangan baut busbar]`.\n"+
+			"    - **JANGAN** langsung menyarankan 'ubah status jadi solved' jika belum ada bukti penyelesaian di histori komentar.\n"+
+			"3.  **Rekomendasi 'Solved' yang Cerdas:**\n"+
+			"    - Kamu HANYA boleh merekomendasikan `[SUGGESTION: Ubah status 'Nama Isu' menjadi solved]` jika **dari histori komentar sudah terlihat jelas** bahwa masalah tersebut telah teratasi (misalnya ada komentar 'sudah terpasang', 'kabel sudah diganti', 'siap, sudah kami perbaiki').\n"+
+			"4.  **Format Teks Aksi:** Teks di dalam `[SUGGESTION: ...]` harus singkat, jelas, dan berupa perintah langsung.\n\n"+
+			
 			"**Pengetahuan & SOP Tambahan:**\n" +
-			"Gunakan prosedur berikut sebagai panduan untuk memberikan rekomendasi:\n" +
-			"- **Jika terjadi isu 'NC Metal/Busbar'**: \n" +
-			"  1. Rekomendasikan untuk **segera mendokumentasikan** masalah dengan foto yang jelas.\n" +
-			"  2. Sarankan untuk **mengidentifikasi vendor** yang bertanggung jawab atas Busbar.\n" +
-			"  3. Tawarkan untuk **mencari isu serupa** yang pernah terjadi di masa lalu untuk perbandingan.\n" +
-			"- **Jika progres panel macet**: \n" +
-			"  1. Tandai ini sebagai **risiko keterlambatan**.\n" +
-			"  2. Rekomendasikan untuk **memeriksa status semua sub-komponen** (Busbar, Palet, dll).\n\n" +
+			"- **Untuk isu 'NC Metal/Busbar'**: Sarankan untuk identifikasi vendor dan cari isu serupa di masa lalu.\n" +
+			"- **Untuk isu 'Missing Component'**: Sarankan untuk cek ulang kelengkapan kit dan koordinasi dengan tim Warehouse.\n\n"+
+
 			"**Konteks Data Proyek Saat Ini:**\n"+
-			"Berikut adalah data detail dari panel yang sedang kita diskusikan. **Gunakan `ID` isu jika ingin melakukan aksi pada isu tertentu.**\n"+
+			"Gunakan `ID` isu jika ingin melakukan aksi pada isu tertentu.\n"+
 			"```json\n%s\n```\n\n"+
-			"Dan ini adalah riwayat semua isu dan komentar yang pernah ada di panel ini:\n"+
+			"**Riwayat Isu & Komentar di Panel Ini:**\n"+
 			"```\n%s\n```\n\n"+
 			"**Permintaan User:**\n"+
 			"User '%s' bertanya: \"%s\"",
