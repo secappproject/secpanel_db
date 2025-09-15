@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -4184,6 +4185,7 @@ var tools = []*genai.Tool{
 	},
 }
 
+
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
@@ -4198,7 +4200,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// 1. Dapatkan role dari user yang bertanya
+	// 1. Dapatkan role user
 	var senderRole string
 	err := a.DB.QueryRow(`
 		SELECT c.role FROM companies c
@@ -4209,7 +4211,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// 2. Kumpulkan semua konteks dari database
+	// 2. Kumpulkan konteks data panel
 	var panel pdd
 	err = a.DB.QueryRow(`
         SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart, pu.name as panel_vendor_name, (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names
@@ -4220,8 +4222,11 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan: "+err.Error())
 		return
 	}
-	panelDetails, _ := json.MarshalIndent(panel, "", "  ")
+	panelDetailsBytes, _ := json.MarshalIndent(panel, "", "  ")
+    panelDetails := string(panelDetailsBytes)
 
+
+	// 3. Kumpulkan konteks histori isu & komentar
 	rows, err := a.DB.Query(`
 		SELECT i.title, i.description, i.status, ic.sender_id, ic.text
 		FROM issues i
@@ -4249,10 +4254,10 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// 3. Setup Gemini Client & Prompt
+	// 4. Setup Gemini Client & Prompt yang disempurnakan
 	ctx := context.Background()
 	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
-	if apiKey == ""  {
+	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set on the server")
 		return
 	}
@@ -4263,20 +4268,28 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	model := client.GenerativeModel("gemini-2.5-flash-lite")
 	model.Tools = getToolsForRole(senderRole)
 	cs := model.StartChat()
-
+	
 	var promptParts []genai.Part
 	fullPromptText := fmt.Sprintf(
-		"Anda adalah asisten AI ahli untuk manajemen panel listrik. Tugas Anda adalah membantu user dengan memberikan informasi atau melakukan perubahan data berdasarkan permintaan. "+
-			"Anda memiliki akses luas ke database untuk melihat dan mengubah data, kecuali data akun user. "+
-			"PENTING: Lakukan aksi HANYA jika diizinkan oleh role user yang bertanya. Role user saat ini adalah '%s'.\n\n"+
-			"--- KONTEKS DATA SAAT INI ---\n"+
-			"Detail Panel: %s\n\n"+
-			"Histori Isu & Komentar di Panel Ini:\n%s\n\n"+
-			"--- PERTANYAAN USER ---\n%s: %s",
-		senderRole, string(panelDetails), issuesHistory.String(), payload.SenderID, payload.Question,
+		"**Persona & Aturan:**\n"+
+			"1.  **Kamu adalah asisten AI yang ramah, proaktif, dan suportif bernama Gemini.** Gunakan bahasa Indonesia yang santai dan bersahabat, bukan bahasa yang kaku atau robotik. Sapa user jika perlu.\n"+
+			"2.  **Gunakan format tebal (bold) dengan markdown `**teks**`** saat menyebutkan nama isu atau hal penting lainnya agar mudah dibaca.\n"+
+			"3.  Selalu berikan jawaban yang jelas dan langsung ke intinya. Jika kamu melakukan sebuah aksi (seperti mengubah status), berikan konfirmasi yang jelas dan positif, contoh: 'Siap! Status untuk isu **Add SR** sudah aku ubah jadi solved ya.'\n"+
+			"4.  Kamu memiliki akses luas untuk melihat dan mengubah semua data di database, KECUALI data akun pengguna.\n"+
+			"5.  Lakukan aksi HANYA jika diizinkan oleh role user yang bertanya. Role user saat ini adalah: **%s**.\n"+
+			"6. **PENTING**: Jika jawabanmu menyebutkan sebuah isu yang belum selesai ('unsolved'), berikan rekomendasi aksi dalam format `[SUGGESTION: Teks Aksi]`. Contoh: `[SUGGESTION: Ubah status 'Add SR' menjadi solved]`. Kamu bisa memberikan beberapa sugesti.\n\n"+
+
+			"**Konteks Data Proyek Saat Ini:**\n"+
+			"Berikut adalah data detail dari panel yang sedang kita diskusikan:\n"+
+			"```json\n%s\n```\n\n"+
+			"Dan ini adalah riwayat semua isu dan komentar yang pernah ada di panel ini:\n"+
+			"```\n%s\n```\n\n"+
+			"**Permintaan User:**\n"+
+			"User '%s' bertanya: \"%s\"",
+		senderRole, panelDetails, issuesHistory.String(), payload.SenderID, payload.Question,
 	)
 	promptParts = append(promptParts, genai.Text(fullPromptText))
-
+	
 	if payload.ImageB64 != nil && *payload.ImageB64 != "" {
 		parts := strings.Split(*payload.ImageB64, ",")
 		if len(parts) == 2 {
@@ -4288,7 +4301,6 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// 4. Kirim ke Gemini dan Eksekusi Function Call
 	log.Printf("Mengirim prompt ke Gemini untuk user role: %s", senderRole)
 	resp, err := cs.SendMessage(ctx, promptParts...)
 	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
@@ -4307,13 +4319,23 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 	
 	finalResponseText := extractTextFromResponse(resp)
-	if finalResponseText == "" { finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda." }
+	if finalResponseText == "" { finalResponseText = "Waduh, maaf, sepertinya ada sedikit kendala. Boleh coba tanya lagi?" }
 
-	// 5. Simpan & Kirim Response
+	var suggestions []string
+	re := regexp.MustCompile(`\[SUGGESTION:\s*(.*?)\]`)
+	matches := re.FindAllStringSubmatch(finalResponseText, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			suggestions = append(suggestions, match[1])
+		}
+	}
+	finalResponseText = re.ReplaceAllString(finalResponseText, "")
+	
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":   uuid.New().String(),
-		"text": finalResponseText,
+		"text": strings.TrimSpace(finalResponseText),
 		"action_taken": actionTaken,
+		"suggested_actions": suggestions,
 	})
 }
 type pdd struct {
