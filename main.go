@@ -4400,7 +4400,17 @@ func getToolsForRole(role string) []*genai.Tool {
 			},
 		},
 	}
-    
+    issueEditTools = append(issueEditTools, &genai.FunctionDeclaration{
+		Name: "find_similar_past_issues",
+		Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya, lalu memberikan ringkasan.",
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."},
+			},
+			Required: []string{"issue_title"},
+		},
+	})
     // ... sisa fungsi ini tidak berubah ...
 	adminTools := []*genai.FunctionDeclaration{
 		{
@@ -4575,7 +4585,6 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		if err := executeUpdate("percent_progress", progress); err != nil { return "", err }
 		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%.", progress), nil
     
-    // ... sisa fungsi ini tidak berubah ...
 	case "update_busbar_status":
 		busbarType, _ := fc.Args["busbar_type"].(string)
 		newStatus, _ := fc.Args["new_status"].(string)
@@ -4642,6 +4651,40 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		if err := executeUpdate("vendor_id", vendorID); err != nil { return "", err }
 		return fmt.Sprintf("Vendor Panel (K3) berhasil diubah menjadi %s.", vendorName), nil
 
+	case "find_similar_past_issues":
+		title, ok := fc.Args["issue_title"].(string)
+		if !ok {
+			return "", fmt.Errorf("argumen issue_title tidak valid")
+		}
+
+		// Query untuk mencari isu serupa di panel LAIN yang sudah 'solved'
+		query := `
+			SELECT p.no_pp, i.title, i.description
+			FROM issues i
+			JOIN chats ch ON i.chat_id = ch.id
+			JOIN panels p ON ch.panel_no_pp = p.no_pp
+			WHERE i.title ILIKE $1 AND i.status = 'solved' AND p.no_pp != $2
+			LIMIT 3`
+
+		rows, err := a.DB.Query(query, "%"+title+"%", panelNoPp)
+		if err != nil {
+			return "", fmt.Errorf("gagal mencari isu serupa di DB: %w", err)
+		}
+		defer rows.Close()
+
+		var results []string
+		for rows.Next() {
+			var pastPp, pastTitle, pastDesc sql.NullString
+			rows.Scan(&pastPp, &pastTitle, &pastDesc)
+			results = append(results, fmt.Sprintf("- Di Panel **%s**, isu '%s' diselesaikan dengan catatan: '%s'", pastPp.String, pastTitle.String, pastDesc.String))
+		}
+
+		if len(results) == 0 {
+			return fmt.Sprintf("Tidak ditemukan isu serupa dengan judul '%s' yang sudah selesai di panel lain.", title), nil
+		}
+
+		return "Ditemukan beberapa isu serupa yang pernah terjadi:\n" + strings.Join(results, "\n"), nil
+    
 	default:
 		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
