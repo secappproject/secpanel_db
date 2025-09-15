@@ -4200,6 +4200,7 @@ type pdd struct {
 }
 // File: main.go
 
+// Salin dan ganti seluruh fungsi askGeminiAboutPanelHandler Anda dengan ini
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
@@ -4272,7 +4273,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	// 4. Setup Gemini Client & Prompt yang disempurnakan
 	ctx := context.Background()
-	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" // Pastikan API Key Anda benar
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set on the server")
 		return
@@ -4289,22 +4290,26 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	fullPromptText := fmt.Sprintf(
 	"**Persona & Aturan:**\n"+
 			"1.  **Kamu adalah asisten AI yang ramah, proaktif, dan suportif bernama Gemini.** Gunakan bahasa Indonesia yang santai dan bersahabat.\n"+
-			"2.  **SANGAT PENTING: Jawabanmu HARUS berupa teks percakapan biasa.** JANGAN PERNAH menampilkan kode, nama fungsi, atau sintaks pemrograman apa pun. Pengguna tidak boleh melihat proses internalmu.\n"+
+			"2.  **SANGAT PENTING: Jawabanmu HARUS berupa teks percakapan biasa.** JANGAN PERNAH menampilkan kode, nama fungsi, atau sintaks pemrograman apa pun.\n"+
 			"3.  **Gunakan format tebal (markdown `**teks**`)** untuk menekankan nama isu atau hal penting agar mudah dibaca.\n"+
-			"4.  Saat menampilkan daftar item (seperti daftar isu), gunakan **bullet points** (markdown: `-`) dan pisahkan setiap item ke dalam **baris baru** agar rapi.\n"+
-			"5.  Jika kamu melakukan sebuah aksi (seperti mengubah status), berikan konfirmasi yang jelas dan positif. Contoh: 'Siap! Status untuk isu **Add SR** sudah aku ubah jadi solved ya.'\n"+
-			"6.  Kamu memiliki akses luas untuk melihat dan mengubah semua data di database, KECUALI data akun pengguna.\n"+
-			"7.  Lakukan aksi HANYA jika diizinkan oleh role user yang bertanya. Role user saat ini adalah: **%s**.\n"+
-			"8. **PENTING: Aturan Membuat Sugesti Aksi**\n" +
+			"4.  Jika kamu melakukan sebuah aksi (seperti mengubah status), berikan konfirmasi yang jelas dan positif. Contoh: 'Siap! Status untuk isu **Add SR** sudah aku ubah jadi solved ya.'\n"+
+			"5.  Lakukan aksi HANYA jika diizinkan oleh role user yang bertanya. Role user saat ini adalah: **%s**.\n"+
+			"6. **PENTING: Aturan Membuat Sugesti Aksi**\n" +
 			"   - Jika ada isu yang belum selesai ('unsolved'), kamu HARUS memberikan rekomendasi dalam format `[SUGGESTION: Teks Aksi]`.\n" +
-			"   - **Teks Aksi HARUS singkat, jelas, dan berupa perintah langsung** yang bisa dieksekusi.\n" +
-			"   - **JANGAN PERNAH** menyertakan penjelasan, kondisi, atau kalimat percakapan di dalam kurung siku `[]`.\n" +
+			"   - **Teks Aksi HARUS singkat, jelas, dan berupa perintah langsung**.\n" +
 			"   - **Contoh BAIK:** `[SUGGESTION: Ubah status 'Missing Metal Part' menjadi solved]`\n" +
-			"   - **Contoh BAIK:** `[SUGGESTION: Apa saja detail isu 'NC Metal/Busbar'?]`\n" +
-			"   - **Contoh BURUK:** `[SUGGESTION: Mungkin kamu bisa mengubah status 'Missing Metal Part' menjadi solved kalau sudah selesai]`\n" +
-			"   - **Contoh BURUK:** `[SUGGESTION: Ubah statusnya menjadi solved setelah masalahnya teratasi]`\n\n" +
+			"   - **Contoh BAIK:** `[SUGGESTION: Apa saja detail isu 'NC Metal/Busbar'?]`\n\n" +
+			"**Pengetahuan & SOP Tambahan:**\n" +
+			"Gunakan prosedur berikut sebagai panduan untuk memberikan rekomendasi:\n" +
+			"- **Jika terjadi isu 'NC Metal/Busbar'**: \n" +
+			"  1. Rekomendasikan untuk **segera mendokumentasikan** masalah dengan foto yang jelas.\n" +
+			"  2. Sarankan untuk **mengidentifikasi vendor** yang bertanggung jawab atas Busbar.\n" +
+			"  3. Tawarkan untuk **mencari isu serupa** yang pernah terjadi di masa lalu untuk perbandingan.\n" +
+			"- **Jika progres panel macet**: \n" +
+			"  1. Tandai ini sebagai **risiko keterlambatan**.\n" +
+			"  2. Rekomendasikan untuk **memeriksa status semua sub-komponen** (Busbar, Palet, dll).\n\n" +
 			"**Konteks Data Proyek Saat Ini:**\n"+
-			"Berikut adalah data detail dari panel yang sedang kita diskusikan (gunakan `issue_id` jika ingin melakukan aksi pada isu tertentu):\n"+ // Ditambahkan instruksi
+			"Berikut adalah data detail dari panel yang sedang kita diskusikan. **Gunakan `ID` isu jika ingin melakukan aksi pada isu tertentu.**\n"+
 			"```json\n%s\n```\n\n"+
 			"Dan ini adalah riwayat semua isu dan komentar yang pernah ada di panel ini:\n"+
 			"```\n%s\n```\n\n"+
@@ -4320,36 +4325,30 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 			imageBytes, err := base64.StdEncoding.DecodeString(parts[1])
 			if err == nil {
 				promptParts = append(promptParts, genai.ImageData("jpeg", imageBytes))
-				log.Println("Gambar berhasil ditambahkan ke prompt Gemini.")
 			}
 		}
 	}
 
-	// 5. Kirim ke Gemini dan LAKUKAN FUNCTION CALL JIKA PERLU
-	log.Printf("Mengirim prompt ke Gemini untuk user role: %s", senderRole)
+	// 5. Kirim ke Gemini dan Lakukan Function Call Jika Perlu
 	resp, err := cs.SendMessage(ctx, promptParts...)
 	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
 
 	actionTaken := false
 	if resp.Candidates != nil && len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
 		part := resp.Candidates[0].Content.Parts[0]
-		// ▼▼▼ BAGIAN KUNCI: Cek apakah AI ingin memanggil fungsi ▼▼▼
 		if fc, ok := part.(genai.FunctionCall); ok {
-			actionTaken = true // Tandai bahwa aksi akan dilakukan
+			actionTaken = true
 			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 
-			// Jalankan fungsi di database
 			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
 			if err != nil { 
 				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err) 
 			}
 			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
 			
-			// Kirim hasil eksekusi kembali ke Gemini agar ia bisa merangkai kalimat konfirmasi
 			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error()); return }
 		}
-		// ▲▲▲ AKHIR BAGIAN KUNCI ▲▲▲
 	}
 	
 	finalResponseText := extractTextFromResponse(resp)
@@ -4369,11 +4368,12 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":   uuid.New().String(),
 		"text": strings.TrimSpace(finalResponseText),
-		"action_taken": actionTaken, // Kirim status apakah aksi telah dilakukan
+		"action_taken": actionTaken,
 		"suggested_actions": suggestions,
 	})
 }
 
+// Salin dan ganti seluruh fungsi getToolsForRole Anda dengan ini
 func getToolsForRole(role string) []*genai.Tool {
 	// 1. Definisikan semua kemungkinan "alat" (kemampuan)
 	viewTools := []*genai.FunctionDeclaration{
@@ -4392,26 +4392,26 @@ func getToolsForRole(role string) []*genai.Tool {
 				Properties: map[string]*genai.Schema{
 					"issue_id": {
 						Type: genai.TypeNumber, 
-						Description: "ID unik dari isu yang statusnya ingin diubah. Harus sama persis seperti yang ada di konteks.",
+						Description: "ID unik dari isu yang statusnya ingin diubah.",
 					},
 					"new_status":  {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
 				},
 				Required: []string{"issue_id", "new_status"},
 			},
 		},
-	}
-    issueEditTools = append(issueEditTools, &genai.FunctionDeclaration{
-		Name: "find_similar_past_issues",
-		Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya, lalu memberikan ringkasan.",
-		Parameters: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."},
+		{
+			Name: "find_similar_past_issues",
+			Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."},
+				},
+				Required: []string{"issue_title"},
 			},
-			Required: []string{"issue_title"},
 		},
-	})
-    // ... sisa fungsi ini tidak berubah ...
+	}
+
 	adminTools := []*genai.FunctionDeclaration{
 		{
 			Name: "update_panel_progress",
@@ -4422,86 +4422,6 @@ func getToolsForRole(role string) []*genai.Tool {
 				Required: []string{"new_progress"},
 			},
 		},
-		{
-			Name: "update_panel_closed_status",
-			Description: "ADMIN ONLY: Menandai panel sebagai 'sudah dikirim' (closed) atau 'belum dikirim' (open).",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"is_closed": {Type: genai.TypeBoolean, Description: "Status baru, true untuk closed, false untuk open."},
-					"closed_date": {Type: genai.TypeString, Description: "Tanggal penutupan dalam format YYYY-MM-DD. Hanya relevan jika is_closed true."},
-				},
-				Required: []string{"is_closed"},
-			},
-		},
-		{
-			Name: "assign_k3_vendor_to_panel",
-			Description: "ADMIN ONLY: Menugaskan vendor K3 (Panel/Palet/Corepart) ke panel ini.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"vendor_name": {Type: genai.TypeString, Description: "Nama vendor K3 yang akan ditugaskan."}},
-				Required: []string{"vendor_name"},
-			},
-		},
-	}
-
-	k3Tools := []*genai.FunctionDeclaration{
-		{
-			Name: "update_palet_status",
-			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Palet.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-				Required: []string{"new_status"},
-			},
-		},
-		{
-			Name: "update_corepart_status",
-			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Corepart.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-				Required: []string{"new_status"},
-			},
-		},
-	}
-
-	k5Tools := []*genai.FunctionDeclaration{
-		{
-			Name: "update_busbar_status",
-			Description: "K5 & ADMIN ONLY: Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"busbar_type": {Type: genai.TypeString, Enum: []string{"pcc", "mcc"}},
-					"new_status":  {Type: genai.TypeString, Enum: []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"}},
-				},
-				Required: []string{"busbar_type", "new_status"},
-			},
-		},
-		{
-			Name: "update_panel_ao_date",
-			Description: "K5 & ADMIN ONLY: Mengubah atau mengatur tanggal Acknowledgment Order (AO) untuk Busbar.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"new_date": {Type: genai.TypeString, Description: "Tanggal baru dalam format YYYY-MM-DD."},
-				},
-				Required: []string{"new_date"},
-			},
-		},
-	}
-
-	whsTools := []*genai.FunctionDeclaration{
-		{
-			Name: "update_component_status",
-			Description: "WAREHOUSE & ADMIN ONLY: Mengubah status untuk komponen utama (picking component).",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
-				Required: []string{"new_status"},
-			},
-		},
 	}
 
 	// 2. Berikan "alat" yang sesuai berdasarkan role user
@@ -4509,24 +4429,15 @@ func getToolsForRole(role string) []*genai.Tool {
 	availableTools = append(availableTools, viewTools...)
 	availableTools = append(availableTools, issueEditTools...) 
 
-	switch role {
-	case AppRoleAdmin:
+	if role == AppRoleAdmin {
 		availableTools = append(availableTools, adminTools...)
-		availableTools = append(availableTools, k3Tools...)
-		availableTools = append(availableTools, k5Tools...)
-		availableTools = append(availableTools, whsTools...)
-	case AppRoleK3:
-		availableTools = append(availableTools, k3Tools...)
-	case AppRoleK5:
-		availableTools = append(availableTools, k5Tools...)
-	case AppRoleWarehouse:
-		availableTools = append(availableTools, whsTools...)
 	}
 
 	return []*genai.Tool{{FunctionDeclarations: availableTools}}
 }
 
 
+// Salin dan ganti seluruh fungsi executeDatabaseFunction Anda dengan ini
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
 	// Helper function serbaguna untuk menjalankan query UPDATE panel
 	executeUpdate := func(column string, value interface{}) error {
@@ -4547,117 +4458,43 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		issueIDFloat, ok1 := fc.Args["issue_id"].(float64)
 		newStatus, ok2 := fc.Args["new_status"].(string)
 		if !ok1 || !ok2 {
-			return "", fmt.Errorf("argumen issue_id atau new_status tidak valid")
+			return "", fmt.Errorf("argumen issue_id atau new_status dari AI tidak valid")
 		}
 		issueID := int(issueIDFloat)
 
 		var currentLogs Logs
-		var currentStatus string
 		var issueTitle string
 		
-		err := a.DB.QueryRow(`
-			SELECT title, logs, status FROM issues WHERE id = $1`, 
-			issueID).Scan(&issueTitle, &currentLogs, &currentStatus)
-			
+		err := a.DB.QueryRow(`SELECT title, logs FROM issues WHERE id = $1`, issueID).Scan(&issueTitle, &currentLogs)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return "", fmt.Errorf("Isu dengan ID %d tidak ditemukan di panel ini.", issueID)
+				return "", fmt.Errorf("Isu dengan ID %d tidak ditemukan di database.", issueID)
 			}
-			return "", fmt.Errorf("gagal mencari isu: %w", err)
+			return "", fmt.Errorf("gagal mencari isu berdasarkan ID: %w", err)
 		}
 
-		logAction := "mengubah issue"
-		if newStatus != currentStatus {
-			if newStatus == "solved" { logAction = "menandai solved" } else if newStatus == "unsolved" { logAction = "membuka kembali issue" }
-		}
+		logAction := "menandai " + newStatus
 		newLogEntry := LogEntry{Action: logAction, User: "gemini_ai", Timestamp: time.Now()}
 		updatedLogs := append(currentLogs, newLogEntry)
 		
-		_, err = a.DB.Exec("UPDATE issues SET status = $1, logs = $2 WHERE id = $3", newStatus, updatedLogs, issueID)
-		if err != nil { return "", fmt.Errorf("gagal mengupdate status isu di database: %w", err) }
-
-		return fmt.Sprintf("Status untuk isu '%s' (ID: %d) berhasil diubah menjadi '%s'.", issueTitle, issueID, newStatus), nil
-
-	case "update_panel_progress":
-		progress, ok := fc.Args["new_progress"].(float64)
-		if !ok { return "", fmt.Errorf("argumen new_progress tidak valid") }
-		if progress < 0 || progress > 100 { return "", fmt.Errorf("nilai progres harus antara 0 dan 100") }
-		if err := executeUpdate("percent_progress", progress); err != nil { return "", err }
-		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%.", progress), nil
-    
-	case "update_busbar_status":
-		busbarType, _ := fc.Args["busbar_type"].(string)
-		newStatus, _ := fc.Args["new_status"].(string)
-		var dbColumn string
-		if busbarType == "pcc" { dbColumn = "status_busbar_pcc" } else { dbColumn = "status_busbar_mcc" }
-		if err := executeUpdate(dbColumn, newStatus); err != nil { return "", err }
-		return fmt.Sprintf("Status Busbar %s berhasil diubah menjadi '%s'.", strings.ToUpper(busbarType), newStatus), nil
-
-	case "update_component_status":
-		newStatus, _ := fc.Args["new_status"].(string)
-		if err := executeUpdate("status_component", newStatus); err != nil { return "", err }
-		return fmt.Sprintf("Status Komponen berhasil diubah menjadi '%s'.", newStatus), nil
-
-	case "update_palet_status":
-		newStatus, _ := fc.Args["new_status"].(string)
-		if err := executeUpdate("status_palet", newStatus); err != nil { return "", err }
-		return fmt.Sprintf("Status Palet berhasil diubah menjadi '%s'.", newStatus), nil
-
-	case "update_corepart_status":
-		newStatus, _ := fc.Args["new_status"].(string)
-		if err := executeUpdate("status_corepart", newStatus); err != nil { return "", err }
-		return fmt.Sprintf("Status Corepart berhasil diubah menjadi '%s'.", newStatus), nil
-
-	case "update_panel_ao_date":
-		busbarType, ok1 := fc.Args["busbar_type"].(string)
-		newDateStr, ok2 := fc.Args["new_date"].(string)
-		if !ok1 || !ok2 { return "", fmt.Errorf("argumen busbar_type atau new_date tidak valid") }
-
-		_, err := time.Parse("2006-01-02", newDateStr)
-		if err != nil { return "", fmt.Errorf("format tanggal tidak valid, harus YYYY-MM-DD") }
-
-		var dbColumn string
-		if busbarType == "pcc" { dbColumn = "ao_busbar_pcc" } else { dbColumn = "ao_busbar_mcc" }
-		
-		if err := executeUpdate(dbColumn, newDateStr); err != nil { return "", err }
-		return fmt.Sprintf("Oke, tanggal AO untuk Busbar %s sudah diupdate menjadi %s.", strings.ToUpper(busbarType), newDateStr), nil
-
-	case "update_panel_closed_status":
-		isClosed, ok := fc.Args["is_closed"].(bool)
-		if !ok { return "", fmt.Errorf("argumen is_closed tidak valid") }
-		
-		if err := executeUpdate("is_closed", isClosed); err != nil { return "", err }
-		
-		if isClosed {
-			dateStr, ok := fc.Args["closed_date"].(string)
-			if ok {
-				if err := executeUpdate("closed_date", dateStr); err != nil { return "", err }
-				return fmt.Sprintf("Sip! Panel ini sudah ditandai sebagai Selesai (Closed) pada tanggal %s.", dateStr), nil
-			}
-			return "Sip! Panel ini sudah ditandai sebagai Selesai (Closed).", nil
-		} else {
-			if err := executeUpdate("closed_date", nil); err != nil { return "", err }
-			return "Oke, panel ini sudah dibuka kembali statusnya.", nil
+		result, err := a.DB.Exec("UPDATE issues SET status = $1, logs = $2 WHERE id = $3", newStatus, updatedLogs, issueID)
+		if err != nil { 
+			return "", fmt.Errorf("gagal mengupdate status isu di database: %w", err)
 		}
-	
-	case "assign_k3_vendor_to_panel":
-		vendorName, ok := fc.Args["vendor_name"].(string)
-		if !ok { return "", fmt.Errorf("argumen vendor_name tidak valid") }
-		
-		var vendorID string
-		err := a.DB.QueryRow("SELECT id FROM companies WHERE name ILIKE $1 AND role = 'k3'", vendorName).Scan(&vendorID)
-		if err != nil { return "", fmt.Errorf("vendor K3 dengan nama '%s' tidak ditemukan.", vendorName) }
-		
-		if err := executeUpdate("vendor_id", vendorID); err != nil { return "", err }
-		return fmt.Sprintf("Vendor Panel (K3) berhasil diubah menjadi %s.", vendorName), nil
+
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			return "", fmt.Errorf("perintah UPDATE dieksekusi tapi tidak ada baris yang berubah untuk ID %d", issueID)
+		}
+
+		log.Printf("SUCCESS: Issue ID %d ('%s') status changed to '%s'. Rows affected: %d", issueID, issueTitle, newStatus, rowsAffected)
+		return fmt.Sprintf("Status untuk isu '%s' berhasil diubah menjadi '%s'.", issueTitle, newStatus), nil
 
 	case "find_similar_past_issues":
 		title, ok := fc.Args["issue_title"].(string)
 		if !ok {
 			return "", fmt.Errorf("argumen issue_title tidak valid")
 		}
-
-		// Query untuk mencari isu serupa di panel LAIN yang sudah 'solved'
 		query := `
 			SELECT p.no_pp, i.title, i.description
 			FROM issues i
@@ -4671,20 +4508,24 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 			return "", fmt.Errorf("gagal mencari isu serupa di DB: %w", err)
 		}
 		defer rows.Close()
-
 		var results []string
 		for rows.Next() {
 			var pastPp, pastTitle, pastDesc sql.NullString
 			rows.Scan(&pastPp, &pastTitle, &pastDesc)
 			results = append(results, fmt.Sprintf("- Di Panel **%s**, isu '%s' diselesaikan dengan catatan: '%s'", pastPp.String, pastTitle.String, pastDesc.String))
 		}
-
 		if len(results) == 0 {
 			return fmt.Sprintf("Tidak ditemukan isu serupa dengan judul '%s' yang sudah selesai di panel lain.", title), nil
 		}
-
 		return "Ditemukan beberapa isu serupa yang pernah terjadi:\n" + strings.Join(results, "\n"), nil
-    
+
+	case "update_panel_progress":
+		progress, ok := fc.Args["new_progress"].(float64)
+		if !ok { return "", fmt.Errorf("argumen new_progress tidak valid") }
+		if progress < 0 || progress > 100 { return "", fmt.Errorf("nilai progres harus antara 0 dan 100") }
+		if err := executeUpdate("percent_progress", progress); err != nil { return "", err }
+		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%.", progress), nil
+	
 	default:
 		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
