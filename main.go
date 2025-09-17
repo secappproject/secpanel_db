@@ -989,8 +989,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 				SELECT panel_no_pp FROM palet WHERE vendor = $%d
 				UNION
 				SELECT panel_no_pp FROM corepart WHERE vendor = $%d`,
-				argCounter, argCounter, argCounter)
-			args = append(args, companyId)
+				argCounter, argCounter+1, argCounter+2)
+			args = append(args, companyId, companyId, companyId)
+			break
 		case AppRoleK5:
 			panelIdsSubQuery = fmt.Sprintf(`SELECT panel_no_pp FROM busbars WHERE vendor = $%d UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)`, argCounter)
 			args = append(args, companyId)
