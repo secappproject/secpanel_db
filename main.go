@@ -488,30 +488,6 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, p)
 }
 
-func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
-	var payload struct{ Username, Password string }
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload")
-		return
-	}
-	var account CompanyAccount
-	err := a.DB.QueryRow("SELECT password, company_id FROM public.company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
-		return
-	}
-	if account.Password == payload.Password {
-		var company Company
-		err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
-			return
-		}
-		respondWithJSON(w, http.StatusOK, company)
-	} else {
-		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
-	}
-}
 
 func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. Ambil no_pp dari URL, contoh: /panel/PP-123/status-ao
@@ -593,7 +569,7 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 7. Kirim respon sukses
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
-}
+}// Ganti fungsi getCompanyByUsernameHandler
 func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
     username := mux.Vars(r)["username"]
     
@@ -602,22 +578,18 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
         return
     }
 
-    var resp struct {
-        ID       string `json:"id"`
-        Name     string `json:"name"`
-        Role     string `json:"role"`
-        Username string `json:"username"`
-    }
+    var company Company
 
+    // [PERBAIKAN] Tambahkan "public." di depan nama tabel
     query := `
-        SELECT c.id, c.name, c.role, ca.username
+        SELECT c.id, c.name, c.role
         FROM public.companies c
         JOIN public.company_accounts ca ON c.id = ca.company_id
         WHERE ca.username = $1
     `
 
     err := a.DB.QueryRowContext(r.Context(), query, username).
-        Scan(&resp.ID, &resp.Name, &resp.Role, &resp.Username)
+        Scan(&company.ID, &company.Name, &company.Role)
 
     if err != nil {
         if errors.Is(err, sql.ErrNoRows) {
@@ -630,10 +602,39 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
         return
     }
 
-    log.Printf("Successfully found company for username %s: %s", username, resp.Name)
-    respondWithJSON(w, http.StatusOK, resp)
+    log.Printf("Successfully found company for username %s: %s", username, company.Name)
+    respondWithJSON(w, http.StatusOK, company)
 }
 
+
+// Ganti juga fungsi loginHandler
+func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct{ Username, Password string }
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	var account CompanyAccount
+    
+    // [PERBAIKAN] Tambahkan "public."
+	err := a.DB.QueryRow("SELECT password, company_id FROM public.company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
+		return
+	}
+	if account.Password == payload.Password {
+		var company Company
+        // [PERBAIKAN] Tambahkan "public."
+		err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
+			return
+		}
+		respondWithJSON(w, http.StatusOK, company)
+	} else {
+		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
+	}
+}
 func (a *App) updatePasswordHandler(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["username"]
 	var payload struct{ Password string `json:"password"` }
