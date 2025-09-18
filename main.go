@@ -275,7 +275,7 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	if dbSslMode == "" {
 		dbSslMode = "require"
 	}
-	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s&search_path=public", dbUser, dbPassword, dbHost, dbName, dbSslMode)
+	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s&search_path=public&prepare_threshold=0", dbUser, dbPassword, dbHost, dbName, dbSslMode)
 
 	var err error
 	a.DB, err = sql.Open("postgres", connectionString)
