@@ -495,14 +495,14 @@ func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var account CompanyAccount
-	err := a.DB.QueryRow("SELECT password, company_id FROM company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
+	err := a.DB.QueryRow("SELECT password, company_id FROM public.company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
 		return
 	}
 	if account.Password == payload.Password {
 		var company Company
-		err := a.DB.QueryRow("SELECT id, name, role FROM companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
+		err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
 			return
@@ -601,8 +601,8 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
 
     query := `
         SELECT c.id, c.name, c.role
-        FROM companies c
-        JOIN company_accounts ca ON c.id = ca.company_id
+        FROM public.companies c
+        JOIN public.company_accounts ca ON c.id = ca.company_id
         WHERE ca.username = $1
     `
 
@@ -701,7 +701,7 @@ func (a *App) updateCompanyAndAccountHandler(w http.ResponseWriter, r *http.Requ
 	defer tx.Rollback()
 
 	var targetCompanyId string
-	err = tx.QueryRow("SELECT id FROM companies WHERE name = $1", payload.Company.Name).Scan(&targetCompanyId)
+	err = tx.QueryRow("SELECT id FROM public.companies WHERE name = $1", payload.Company.Name).Scan(&targetCompanyId)
 	if err == sql.ErrNoRows {
 		targetCompanyId = strings.ToLower(strings.ReplaceAll(payload.Company.Name, " ", "_"))
 		_, err = tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", targetCompanyId, payload.Company.Name, payload.Company.Role)
@@ -734,7 +734,7 @@ func (a *App) updateCompanyAndAccountHandler(w http.ResponseWriter, r *http.Requ
 }
 func (a *App) deleteCompanyAccountHandler(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["username"]
-	res, err := a.DB.Exec("DELETE FROM company_accounts WHERE username = $1", username)
+	res, err := a.DB.Exec("DELETE FROM public.company_accounts WHERE username = $1", username)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -747,7 +747,7 @@ func (a *App) deleteCompanyAccountHandler(w http.ResponseWriter, r *http.Request
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 func (a *App) getAllCompanyAccountsHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.DB.Query("SELECT username, password, company_id FROM company_accounts")
+	rows, err := a.DB.Query("SELECT username, password, company_id FROM public.company_accounts")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -767,7 +767,7 @@ func (a *App) getAllCompanyAccountsHandler(w http.ResponseWriter, r *http.Reques
 func (a *App) isUsernameTakenHandler(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["username"]
 	var exists bool
-	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM company_accounts WHERE username = $1)", username).Scan(&exists)
+	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM public.company_accounts WHERE username = $1)", username).Scan(&exists)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -781,8 +781,8 @@ func (a *App) isUsernameTakenHandler(w http.ResponseWriter, r *http.Request) {
 func (a *App) getAllUserAccountsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT ca.username, ca.company_id, c.name AS company_name, c.role
-		FROM company_accounts ca
-		JOIN companies c ON ca.company_id = c.id
+		FROM public.company_accounts ca
+		JOIN public.companies c ON ca.company_id = c.id
 		WHERE ca.username != 'admin'
 		ORDER BY c.name, ca.username`
 	rows, err := a.DB.Query(query)
@@ -814,8 +814,8 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 
 	query := `
 		SELECT ca.username, ca.company_id, c.name AS company_name, c.role
-		FROM company_accounts ca
-		JOIN companies c ON ca.company_id = c.id
+		FROM public.company_accounts ca
+		JOIN public.companies c ON ca.company_id = c.id
 		WHERE c.name = $1 AND ca.username != $2
 		ORDER BY ca.username`
 	rows, err := a.DB.Query(query, companyName, currentUsername)
@@ -853,7 +853,7 @@ func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Siapkan SQL query untuk mencari username yang cocok (case-insensitive)
 	//    'LIKE' dengan '%' berarti "diawali dengan"
-	sqlQuery := "SELECT username FROM company_accounts WHERE username ILIKE $1 LIMIT 10"
+	sqlQuery := "SELECT username FROM public.company_accounts WHERE username ILIKE $1 LIMIT 10"
 
 	// 3. Eksekusi query ke database
 	rows, err := a.DB.Query(sqlQuery, query+"%")
@@ -880,7 +880,7 @@ func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.Request) {
 	query := `
-		SELECT id, name, role FROM companies
+		SELECT id, name, role FROM public.companies
 		WHERE role != 'admin'
 		GROUP BY id, name, role ORDER BY name ASC`
 
@@ -905,7 +905,7 @@ func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.
 func (a *App) getCompanyByIdHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var c Company
-	err := a.DB.QueryRow("SELECT id, name, role FROM companies WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.Role)
+	err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.Role)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusNotFound, "Company not found")
@@ -917,7 +917,7 @@ func (a *App) getCompanyByIdHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, c)
 }
 func (a *App) getAllCompaniesHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.DB.Query("SELECT id, name, role FROM companies ORDER BY name")
+	rows, err := a.DB.Query("SELECT id, name, role FROM public.companies ORDER BY name")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -943,7 +943,7 @@ func (a *App) getCompanyByNameHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var c Company
-	err = a.DB.QueryRow("SELECT id, name, role FROM companies WHERE name = $1", name).Scan(&c.ID, &c.Name, &c.Role)
+	err = a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE name = $1", name).Scan(&c.ID, &c.Name, &c.Role)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// [FIX] Jangan kirim error 404.
@@ -961,7 +961,7 @@ func (a *App) getCompanyByNameHandler(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) {
 	role := r.URL.Query().Get("role")
-	rows, err := a.DB.Query("SELECT id, name, role FROM companies WHERE role = $1 ORDER BY name", role)
+	rows, err := a.DB.Query("SELECT id, name, role FROM public.companies WHERE role = $1 ORDER BY name", role)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -991,33 +991,33 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 
 	switch userRole {
 	case AppRoleAdmin, AppRoleViewer:
-		panelIdsSubQuery = "SELECT no_pp FROM panels"
+		panelIdsSubQuery = "SELECT no_pp FROM public.panels"
 
 	case AppRoleK3:
 		args = append(args, companyId, companyId, companyId)
 		panelIdsSubQuery = `
-			SELECT no_pp FROM panels WHERE vendor_id = $1 OR vendor_id IS NULL
+			SELECT no_pp FROM public.panels WHERE vendor_id = $1 OR vendor_id IS NULL
 			UNION
-			SELECT panel_no_pp FROM palet WHERE vendor = $2
+			SELECT panel_no_pp FROM public.palet WHERE vendor = $2
 			UNION
-			SELECT panel_no_pp FROM corepart WHERE vendor = $3`
+			SELECT panel_no_pp FROM public.corepart WHERE vendor = $3`
 
 	case AppRoleK5:
 		args = append(args, companyId)
 		panelIdsSubQuery = `
-			SELECT panel_no_pp FROM busbars WHERE vendor = $1
+			SELECT panel_no_pp FROM public.busbars WHERE vendor = $1
 			UNION
-			SELECT no_pp FROM panels WHERE no_pp NOT IN (
-				SELECT DISTINCT panel_no_pp FROM busbars
+			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (
+				SELECT DISTINCT panel_no_pp FROM public.busbars
 			)`
 
 	case AppRoleWarehouse:
 		args = append(args, companyId)
 		panelIdsSubQuery = `
-			SELECT panel_no_pp FROM components WHERE vendor = $1
+			SELECT panel_no_pp FROM public.components WHERE vendor = $1
 			UNION
-			SELECT no_pp FROM panels WHERE no_pp NOT IN (
-				SELECT DISTINCT panel_no_pp FROM components
+			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (
+				SELECT DISTINCT panel_no_pp FROM public.components
 			)`
 
 	default:
@@ -1033,26 +1033,26 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
 			p.close_date_busbar_pcc, p.close_date_busbar_mcc,
 			pu.name as panel_vendor_name,
-			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
 			COALESCE((
 				SELECT json_agg(json_build_object(
 					'vendor_name', c.name,
 					'remark', b.remarks,
 					'vendor_id', b.vendor
 				))
-				FROM busbars b
-				JOIN companies c ON b.vendor = c.id
+				FROM public.busbars b
+				JOIN public.companies c ON b.vendor = c.id
 				WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''
 			), '[]'::json) as busbar_remarks,
-			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_ids,
-			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_ids,
-			(SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
-		FROM panels p
-		LEFT JOIN companies pu ON p.vendor_id = pu.id
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_ids,
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_ids,
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
+			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
+		FROM public.panels p
+		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp IN (%s)
 		ORDER BY p.start_date DESC`, panelIdsSubQuery)
 
@@ -1098,7 +1098,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
-	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM panels`
+	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM public.panels`
 	rows, err := a.DB.Query(query)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1131,7 +1131,7 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := "DELETE FROM panels WHERE no_pp = ANY($1)"
+	query := "DELETE FROM public.panels WHERE no_pp = ANY($1)"
 	result, err := a.DB.Exec(query, pq.Array(payload.NoPps))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
@@ -1145,7 +1145,7 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 
-	query := "DELETE FROM panels WHERE no_pp = $1"
+	query := "DELETE FROM public.panels WHERE no_pp = $1"
 	result, err := a.DB.Exec(query, noPp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1167,7 +1167,7 @@ func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
 			status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
 			status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
 			is_closed, closed_date, panel_type
-		FROM panels`
+		FROM public.panels`
 
 	rows, err := a.DB.Query(query)
 	if err != nil {
@@ -1198,7 +1198,7 @@ func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
 			status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
 			status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
 			is_closed, closed_date, panel_type
-		FROM panels WHERE no_pp = $1`
+		FROM public.panels WHERE no_pp = $1`
 
 	err := a.DB.QueryRow(query, noPp).Scan(
 		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType)
@@ -1216,7 +1216,7 @@ func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
 func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 	var exists bool
-	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", noPp).Scan(&exists)
+	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM public.panels WHERE no_pp = $1)", noPp).Scan(&exists)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1258,7 +1258,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart,
 		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks,
 		close_date_busbar_pcc, close_date_busbar_mcc
-		FROM panels WHERE no_pp = $1`
+		FROM public.panels WHERE no_pp = $1`
 	err = tx.QueryRow(querySelect, oldNoPp).Scan(
 		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
 		&existingPanel.PercentProgress, &existingPanel.StartDate, &existingPanel.TargetDelivery,
@@ -1387,10 +1387,10 @@ func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request)
 	var query string
 	var args []interface{}
 	if currentNoPp != "" {
-		query = "SELECT EXISTS(SELECT 1 FROM panels WHERE no_panel = $1 AND no_pp != $2)"
+		query = "SELECT EXISTS(SELECT 1 FROM public.panels WHERE no_panel = $1 AND no_pp != $2)"
 		args = append(args, noPanel, currentNoPp)
 	} else {
-		query = "SELECT EXISTS(SELECT 1 FROM panels WHERE no_panel = $1)"
+		query = "SELECT EXISTS(SELECT 1 FROM public.panels WHERE no_panel = $1)"
 		args = append(args, noPanel)
 	}
 	var exists bool
@@ -1489,7 +1489,7 @@ func (a *App) deleteBusbarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := "DELETE FROM busbars WHERE panel_no_pp = $1 AND vendor = $2"
+	query := "DELETE FROM public.busbars WHERE panel_no_pp = $1 AND vendor = $2"
 	result, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus relasi busbar: "+err.Error())
@@ -1654,9 +1654,9 @@ func (a *App) getAllGenericHandler(tableName string, modelFactory func() interfa
 	return func(w http.ResponseWriter, r *http.Request) {
 		var query string
 		if tableName == "busbars" {
-			query = "SELECT id, panel_no_pp, vendor, remarks FROM " + tableName
+			query = "SELECT id, panel_no_pp, vendor, remarks FROM public." + tableName
 		} else {
-			query = "SELECT id, panel_no_pp, vendor FROM " + tableName
+			query = "SELECT id, panel_no_pp, vendor FROM public." + tableName
 		}
 
 		rows, err := a.DB.Query(query)
@@ -1740,11 +1740,11 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 
 	// [PERBAIKAN] Query dasar sekarang menggunakan JOIN untuk filter vendor
 	panelQuery := `
-		SELECT p.* FROM panels p
-		LEFT JOIN busbars b ON p.no_pp = b.panel_no_pp
-		LEFT JOIN components c ON p.no_pp = c.panel_no_pp
-		LEFT JOIN palet pa ON p.no_pp = pa.panel_no_pp
-		LEFT JOIN corepart cp ON p.no_pp = cp.panel_no_pp
+		SELECT p.* FROM public.panels p
+		LEFT JOIN public.busbars b ON p.no_pp = b.panel_no_pp
+		LEFT JOIN public.components c ON p.no_pp = c.panel_no_pp
+		LEFT JOIN public.palet pa ON p.no_pp = pa.panel_no_pp
+		LEFT JOIN public.corepart cp ON p.no_pp = cp.panel_no_pp
 		WHERE 1=1
 	`
 	args := []interface{}{}
@@ -2237,7 +2237,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	var loggedInUserCompanyId string
 	var loggedInUserRole string
 	if payload.LoggedInUsername != nil && *payload.LoggedInUsername != "" {
-		query := `SELECT c.id, c.role FROM companies c JOIN company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
+		query := `SELECT c.id, c.role FROM public.companies c JOIN public.company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
 		err := tx.QueryRow(query, *payload.LoggedInUsername).Scan(&loggedInUserCompanyId, &loggedInUserRole)
 		if err != nil && err != sql.ErrNoRows {
 			// Ini adalah error database sungguhan, bukan user tidak ditemukan
@@ -2254,7 +2254,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	normalizedNameToIdMap := make(map[string]string)
 	acronymToIdMap := make(map[string]string)
 
-	rows, err := tx.Query("SELECT id, name FROM companies")
+	rows, err := tx.Query("SELECT id, name FROM public.companies")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
 		return
@@ -2321,7 +2321,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				continue
 			}
 			var companyId string
-			err := tx.QueryRow("SELECT id FROM companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(companyName)).Scan(&companyId)
+			err := tx.QueryRow("SELECT id FROM public.companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(companyName)).Scan(&companyId)
 			if err == sql.ErrNoRows {
 				companyId = strings.ToLower(strings.ReplaceAll(companyName, " ", "_"))
 				_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING", companyId, companyName, companyRole)
@@ -2345,7 +2345,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	if panelSheetData, ok := payload.Data["panel"]; ok {
 		// [PERBAIKAN 1] Logika baru untuk memastikan Warehouse selalu ada
 		var warehouseCompanyId string
-		err := tx.QueryRow("SELECT id FROM companies WHERE name = 'Warehouse'").Scan(&warehouseCompanyId)
+		err := tx.QueryRow("SELECT id FROM public.companies WHERE name = 'Warehouse'").Scan(&warehouseCompanyId)
 		if err == sql.ErrNoRows {
 			// Jika tidak ada, buat baru
 			warehouseCompanyId = "warehouse" // ID default
@@ -2379,7 +2379,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 			var oldTempNoPp string
 			if noPp != "" && (noPanel != "" || project != "" || noWbs != "") {
-				findTempQuery := `SELECT no_pp FROM panels WHERE no_pp LIKE 'TEMP_PP_%' AND no_panel = $1 AND project = $2 AND no_wbs = $3`
+				findTempQuery := `SELECT no_pp FROM public.panels WHERE no_pp LIKE 'TEMP_PP_%' AND no_panel = $1 AND project = $2 AND no_wbs = $3`
 				err := tx.QueryRow(findTempQuery, noPanel, project, noWbs).Scan(&oldTempNoPp)
 				if err != nil && err != sql.ErrNoRows {
 					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal mencari data sementara: %v", rowNum, err))
@@ -2387,7 +2387,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				}
 
 				if oldTempNoPp != "" {
-					_, err := tx.Exec("DELETE FROM panels WHERE no_pp = $1", oldTempNoPp)
+					_, err := tx.Exec("DELETE FROM public.panels WHERE no_pp = $1", oldTempNoPp)
 					if err != nil {
 						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal menghapus data sementara %s: %v", rowNum, oldTempNoPp, err))
 						continue
@@ -2517,7 +2517,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 func (a *App) getOrCreateChatByPanel(panelNoPp string, tx *sql.Tx) (int, error) {
 	var chatID int
 	// Check if chat exists
-	err := tx.QueryRow("SELECT id FROM chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
+	err := tx.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
 		// Chat does not exist, create it
 		err = tx.QueryRow("INSERT INTO chats (panel_no_pp) VALUES ($1) RETURNING id", panelNoPp).Scan(&chatID)
@@ -2624,7 +2624,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	panelNoPp := vars["no_pp"]
 
 	var chatID int
-	err := a.DB.QueryRow("SELECT id FROM chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
+	err := a.DB.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
 		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{}) // Return empty list
 		return
@@ -2635,7 +2635,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query utama untuk mendapatkan semua isu
-	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
+	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM public.issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2662,7 +2662,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query kedua untuk mendapatkan semua foto yang relevan sekaligus
-	photoRows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM photos WHERE issue_id = ANY($1)", pq.Array(issueIDs))
+	photoRows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM public.photos WHERE issue_id = ANY($1)", pq.Array(issueIDs))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve photos: "+err.Error())
 		return
@@ -2700,7 +2700,7 @@ func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
 
 	var issue Issue
 	// ▼▼▼ FIX: REMOVED "issue_type" FROM THE QUERY ▼▼▼
-	err = a.DB.QueryRow("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
+	err = a.DB.QueryRow("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM public.issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusNotFound, "Issue not found")
@@ -2762,7 +2762,7 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 
 	var currentLogs Logs
 	var currentStatus string
-	err = tx.QueryRow("SELECT logs, status FROM issues WHERE id = $1", issueID).Scan(&currentLogs, &currentStatus)
+	err = tx.QueryRow("SELECT logs, status FROM public.issues WHERE id = $1", issueID).Scan(&currentLogs, &currentStatus)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Issue not found or failed to get logs: "+err.Error())
 		return
@@ -2830,7 +2830,7 @@ func (a *App) deleteIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := a.DB.Exec("DELETE FROM issues WHERE id = $1", id)
+	res, err := a.DB.Exec("DELETE FROM public.issues WHERE id = $1", id)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -3002,7 +3002,7 @@ func initDB(db *sql.DB) {
 
 	// Tambahkan beberapa data awal jika tabel baru dibuat
 	var count_titles int
-	if err := db.QueryRow("SELECT COUNT(*) FROM issue_titles").Scan(&count_titles); err == nil && count_titles == 0 {
+	if err := db.QueryRow("SELECT COUNT(*) FROM public.issue_titles").Scan(&count_titles); err == nil && count_titles == 0 {
 		log.Println("Tabel issue_titles kosong, menambahkan data awal...")
 		initialTitles := []string{"Kerusakan Komponen", "Masalah Instalasi", "Error Software", "Lainnya"}
 		for _, title := range initialTitles {
@@ -3157,7 +3157,7 @@ func initDB(db *sql.DB) {
 	}
 
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM companies").Scan(&count); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM public.companies").Scan(&count); err != nil {
 		log.Fatalf("Gagal cek data dummy: %v", err)
 	}
 	if count == 0 {
@@ -3196,7 +3196,7 @@ func initDB(db *sql.DB) {
 	}
 
 	var count_companies int
-	if err := db.QueryRow("SELECT COUNT(*) FROM companies").Scan(&count); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM public.companies").Scan(&count); err != nil {
 		log.Fatalf("Gagal cek data dummy: %v", err)
 	}
 	if count_companies == 0 {
@@ -3495,7 +3495,7 @@ func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request)
 
 	rows, err := a.DB.Query(`
 		SELECT id, chat_id, sender_username, text, image_data, replied_issue_id, created_at 
-		FROM chat_messages 
+		FROM public.chat_messages 
 		WHERE chat_id = $1 
 		ORDER BY created_at ASC`, chatID)
 	if err != nil {
@@ -3582,9 +3582,9 @@ func (a *App) getCommentsByIssueHandler(w http.ResponseWriter, r *http.Request) 
 			sender.username as sender_name, -- Bisa diganti dengan nama asli jika ada
 			reply_user.username as reply_to_user_id,
 			reply_user.username as reply_to_user_name
-		FROM issue_comments ic
-		JOIN company_accounts sender ON ic.sender_id = sender.username
-		LEFT JOIN company_accounts reply_user ON ic.reply_to_user_id = reply_user.username
+		FROM public.issue_comments ic
+		JOIN public.company_accounts sender ON ic.sender_id = sender.username
+		LEFT JOIN public.company_accounts reply_user ON ic.reply_to_user_id = reply_user.username
 		WHERE ic.issue_id = $1
 		ORDER BY ic.timestamp ASC
 	`
@@ -3703,7 +3703,7 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	var issueID int
 	var isSystemComment sql.NullBool
-	err = tx.QueryRow("SELECT issue_id, is_system_comment FROM issue_comments WHERE id = $1", commentID).Scan(&issueID, &isSystemComment)
+	err = tx.QueryRow("SELECT issue_id, is_system_comment FROM public.issue_comments WHERE id = $1", commentID).Scan(&issueID, &isSystemComment)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusNotFound, "Komentar tidak ditemukan")
@@ -3777,7 +3777,7 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
 	commentID := mux.Vars(r)["id"]
-	_, err := a.DB.Exec("DELETE FROM issue_comments WHERE id = $1", commentID)
+	_, err := a.DB.Exec("DELETE FROM public.issue_comments WHERE id = $1", commentID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to delete comment")
 		return
@@ -3785,7 +3785,7 @@ func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 func (a *App) getAllIssueTitlesHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.DB.Query("SELECT id, title FROM issue_titles ORDER BY title ASC")
+	rows, err := a.DB.Query("SELECT id, title FROM public.issue_titles ORDER BY title ASC")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -3857,7 +3857,7 @@ func (a *App) updateIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	var oldTitle string
-	err = tx.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
+	err = tx.QueryRow("SELECT title FROM public.issue_titles WHERE id = $1", id).Scan(&oldTitle)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
 		return
@@ -3895,14 +3895,14 @@ func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var oldTitle string
-	err = a.DB.QueryRow("SELECT title FROM issue_titles WHERE id = $1", id).Scan(&oldTitle)
+	err = a.DB.QueryRow("SELECT title FROM public.issue_titles WHERE id = $1", id).Scan(&oldTitle)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
 		return
 	}
 
 	var count int
-	err = a.DB.QueryRow("SELECT COUNT(*) FROM issues WHERE title = $1", oldTitle).Scan(&count)
+	err = a.DB.QueryRow("SELECT COUNT(*) FROM public.issues WHERE title = $1", oldTitle).Scan(&count)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memeriksa penggunaan title: "+err.Error())
 		return
@@ -3913,7 +3913,7 @@ func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = a.DB.Exec("DELETE FROM issue_titles WHERE id = $1", id)
+	_, err = a.DB.Exec("DELETE FROM public.issue_titles WHERE id = $1", id)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus: "+err.Error())
 		return
@@ -3941,7 +3941,7 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Ambil Konteks Isu
 	var issueTitle, issueDesc string
-	err = a.DB.QueryRow("SELECT title, description FROM issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
+	err = a.DB.QueryRow("SELECT title, description FROM public.issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Issue not found")
 		return
@@ -3950,8 +3950,8 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	// 2. Ambil Konteks Komentar
 	rows, err := a.DB.Query(`
         SELECT ca.username, ic.text 
-        FROM issue_comments ic
-        JOIN company_accounts ca ON ic.sender_id = ca.username
+        FROM public.issue_comments ic
+        JOIN public.company_accounts ca ON ic.sender_id = ca.username
         WHERE ic.issue_id = $1 ORDER BY ic.timestamp ASC
     `, issueID)
 	if err != nil {
@@ -4019,9 +4019,9 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 			// Dapatkan 'panelNoPp' dari 'issueID' sebelum memanggil fungsi eksekusi.
 			var panelNoPp string
 			err := a.DB.QueryRow(`
-                SELECT p.no_pp FROM panels p 
-                JOIN chats c ON p.no_pp = c.panel_no_pp 
-                JOIN issues i ON c.id = i.chat_id 
+                SELECT p.no_pp FROM public.panels p 
+                JOIN public.chats c ON p.no_pp = c.panel_no_pp 
+                JOIN public.issues i ON c.id = i.chat_id 
                 WHERE i.id = $1`, issueID).Scan(&panelNoPp)
 			if err != nil {
 				// Jika panel tidak ditemukan, kirim pesan error yang jelas.
@@ -4233,8 +4233,8 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	var senderRole string
 	err := a.DB.QueryRow(`
-		SELECT c.role FROM companies c
-		JOIN company_accounts ca ON c.id = ca.company_id
+		SELECT c.role FROM public.companies c
+		JOIN public.company_accounts ca ON c.id = ca.company_id
 		WHERE ca.username = $1`, payload.SenderID).Scan(&senderRole)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal mendapatkan role user: "+err.Error())
@@ -4243,9 +4243,9 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	var panel pdd
 	err = a.DB.QueryRow(`
-		SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart, pu.name as panel_vendor_name, (SELECT STRING_AGG(c.name, ', ') FROM companies c JOIN busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names
-		FROM panels p
-		LEFT JOIN companies pu ON p.vendor_id = pu.id
+		SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart, pu.name as panel_vendor_name, (SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names
+		FROM public.panels p
+		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.NoPp, &panel.NoPanel, &panel.Project, &panel.NoWbs, &panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart, &panel.PanelVendorName, &panel.BusbarVendorNames)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan: "+err.Error())
@@ -4256,9 +4256,9 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	rows, err := a.DB.Query(`
 		SELECT i.id, i.title, i.description, i.status, ic.sender_id, ic.text
-		FROM issues i
-		JOIN chats ch ON i.chat_id = ch.id
-		LEFT JOIN issue_comments ic ON i.id = ic.issue_id
+		FROM public.issues i
+		JOIN public.chats ch ON i.chat_id = ch.id
+		LEFT JOIN public.issue_comments ic ON i.id = ic.issue_id
 		WHERE ch.panel_no_pp = $1
 		ORDER BY i.created_at, ic.timestamp`, panelNoPp)
 	if err != nil {
@@ -4516,7 +4516,7 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 	switch fc.Name {
 	case "get_panel_summary":
 		var panel pdd
-		err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
+		err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM public.panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
 		if err != nil { return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err) }
 		return fmt.Sprintf("Progres panel saat ini %.0f%%. Status Busbar PCC: %s, Busbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatusBusbarPcc.String, panel.StatusBusbarMcc.String, panel.StatusComponent.String, panel.StatusPalet.String, panel.StatusCorepart.String), nil
 
@@ -4531,7 +4531,7 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 
 		var currentLogs Logs
 		var issueTitle string
-		err = tx.QueryRow(`SELECT title, logs FROM issues WHERE id = $1`, issueID).Scan(&issueTitle, &currentLogs)
+		err = tx.QueryRow(`SELECT title, logs FROM public.issues WHERE id = $1`, issueID).Scan(&issueTitle, &currentLogs)
 		if err != nil { return "", fmt.Errorf("isu dengan ID %d tidak ditemukan", issueID) }
 
 		newLogEntry := LogEntry{Action: "menandai " + newStatus, User: "gemini_ai", Timestamp: time.Now()}
@@ -4596,7 +4596,7 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		category, _ := fc.Args["category"].(string)
 
 		var vendorID string
-		err := a.DB.QueryRow("SELECT id FROM companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
+		err := a.DB.QueryRow("SELECT id FROM public.companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
 		if err != nil { return "", fmt.Errorf("vendor '%s' tidak ditemukan.", vendorName) }
 		
 		var tableName string
