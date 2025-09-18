@@ -594,10 +594,15 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 	// 7. Kirim respon sukses
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-
 func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
     username := mux.Vars(r)["username"]
-    var company Company
+
+    // Simpan role sebagai string aja
+    var company struct {
+        ID   string `json:"id"`
+        Name string `json:"name"`
+        Role string `json:"role"`
+    }
 
     query := `
         SELECT c.id, c.name, c.role
@@ -606,7 +611,6 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
         WHERE ca.username = $1
     `
 
-    // Gunakan QueryRowContext biar otomatis cancel kalau request selesai
     err := a.DB.QueryRowContext(r.Context(), query, username).
         Scan(&company.ID, &company.Name, &company.Role)
 
@@ -615,7 +619,8 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
             respondWithError(w, http.StatusNotFound, "User not found")
             return
         }
-        respondWithError(w, http.StatusInternalServerError, err.Error())
+        log.Printf("getCompanyByUsername error for %s: %v", username, err)
+        respondWithError(w, http.StatusInternalServerError, "Database error")
         return
     }
 
