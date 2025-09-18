@@ -831,8 +831,13 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 		JOIN public.companies c ON ca.company_id = c.id
 		WHERE c.name = $1 AND ca.username != $2
 		ORDER BY ca.username`
-	rows, err := a.DB.Query(query, companyName, currentUsername)
+
+	// [PERIKSA BARIS INI DENGAN TELITI]
+	// Pastikan kamu mengirim DUA argumen: companyName DAN currentUsername
+	rows, err := a.DB.Query(query, companyName, currentUsername) // <-- Pastikan ada 2 variabel di sini
+    
 	if err != nil {
+		// Jika ada error di sini, Flutter akan menampilkan pesan kesalahan
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
