@@ -978,49 +978,53 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	respondWithJSON(w, http.StatusOK, companies)
 }
-
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
-	var panelIdsSubQuery string
-	var args []interface{}
-	argCounter := 1
 
 	if userRole == "" {
 		userRole = AppRoleAdmin
 	}
 
-	if userRole != AppRoleAdmin && userRole != AppRoleViewer {
-		switch userRole {
-		case AppRoleK3:
-			// panelIdsSubQuery = fmt.Sprintf(`SELECT no_pp FROM panels WHERE vendor_id = $%d UNION SELECT panel_no_pp FROM palet WHERE vendor = $%d UNION SELECT panel_no_pp FROM corepart WHERE vendor = $%d`, argCounter, argCounter, argCounter)
-			// args = append(args, companyId)
-			panelIdsSubQuery = fmt.Sprintf(`
-				SELECT no_pp FROM panels WHERE vendor_id = $%d OR vendor_id IS NULL
-				UNION
-				SELECT panel_no_pp FROM palet WHERE vendor = $%d
-				UNION
-				SELECT panel_no_pp FROM corepart WHERE vendor = $%d`,
-				argCounter, argCounter+1, argCounter+2)
-			args = append(args, companyId, companyId, companyId)
-			break
-		case AppRoleK5:
-			panelIdsSubQuery = fmt.Sprintf(`SELECT panel_no_pp FROM busbars WHERE vendor = $%d UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM busbars)`, argCounter)
-			args = append(args, companyId)
-		case AppRoleWarehouse:
-			panelIdsSubQuery = fmt.Sprintf(`SELECT panel_no_pp FROM components WHERE vendor = $%d UNION SELECT no_pp FROM panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM components)`, argCounter)
-			args = append(args, companyId)
-		default:
-			respondWithJSON(w, http.StatusOK, []PanelDisplayData{})
-			return
-		}
-	} else {
+	var panelIdsSubQuery string
+	var args []interface{}
+
+	switch userRole {
+	case AppRoleAdmin, AppRoleViewer:
 		panelIdsSubQuery = "SELECT no_pp FROM panels"
+
+	case AppRoleK3:
+		args = append(args, companyId, companyId, companyId)
+		panelIdsSubQuery = `
+			SELECT no_pp FROM panels WHERE vendor_id = $1 OR vendor_id IS NULL
+			UNION
+			SELECT panel_no_pp FROM palet WHERE vendor = $2
+			UNION
+			SELECT panel_no_pp FROM corepart WHERE vendor = $3`
+
+	case AppRoleK5:
+		args = append(args, companyId)
+		panelIdsSubQuery = `
+			SELECT panel_no_pp FROM busbars WHERE vendor = $1
+			UNION
+			SELECT no_pp FROM panels WHERE no_pp NOT IN (
+				SELECT DISTINCT panel_no_pp FROM busbars
+			)`
+
+	case AppRoleWarehouse:
+		args = append(args, companyId)
+		panelIdsSubQuery = `
+			SELECT panel_no_pp FROM components WHERE vendor = $1
+			UNION
+			SELECT no_pp FROM panels WHERE no_pp NOT IN (
+				SELECT DISTINCT panel_no_pp FROM components
+			)`
+
+	default:
+		respondWithJSON(w, http.StatusOK, []PanelDisplayData{})
+		return
 	}
 
-	// rawIDs := r.URL.Query().Get("raw_ids") == "true"
-
-	
 	finalQuery := fmt.Sprintf(`
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
@@ -1049,12 +1053,12 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			(SELECT STRING_AGG(c.id, ',') FROM companies c JOIN corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
 		FROM panels p
 		LEFT JOIN companies pu ON p.vendor_id = pu.id
-		WHERE p.no_pp IN (`+panelIdsSubQuery+`)
-		ORDER BY p.start_date DESC`)
+		WHERE p.no_pp IN (%s)
+		ORDER BY p.start_date DESC`, panelIdsSubQuery)
 
-
-	rows, err := a.DB.Query(finalQuery, args...)
+	rows, err := a.DB.QueryContext(r.Context(), finalQuery, args...)
 	if err != nil {
+		log.Printf("SQL ERROR: %v\nQuery: %s\nArgs: %+v", err, finalQuery, args)
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1064,9 +1068,8 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	for rows.Next() {
 		var pdd PanelDisplayData
 		var busbarVendorIds, componentVendorIds, paletVendorIds, corepartVendorIds sql.NullString
-		
 		var panel Panel
-		
+
 		err := rows.Scan(
 			&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project,
 			&panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
@@ -1084,11 +1087,6 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		
-		// if !rawIDs && strings.HasPrefix(panel.NoPp, "TEMP_PP_") {
-		// 	panel.NoPp = ""
-		// }
-
 		pdd.Panel = panel
 		pdd.BusbarVendorIds = splitIds(busbarVendorIds)
 		pdd.ComponentVendorIds = splitIds(componentVendorIds)
@@ -1098,6 +1096,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	}
 	respondWithJSON(w, http.StatusOK, results)
 }
+
 func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM panels`
 	rows, err := a.DB.Query(query)
