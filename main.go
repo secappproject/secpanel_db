@@ -593,26 +593,25 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 7. Kirim respon sukses
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
-}
-func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
+}func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
     username := mux.Vars(r)["username"]
 
-    // Simpan role sebagai string aja
-    var company struct {
-        ID   string `json:"id"`
-        Name string `json:"name"`
-        Role string `json:"role"`
+    var resp struct {
+        ID       string `json:"id"`
+        Name     string `json:"name"`
+        Role     string `json:"role"`
+        Username string `json:"username"`
     }
 
     query := `
-        SELECT c.id, c.name, c.role
+        SELECT c.id, c.name, c.role, ca.username
         FROM public.companies c
         JOIN public.company_accounts ca ON c.id = ca.company_id
         WHERE ca.username = $1
     `
 
     err := a.DB.QueryRowContext(r.Context(), query, username).
-        Scan(&company.ID, &company.Name, &company.Role)
+        Scan(&resp.ID, &resp.Name, &resp.Role, &resp.Username)
 
     if err != nil {
         if errors.Is(err, sql.ErrNoRows) {
@@ -624,7 +623,7 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
         return
     }
 
-    respondWithJSON(w, http.StatusOK, company)
+    respondWithJSON(w, http.StatusOK, resp)
 }
 
 func (a *App) updatePasswordHandler(w http.ResponseWriter, r *http.Request) {
