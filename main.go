@@ -596,20 +596,32 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
-	username := mux.Vars(r)["username"]
-	var company Company
-	query := `SELECT c.id, c.name, c.role FROM companies c JOIN company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
-	err := a.DB.QueryRow(query, username).Scan(&company.ID, &company.Name, &company.Role)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatusNotFound, "User not found")
-			return
-		}
-		respondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondWithJSON(w, http.StatusOK, company)
+    username := mux.Vars(r)["username"]
+    var company Company
+
+    query := `
+        SELECT c.id, c.name, c.role
+        FROM companies c
+        JOIN company_accounts ca ON c.id = ca.company_id
+        WHERE ca.username = $1
+    `
+
+    // Gunakan QueryRowContext biar otomatis cancel kalau request selesai
+    err := a.DB.QueryRowContext(r.Context(), query, username).
+        Scan(&company.ID, &company.Name, &company.Role)
+
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            respondWithError(w, http.StatusNotFound, "User not found")
+            return
+        }
+        respondWithError(w, http.StatusInternalServerError, err.Error())
+        return
+    }
+
+    respondWithJSON(w, http.StatusOK, company)
 }
+
 func (a *App) updatePasswordHandler(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["username"]
 	var payload struct{ Password string `json:"password"` }
