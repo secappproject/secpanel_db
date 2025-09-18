@@ -995,7 +995,8 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 		companies = append(companies, c)
 	}
 	respondWithJSON(w, http.StatusOK, companies)
-}
+}// file: main.go
+
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
@@ -1004,117 +1005,199 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		userRole = AppRoleAdmin
 	}
 
-	var panelIdsSubQuery string
+	// 1. Dapatkan daftar ID panel yang relevan terlebih dahulu dengan query yang ringan
+	var relevantPanelIds []string
+	var panelIdQuery string
 	var args []interface{}
 
 	switch userRole {
 	case AppRoleAdmin, AppRoleViewer:
-		panelIdsSubQuery = "SELECT no_pp FROM public.panels"
-
+		panelIdQuery = "SELECT no_pp FROM public.panels"
 	case AppRoleK3:
 		args = append(args, companyId, companyId, companyId)
-		panelIdsSubQuery = `
+		panelIdQuery = `
 			SELECT no_pp FROM public.panels WHERE vendor_id = $1 OR vendor_id IS NULL
 			UNION
 			SELECT panel_no_pp FROM public.palet WHERE vendor = $2
 			UNION
 			SELECT panel_no_pp FROM public.corepart WHERE vendor = $3`
-
 	case AppRoleK5:
 		args = append(args, companyId)
-		panelIdsSubQuery = `
+		panelIdQuery = `
 			SELECT panel_no_pp FROM public.busbars WHERE vendor = $1
 			UNION
-			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (
-				SELECT DISTINCT panel_no_pp FROM public.busbars
-			)`
-
+			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM public.busbars)`
 	case AppRoleWarehouse:
 		args = append(args, companyId)
-		panelIdsSubQuery = `
+		panelIdQuery = `
 			SELECT panel_no_pp FROM public.components WHERE vendor = $1
 			UNION
-			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (
-				SELECT DISTINCT panel_no_pp FROM public.components
-			)`
-
+			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM public.components)`
 	default:
 		respondWithJSON(w, http.StatusOK, []PanelDisplayData{})
 		return
 	}
 
-	finalQuery := fmt.Sprintf(`
+	rows, err := a.DB.QueryContext(r.Context(), panelIdQuery, args...)
+	if err != nil {
+		log.Printf("SQL ERROR (getPanelIds): %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Failed to get panel IDs: "+err.Error())
+		return
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			relevantPanelIds = append(relevantPanelIds, id)
+		}
+	}
+	rows.Close()
+
+	if len(relevantPanelIds) == 0 {
+		respondWithJSON(w, http.StatusOK, []PanelDisplayData{})
+		return
+	}
+
+	// 2. Ambil semua data panel utama dalam satu query
+	panelQuery := `
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
 			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
 			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
 			p.close_date_busbar_pcc, p.close_date_busbar_mcc,
-			pu.name as panel_vendor_name,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_ids,
-			COALESCE((
-				SELECT json_agg(json_build_object(
-					'vendor_name', c.name,
-					'remark', b.remarks,
-					'vendor_id', b.vendor
-				))
-				FROM public.busbars b
-				JOIN public.companies c ON b.vendor = c.id
-				WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''
-			), '[]'::json) as busbar_remarks,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_ids,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.palet pa ON c.id = pa.vendor WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_ids,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
-			(SELECT STRING_AGG(c.id, ',') FROM public.companies c JOIN public.corepart cp ON c.id = cp.vendor WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_ids
+			pu.name as panel_vendor_name
 		FROM public.panels p
 		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
-		WHERE p.no_pp IN (%s)
-		ORDER BY p.start_date DESC`, panelIdsSubQuery)
+		WHERE p.no_pp = ANY($1)`
 
-	rows, err := a.DB.QueryContext(r.Context(), finalQuery, args...)
+	panelRows, err := a.DB.QueryContext(r.Context(), panelQuery, pq.Array(relevantPanelIds))
 	if err != nil {
-		log.Printf("SQL ERROR: %v\nQuery: %s\nArgs: %+v", err, finalQuery, args)
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("SQL ERROR (getPanels): %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Failed to get panel details: "+err.Error())
 		return
 	}
-	defer rows.Close()
+	defer panelRows.Close()
 
-	var results []PanelDisplayData
-	for rows.Next() {
+	panelMap := make(map[string]*PanelDisplayData)
+	for panelRows.Next() {
 		var pdd PanelDisplayData
-		var busbarVendorIds, componentVendorIds, paletVendorIds, corepartVendorIds sql.NullString
 		var panel Panel
-
-		err := rows.Scan(
-			&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project,
-			&panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
-			&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent,
-			&panel.StatusPalet, &panel.StatusCorepart, &panel.AoBusbarPcc,
-			&panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID,
-			&panel.IsClosed, &panel.ClosedDate, &panel.PanelType, &panel.Remarks,
-			&panel.CloseDateBusbarPcc, &panel.CloseDateBusbarMcc,
-			&pdd.PanelVendorName, &pdd.BusbarVendorNames, &busbarVendorIds, &pdd.BusbarRemarks,
-			&pdd.ComponentVendorNames, &componentVendorIds, &pdd.PaletVendorNames, &paletVendorIds,
-			&pdd.CorepartVendorNames, &corepartVendorIds,
+		err := panelRows.Scan(
+			&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project, &panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
+			&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart,
+			&panel.AoBusbarPcc, &panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID, &panel.IsClosed, &panel.ClosedDate,
+			&panel.PanelType, &panel.Remarks, &panel.CloseDateBusbarPcc, &panel.CloseDateBusbarMcc, &pdd.PanelVendorName,
 		)
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Error scanning row: "+err.Error())
-			return
+			log.Printf("Error scanning panel row: %v", err)
+			continue
+		}
+		pdd.Panel = panel
+		panelMap[panel.NoPp] = &pdd
+	}
+
+	// 3. Ambil semua data relasi (busbar, component, dll) dalam query terpisah yang efisien
+	type relationInfo struct {
+		PanelNoPp string
+		VendorID  string
+		VendorName string
+		Remarks   sql.NullString
+	}
+
+	fetchRelations := func(tableName string) (map[string][]relationInfo, error) {
+		query := fmt.Sprintf(`
+			SELECT r.panel_no_pp, r.vendor, c.name, r.remarks
+			FROM public.%s r
+			JOIN public.companies c ON r.vendor = c.id
+			WHERE r.panel_no_pp = ANY($1)`, tableName)
+		// Penyesuaian untuk tabel tanpa kolom 'remarks'
+		if tableName == "components" || tableName == "palet" || tableName == "corepart" {
+			query = fmt.Sprintf(`
+				SELECT r.panel_no_pp, r.vendor, c.name, NULL as remarks
+				FROM public.%s r
+				JOIN public.companies c ON r.vendor = c.id
+				WHERE r.panel_no_pp = ANY($1)`, tableName)
 		}
 
-		pdd.Panel = panel
-		pdd.BusbarVendorIds = splitIds(busbarVendorIds)
-		pdd.ComponentVendorIds = splitIds(componentVendorIds)
-		pdd.PaletVendorIds = splitIds(paletVendorIds)
-		pdd.CorepartVendorIds = splitIds(corepartVendorIds)
-		results = append(results, pdd)
+		relationRows, err := a.DB.QueryContext(r.Context(), query, pq.Array(relevantPanelIds))
+		if err != nil {
+			return nil, err
+		}
+		defer relationRows.Close()
+		
+		relationsMap := make(map[string][]relationInfo)
+		for relationRows.Next() {
+			var info relationInfo
+			if err := relationRows.Scan(&info.PanelNoPp, &info.VendorID, &info.VendorName, &info.Remarks); err == nil {
+				relationsMap[info.PanelNoPp] = append(relationsMap[info.PanelNoPp], info)
+			}
+		}
+		return relationsMap, nil
 	}
-	respondWithJSON(w, http.StatusOK, results)
-}
 
+	busbarsMap, _ := fetchRelations("busbars")
+	componentsMap, _ := fetchRelations("components")
+	paletsMap, _ := fetchRelations("palet")
+	corepartsMap, _ := fetchRelations("corepart")
+
+	// 4. Gabungkan semua data di Go
+	var finalResults []PanelDisplayData
+	for _, panelID := range relevantPanelIds {
+		if pdd, ok := panelMap[panelID]; ok {
+			// Busbars
+			if relations, found := busbarsMap[panelID]; found {
+				var names, ids []string
+				var remarks []map[string]interface{}
+				for _, r := range relations {
+					names = append(names, r.VendorName)
+					ids = append(ids, r.VendorID)
+					if r.Remarks.Valid && r.Remarks.String != "" {
+						remarks = append(remarks, map[string]interface{}{"vendor_name": r.VendorName, "remark": r.Remarks.String, "vendor_id": r.VendorID})
+					}
+				}
+				busbarNamesStr := strings.Join(names, ", ")
+				pdd.BusbarVendorNames = &busbarNamesStr
+				pdd.BusbarVendorIds = ids
+				jsonRemarks, _ := json.Marshal(remarks)
+				pdd.BusbarRemarks = jsonRemarks
+			}
+
+			// Components
+			if relations, found := componentsMap[panelID]; found {
+				var names, ids []string
+				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				componentNamesStr := strings.Join(names, ", ")
+				pdd.ComponentVendorNames = &componentNamesStr
+				pdd.ComponentVendorIds = ids
+			}
+			
+			// Palets
+			if relations, found := paletsMap[panelID]; found {
+				var names, ids []string
+				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				paletNamesStr := strings.Join(names, ", ")
+				pdd.PaletVendorNames = &paletNamesStr
+				pdd.PaletVendorIds = ids
+			}
+
+			// Coreparts
+			if relations, found := corepartsMap[panelID]; found {
+				var names, ids []string
+				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				corepartNamesStr := strings.Join(names, ", ")
+				pdd.CorepartVendorNames = &corepartNamesStr
+				pdd.CorepartVendorIds = ids
+			}
+			
+			finalResults = append(finalResults, *pdd)
+		}
+	}
+	
+	// Urutkan hasil akhir jika diperlukan (misal, berdasarkan start_date)
+	// (Tambahkan logika sorting di sini jika perlu)
+
+	respondWithJSON(w, http.StatusOK, finalResults)
+}
 func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM public.panels`
 	rows, err := a.DB.Query(query)
