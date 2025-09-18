@@ -996,24 +996,22 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	respondWithJSON(w, http.StatusOK, companies)
 }// file: main.go
-
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
 
 	if userRole == "" {
-		userRole = AppRoleAdmin
+		userRole = "admin"
 	}
 
-	// 1. Dapatkan daftar ID panel yang relevan terlebih dahulu dengan query yang ringan
 	var relevantPanelIds []string
 	var panelIdQuery string
 	var args []interface{}
 
 	switch userRole {
-	case AppRoleAdmin, AppRoleViewer:
+	case "admin", "viewer":
 		panelIdQuery = "SELECT no_pp FROM public.panels"
-	case AppRoleK3:
+	case "k3":
 		args = append(args, companyId, companyId, companyId)
 		panelIdQuery = `
 			SELECT no_pp FROM public.panels WHERE vendor_id = $1 OR vendor_id IS NULL
@@ -1021,13 +1019,13 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			SELECT panel_no_pp FROM public.palet WHERE vendor = $2
 			UNION
 			SELECT panel_no_pp FROM public.corepart WHERE vendor = $3`
-	case AppRoleK5:
+	case "k5":
 		args = append(args, companyId)
 		panelIdQuery = `
 			SELECT panel_no_pp FROM public.busbars WHERE vendor = $1
 			UNION
 			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM public.busbars)`
-	case AppRoleWarehouse:
+	case "warehouse":
 		args = append(args, companyId)
 		panelIdQuery = `
 			SELECT panel_no_pp FROM public.components WHERE vendor = $1
@@ -1057,7 +1055,28 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 2. Ambil semua data panel utama dalam satu query
+	issueCounts := make(map[string]int)
+	issueQuery := `
+		SELECT ch.panel_no_pp, COUNT(i.id)
+		FROM public.chats ch
+		JOIN public.issues i ON ch.id = i.chat_id
+		WHERE ch.panel_no_pp = ANY($1)
+		GROUP BY ch.panel_no_pp
+	`
+	issueRows, err := a.DB.QueryContext(r.Context(), issueQuery, pq.Array(relevantPanelIds))
+	if err == nil {
+		for issueRows.Next() {
+			var panelNoPp string
+			var count int
+			if err := issueRows.Scan(&panelNoPp, &count); err == nil {
+				issueCounts[panelNoPp] = count
+			}
+		}
+		issueRows.Close()
+	} else {
+		log.Printf("SQL ERROR (getIssueCounts): %v", err)
+	}
+
 	panelQuery := `
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
@@ -1096,12 +1115,11 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		panelMap[panel.NoPp] = &pdd
 	}
 
-	// 3. Ambil semua data relasi (busbar, component, dll) dalam query terpisah yang efisien
 	type relationInfo struct {
-		PanelNoPp string
-		VendorID  string
+		PanelNoPp  string
+		VendorID   string
 		VendorName string
-		Remarks   sql.NullString
+		Remarks    sql.NullString
 	}
 
 	fetchRelations := func(tableName string) (map[string][]relationInfo, error) {
@@ -1110,7 +1128,6 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			FROM public.%s r
 			JOIN public.companies c ON r.vendor = c.id
 			WHERE r.panel_no_pp = ANY($1)`, tableName)
-		// Penyesuaian untuk tabel tanpa kolom 'remarks'
 		if tableName == "components" || tableName == "palet" || tableName == "corepart" {
 			query = fmt.Sprintf(`
 				SELECT r.panel_no_pp, r.vendor, c.name, NULL as remarks
@@ -1124,7 +1141,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			return nil, err
 		}
 		defer relationRows.Close()
-		
+
 		relationsMap := make(map[string][]relationInfo)
 		for relationRows.Next() {
 			var info relationInfo
@@ -1140,11 +1157,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	paletsMap, _ := fetchRelations("palet")
 	corepartsMap, _ := fetchRelations("corepart")
 
-	// 4. Gabungkan semua data di Go
 	var finalResults []PanelDisplayData
 	for _, panelID := range relevantPanelIds {
 		if pdd, ok := panelMap[panelID]; ok {
-			// Busbars
 			if relations, found := busbarsMap[panelID]; found {
 				var names, ids []string
 				var remarks []map[string]interface{}
@@ -1162,39 +1177,48 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 				pdd.BusbarRemarks = jsonRemarks
 			}
 
-			// Components
 			if relations, found := componentsMap[panelID]; found {
 				var names, ids []string
-				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				for _, r := range relations {
+					names = append(names, r.VendorName)
+					ids = append(ids, r.VendorID)
+				}
 				componentNamesStr := strings.Join(names, ", ")
 				pdd.ComponentVendorNames = &componentNamesStr
 				pdd.ComponentVendorIds = ids
 			}
-			
-			// Palets
+
 			if relations, found := paletsMap[panelID]; found {
 				var names, ids []string
-				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				for _, r := range relations {
+					names = append(names, r.VendorName)
+					ids = append(ids, r.VendorID)
+				}
 				paletNamesStr := strings.Join(names, ", ")
 				pdd.PaletVendorNames = &paletNamesStr
 				pdd.PaletVendorIds = ids
 			}
 
-			// Coreparts
 			if relations, found := corepartsMap[panelID]; found {
 				var names, ids []string
-				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				for _, r := range relations {
+					names = append(names, r.VendorName)
+					ids = append(ids, r.VendorID)
+				}
 				corepartNamesStr := strings.Join(names, ", ")
 				pdd.CorepartVendorNames = &corepartNamesStr
 				pdd.CorepartVendorIds = ids
 			}
-			
+
+			if count, found := issueCounts[panelID]; found {
+				pdd.IssueCount = count
+			} else {
+				pdd.IssueCount = 0
+			}
+
 			finalResults = append(finalResults, *pdd)
 		}
 	}
-	
-	// Urutkan hasil akhir jika diperlukan (misal, berdasarkan start_date)
-	// (Tambahkan logika sorting di sini jika perlu)
 
 	respondWithJSON(w, http.StatusOK, finalResults)
 }
