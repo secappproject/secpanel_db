@@ -593,8 +593,14 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 7. Kirim respon sukses
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
-}func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
+}
+func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
     username := mux.Vars(r)["username"]
+    
+    if username == "" {
+        respondWithError(w, http.StatusBadRequest, "Username is required")
+        return
+    }
 
     var resp struct {
         ID       string `json:"id"`
@@ -615,14 +621,16 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 
     if err != nil {
         if errors.Is(err, sql.ErrNoRows) {
+            log.Printf("No company found for username: %s", username)
             respondWithError(w, http.StatusNotFound, "User not found")
             return
         }
-        log.Printf("getCompanyByUsername error for %s: %v", username, err)
+        log.Printf("Database error in getCompanyByUsername for %s: %v", username, err)
         respondWithError(w, http.StatusInternalServerError, "Database error")
         return
     }
 
+    log.Printf("Successfully found company for username %s: %s", username, resp.Name)
     respondWithJSON(w, http.StatusOK, resp)
 }
 
