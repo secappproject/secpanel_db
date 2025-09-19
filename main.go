@@ -4218,13 +4218,135 @@ type pdd struct {
 	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
 	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
 }
-// File: main.go
 
-// =============================================================================
-// FUNGSI AI UTAMA (GANTI SEMUA DI BAWAH INI)
-// =============================================================================
 
-// Salin dan ganti seluruh fungsi askGeminiAboutPanelHandler Anda dengan ini
+func getToolsForRole(role string) []*genai.Tool {
+	// Kumpulan semua kemungkinan "alat"
+	var allTools []*genai.FunctionDeclaration
+
+	// --- Alat untuk Semua Role ---
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "get_panel_summary",
+		Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
+	})
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "find_similar_past_issues",
+		Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya.",
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{ "issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."}, },
+			Required: []string{"issue_title"},
+		},
+	})
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "update_issue_status",
+		Description: "Mengubah status dari sebuah isu spesifik menggunakan ID uniknya.",
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang statusnya ingin diubah."},
+				"new_status":  {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
+			},
+			Required: []string{"issue_id", "new_status"},
+		},
+	})
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "add_issue_comment",
+		Description: "Menambahkan komentar baru ke sebuah isu spesifik.",
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang ingin dikomentari."},
+				"comment_text": { Type: genai.TypeString, Description: "Isi teks dari komentar."},
+			},
+			Required: []string{"issue_id", "comment_text"},
+		},
+	})
+
+	// --- Alat Khusus Admin ---
+	if role == AppRoleAdmin {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_panel_progress",
+			Description: "ADMIN ONLY: Mengubah persentase progres dari sebuah panel.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNumber, Description: "Nilai progres baru antara 0-100."}},
+				Required: []string{"new_progress"},
+			},
+		})
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_panel_remark",
+			Description: "ADMIN ONLY: Menambah atau mengubah catatan/remark utama pada panel.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_remark": {Type: genai.TypeString, Description: "Teks remark yang baru."}},
+				Required: []string{"new_remark"},
+			},
+		})
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "assign_vendor",
+			Description: "ADMIN ONLY: Menugaskan vendor ke sebuah kategori pekerjaan di panel ini.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"vendor_name": { Type: genai.TypeString, Description: "Nama vendor yang akan ditugaskan, contoh: 'GPE', 'DSM', 'ABACUS'." },
+					"category": { Type: genai.TypeString, Description: "Kategori pekerjaan.", Enum: []string{"busbar", "component", "palet", "corepart"} },
+				},
+				Required: []string{"vendor_name", "category"},
+			},
+		})
+	}
+
+	// --- Alat Berdasarkan Role Spesifik (K3, K5, WHS) ---
+	if role == AppRoleAdmin || role == AppRoleK3 {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_palet_status",
+			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Palet.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required: []string{"new_status"},
+			},
+		})
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_corepart_status",
+			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Corepart.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required: []string{"new_status"},
+			},
+		})
+	}
+	if role == AppRoleAdmin || role == AppRoleK5 {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_busbar_status",
+			Description: "K5 & ADMIN ONLY: Mengubah status untuk komponen Busbar.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"busbar_type": {Type: genai.TypeString, Enum: []string{"pcc", "mcc"}},
+					"new_status":  {Type: genai.TypeString, Enum: []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"}},
+				},
+				Required: []string{"busbar_type", "new_status"},
+			},
+		})
+	}
+	if role == AppRoleAdmin || role == AppRoleWarehouse {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_component_status",
+			Description: "WAREHOUSE & ADMIN ONLY: Mengubah status untuk komponen utama.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
+				Required: []string{"new_status"},
+			},
+		})
+	}
+
+	return []*genai.Tool{{FunctionDeclarations: allTools}}
+}
+
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
@@ -4383,135 +4505,6 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		"suggested_actions": suggestions,
 	})
 }
-
-// Salin dan ganti seluruh fungsi getToolsForRole Anda dengan ini
-func getToolsForRole(role string) []*genai.Tool {
-	// Kumpulan semua kemungkinan "alat"
-	var allTools []*genai.FunctionDeclaration
-
-	// --- Alat untuk Semua Role ---
-	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "get_panel_summary",
-		Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
-	})
-	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "find_similar_past_issues",
-		Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya.",
-		Parameters: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{ "issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."}, },
-			Required: []string{"issue_title"},
-		},
-	})
-	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "update_issue_status",
-		Description: "Mengubah status dari sebuah isu spesifik menggunakan ID uniknya.",
-		Parameters: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang statusnya ingin diubah."},
-				"new_status":  {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
-			},
-			Required: []string{"issue_id", "new_status"},
-		},
-	})
-	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "add_issue_comment",
-		Description: "Menambahkan komentar baru ke sebuah isu spesifik.",
-		Parameters: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang ingin dikomentari."},
-				"comment_text": { Type: genai.TypeString, Description: "Isi teks dari komentar."},
-			},
-			Required: []string{"issue_id", "comment_text"},
-		},
-	})
-
-	// --- Alat Khusus Admin ---
-	if role == AppRoleAdmin {
-		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_panel_progress",
-			Description: "ADMIN ONLY: Mengubah persentase progres dari sebuah panel.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNumber, Description: "Nilai progres baru antara 0-100."}},
-				Required: []string{"new_progress"},
-			},
-		})
-		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_panel_remark",
-			Description: "ADMIN ONLY: Menambah atau mengubah catatan/remark utama pada panel.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_remark": {Type: genai.TypeString, Description: "Teks remark yang baru."}},
-				Required: []string{"new_remark"},
-			},
-		})
-		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "assign_vendor",
-			Description: "ADMIN ONLY: Menugaskan vendor ke sebuah kategori pekerjaan di panel ini.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"vendor_name": { Type: genai.TypeString, Description: "Nama vendor yang akan ditugaskan, contoh: 'GPE', 'DSM', 'ABACUS'." },
-					"category": { Type: genai.TypeString, Description: "Kategori pekerjaan.", Enum: []string{"busbar", "component", "palet", "corepart"} },
-				},
-				Required: []string{"vendor_name", "category"},
-			},
-		})
-	}
-
-	// --- Alat Berdasarkan Role Spesifik (K3, K5, WHS) ---
-	if role == AppRoleAdmin || role == AppRoleK3 {
-		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_palet_status",
-			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Palet.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-				Required: []string{"new_status"},
-			},
-		})
-		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_corepart_status",
-			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Corepart.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-				Required: []string{"new_status"},
-			},
-		})
-	}
-	if role == AppRoleAdmin || role == AppRoleK5 {
-		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_busbar_status",
-			Description: "K5 & ADMIN ONLY: Mengubah status untuk komponen Busbar.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"busbar_type": {Type: genai.TypeString, Enum: []string{"pcc", "mcc"}},
-					"new_status":  {Type: genai.TypeString, Enum: []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"}},
-				},
-				Required: []string{"busbar_type", "new_status"},
-			},
-		})
-	}
-	if role == AppRoleAdmin || role == AppRoleWarehouse {
-		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_component_status",
-			Description: "WAREHOUSE & ADMIN ONLY: Mengubah status untuk komponen utama.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
-				Required: []string{"new_status"},
-			},
-		})
-	}
-
-	return []*genai.Tool{{FunctionDeclarations: allTools}}
-}
-
 // Salin dan ganti seluruh fungsi executeDatabaseFunction Anda dengan ini
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
 	executeUpdate := func(column string, value interface{}) error {
