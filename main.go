@@ -427,7 +427,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/issues/{issue_id}/comments", a.createCommentHandler).Methods("POST")
 	a.Router.HandleFunc("/issues/{issue_id}/ask-gemini", a.askGeminiHandler).Methods("POST")
 	a.Router.HandleFunc("/panels/{no_pp}/ask-gemini", a.askGeminiAboutPanelHandler).Methods("POST") 
-	a.Router.HandleFunc("/panels/{no_pp}/execute-ai-action", a.executeAiActionHandler).Methods("POST")
+
 
 	a.Router.HandleFunc("/comments/{id}", a.updateCommentHandler).Methods("PUT")
 	a.Router.HandleFunc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE")
@@ -4204,21 +4204,6 @@ func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
 	}
 	return ""
 }
-type pdd struct {
-	NoPp               sql.NullString  `json:"no_pp"`
-	NoPanel            sql.NullString  `json:"no_panel"`
-	Project            sql.NullString  `json:"project"`
-	NoWbs              sql.NullString  `json:"no_wbs"`
-	PercentProgress    sql.NullFloat64 `json:"percent_progress"`
-	StatusBusbarPcc    sql.NullString  `json:"status_busbar_pcc"`
-	StatusBusbarMcc    sql.NullString  `json:"status_busbar_mcc"`
-	StatusComponent    sql.NullString  `json:"status_component"`
-	StatusPalet        sql.NullString  `json:"status_palet"`
-	StatusCorepart     sql.NullString  `json:"status_corepart"`
-	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
-	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
-}
-
 var tools = []*genai.Tool{
 	{
 		FunctionDeclarations: []*genai.FunctionDeclaration{
@@ -4263,7 +4248,7 @@ var tools = []*genai.Tool{
 					},
 					Required: []string{"vendor_name", "category"},
 				},
-			}, {
+			},{
 				Name:        "update_busbar_status",
 				Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
 				Parameters: &genai.Schema{
@@ -4277,12 +4262,14 @@ var tools = []*genai.Tool{
 						"new_status": {
 							Type:        genai.TypeString,
 							Description: "Status baru untuk busbar.",
-							Enum:        []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"},
+							Enum:        []string{"Open", "Punching/Bending","Plating/Epoxy","100% Siap Kirim", "Close"},
 						},
 					},
 					Required: []string{"busbar_type", "new_status"},
 				},
 			},
+
+			// 2. Fungsi khusus untuk Component
 			{
 				Name:        "update_component_status",
 				Description: "Mengubah status untuk komponen utama (picking component).",
@@ -4298,6 +4285,8 @@ var tools = []*genai.Tool{
 					Required: []string{"new_status"},
 				},
 			},
+
+			// 3. Fungsi khusus untuk Palet
 			{
 				Name:        "update_palet_status",
 				Description: "Mengubah status untuk komponen Palet.",
@@ -4313,6 +4302,8 @@ var tools = []*genai.Tool{
 					Required: []string{"new_status"},
 				},
 			},
+
+			// 4. Fungsi khusus untuk Corepart
 			{
 				Name:        "update_corepart_status",
 				Description: "Mengubah status untuk komponen Corepart.",
@@ -4331,7 +4322,187 @@ var tools = []*genai.Tool{
 		},
 	},
 }
+type pdd struct {
+	NoPp               sql.NullString  `json:"no_pp"`
+	NoPanel            sql.NullString  `json:"no_panel"`
+	Project            sql.NullString  `json:"project"`
+	NoWbs              sql.NullString  `json:"no_wbs"`
+	PercentProgress    sql.NullFloat64 `json:"percent_progress"`
+	StatusBusbarPcc    sql.NullString  `json:"status_busbar_pcc"`
+	StatusBusbarMcc    sql.NullString  `json:"status_busbar_mcc"`
+	StatusComponent    sql.NullString  `json:"status_component"`
+	StatusPalet        sql.NullString  `json:"status_palet"`
+	StatusCorepart     sql.NullString  `json:"status_corepart"`
+	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
+	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
+}
+// File: main.go
 
+// =============================================================================
+// FUNGSI AI UTAMA (GANTI SEMUA DI BAWAH INI)
+// =============================================================================
+
+// Salin dan ganti seluruh fungsi askGeminiAboutPanelHandler Anda dengan ini
+func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	panelNoPp := vars["no_pp"]
+
+	var payload struct {
+		Question string  `json:"question"`
+		SenderID string  `json:"sender_id"`
+		ImageB64 *string `json:"image_b64,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+
+	var senderRole string
+	err := a.DB.QueryRow(`
+		SELECT c.role FROM public.companies c
+		JOIN public.company_accounts ca ON c.id = ca.company_id
+		WHERE ca.username = $1`, payload.SenderID).Scan(&senderRole)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mendapatkan role user: "+err.Error())
+		return
+	}
+
+	var panel pdd
+	err = a.DB.QueryRow(`
+		SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart, pu.name as panel_vendor_name, (SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names
+		FROM public.panels p
+		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
+		WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.NoPp, &panel.NoPanel, &panel.Project, &panel.NoWbs, &panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart, &panel.PanelVendorName, &panel.BusbarVendorNames)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan: "+err.Error())
+		return
+	}
+	panelDetailsBytes, _ := json.MarshalIndent(panel, "", "  ")
+    panelDetails := string(panelDetailsBytes)
+
+	rows, err := a.DB.Query(`
+		SELECT i.id, i.title, i.description, i.status, ic.sender_id, ic.text
+		FROM public.issues i
+		JOIN public.chats ch ON i.chat_id = ch.id
+		LEFT JOIN public.issue_comments ic ON i.id = ic.issue_id
+		WHERE ch.panel_no_pp = $1
+		ORDER BY i.created_at, ic.timestamp`, panelNoPp)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil histori isu")
+		return
+	}
+	defer rows.Close()
+
+	var issuesHistory strings.Builder
+	currentIssueID := -1
+	for rows.Next() {
+		var issueID int
+		var issueTitle, issueDesc, issueStatus, commentSender, commentText sql.NullString
+		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil { continue }
+		
+		if issueID != currentIssueID {
+			issuesHistory.WriteString(fmt.Sprintf("\n--- ISU BARU (ID: %d) ---\nJudul: %s\nDeskripsi: %s\nStatus: %s\n", issueID, issueTitle.String, issueDesc.String, issueStatus.String))
+			currentIssueID = issueID
+		}
+		if commentSender.Valid {
+			issuesHistory.WriteString(fmt.Sprintf(" - Komentar dari %s: %s\n", commentSender.String, commentText.String))
+		}
+	}
+
+	ctx := context.Background()
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" // Pastikan API Key Anda benar
+	if apiKey == "" {
+		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
+		return
+	}
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error()); return }
+	defer client.Close()
+
+	model := client.GenerativeModel("gemini-1.5-flash")
+	model.Tools = getToolsForRole(senderRole)
+	cs := model.StartChat()
+	
+	var promptParts []genai.Part
+	fullPromptText := fmt.Sprintf(
+	"**Persona & Aturan:**\n"+
+			"1.  **Kamu adalah asisten AI yang cerdas dan kontekstual bernama Gemini.** Gunakan bahasa Indonesia yang profesional dan proaktif.\n"+
+			"2. Saat kamu perlu mengambil data atau melakukan sebuah aksi, panggil fungsi yang sesuai. Setelah fungsi berhasil dieksekusi, rangkum hasilnya untuk user dalam bahasa percakapan yang natural.\n"	+		
+			"3.  Gunakan format tebal (`**teks**`) untuk menekankan nama isu atau item penting.\n"+
+			"4.  Kamu bisa melakukan banyak hal: meringkas status, mengubah progres panel, mengubah status isu, menambah komentar, mengubah status komponen (Busbar, Palet, dll), dan menugaskan vendor. Selalu tawarkan bantuan jika relevan.\n"+
+			"5.  Lakukan aksi HANYA jika diizinkan oleh role user: **%s**.\n\n"+
+			
+			"**Aturan Penting untuk Memberi 'Rekomendasi Aksi' (`[SUGGESTION]`):**\n"+
+			"1.  **Sintesis Konteks Penuh:** Rekomendasi HARUS relevan dengan topik utama dari keseluruhan diskusi (pertanyaan terakhir user + histori komentar). Jangan membuat rekomendasi acak tentang isu lain yang tidak sedang dibicarakan.\n"+
+			"2.  **Logika Menentukan PIC:** PIC sebuah isu adalah **user terakhir yang memberikan komentar** pada isu tersebut (selain 'gemini_ai'). Jika belum ada komentar, PIC adalah pembuat isu.\n"+
+			"3.  **Rekomendasi Bertahap & Logis:**\n"+
+			"    - **Prioritaskan Komunikasi:** Jika sebuah isu belum ada update, prioritaskan untuk merekomendasikan **penambahan komentar** untuk menanyakan progres ke PIC. Contoh: `[SUGGESTION: Tambah komentar 'bagaimana progresnya?' ke isu 'Missing Metal Part']`.\n"+
+			"    - **JANGAN** langsung menyarankan 'ubah status jadi solved' jika belum ada bukti penyelesaian di histori komentar.\n"+
+			"4.  **Rekomendasi 'Solved' yang Cerdas:**\n"+
+			"    - Kamu HANYA boleh merekomendasikan `[SUGGESTION: Ubah status 'Nama Isu' menjadi solved]` jika **dari histori komentar sudah ada konfirmasi eksplisit** bahwa masalahnya telah teratasi.\n"+
+
+			"**Konteks Data Proyek Saat Ini:**\n"+
+			"Gunakan `ID` isu jika ingin melakukan aksi pada isu tertentu.\n"+
+			"```json\n%s\n```\n\n"+
+			"**Riwayat Isu & Komentar di Panel Ini:**\n"+
+			"```\n%s\n```\n\n"+
+			"**Permintaan User:**\n"+
+			"User '%s' bertanya: \"%s\"",
+		senderRole, panelDetails, issuesHistory.String(), payload.SenderID, payload.Question,
+	)
+	promptParts = append(promptParts, genai.Text(fullPromptText))
+	
+	if payload.ImageB64 != nil && *payload.ImageB64 != "" {
+		if parts := strings.Split(*payload.ImageB64, ","); len(parts) == 2 {
+			if imageBytes, err := base64.StdEncoding.DecodeString(parts[1]); err == nil {
+				promptParts = append(promptParts, genai.ImageData("jpeg", imageBytes))
+			}
+		}
+	}
+
+	resp, err := cs.SendMessage(ctx, promptParts...)
+	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
+
+	actionTaken := false
+	if resp.Candidates != nil && len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
+		part := resp.Candidates[0].Content.Parts[0]
+		if fc, ok := part.(genai.FunctionCall); ok {
+			actionTaken = true
+			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
+
+			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
+			if err != nil { 
+				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err) 
+			}
+			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
+			
+			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
+			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error()); return }
+		}
+	}
+	
+	finalResponseText := extractTextFromResponse(resp)
+	if finalResponseText == "" { finalResponseText = "Maaf, ada sedikit kendala. Boleh coba tanya lagi?" }
+
+	var suggestions []string
+	re := regexp.MustCompile(`\[SUGGESTION:\s*(.*?)\]`)
+	matches := re.FindAllStringSubmatch(finalResponseText, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			suggestions = append(suggestions, match[1])
+		}
+	}
+	finalResponseText = re.ReplaceAllString(finalResponseText, "")
+	
+	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
+		"id":   uuid.New().String(),
+		"text": strings.TrimSpace(finalResponseText),
+		"action_taken": actionTaken,
+		"suggested_actions": suggestions,
+	})
+}
+
+// Salin dan ganti seluruh fungsi getToolsForRole Anda dengan ini
 func getToolsForRole(role string) []*genai.Tool {
 	// Kumpulan semua kemungkinan "alat"
 	var allTools []*genai.FunctionDeclaration
@@ -4458,158 +4629,118 @@ func getToolsForRole(role string) []*genai.Tool {
 
 	return []*genai.Tool{{FunctionDeclarations: allTools}}
 }
-func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	panelNoPp := vars["no_pp"]
-
-	var payload struct {
-		Question string  `json:"question"`
-		SenderID string  `json:"sender_id"`
-		ImageB64 *string `json:"image_b64,omitempty"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload")
-		return
-	}
-
-	var senderRole string
-	err := a.DB.QueryRow(`
-		SELECT c.role FROM public.companies c
-		JOIN public.company_accounts ca ON c.id = ca.company_id
-		WHERE ca.username = $1`, payload.SenderID).Scan(&senderRole)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Gagal mendapatkan role user: "+err.Error())
-		return
-	}
-
-	// (Kode untuk mengambil panelDetails dan issuesHistory tetap sama persis)
-	var panel pdd
-	err = a.DB.QueryRow(`
-		SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart, pu.name as panel_vendor_name, (SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names
-		FROM public.panels p
-		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
-		WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.NoPp, &panel.NoPanel, &panel.Project, &panel.NoWbs, &panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart, &panel.PanelVendorName, &panel.BusbarVendorNames)
-	if err != nil {
-		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan: "+err.Error())
-		return
-	}
-	panelDetailsBytes, _ := json.MarshalIndent(panel, "", "  ")
-    panelDetails := string(panelDetailsBytes)
-
-	rows, err := a.DB.Query(`
-		SELECT i.id, i.title, i.description, i.status, ic.sender_id, ic.text
-		FROM public.issues i
-		JOIN public.chats ch ON i.chat_id = ch.id
-		LEFT JOIN public.issue_comments ic ON i.id = ic.issue_id
-		WHERE ch.panel_no_pp = $1
-		ORDER BY i.created_at, ic.timestamp`, panelNoPp)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil histori isu")
-		return
-	}
-	defer rows.Close()
-	var issuesHistory strings.Builder
-	currentIssueID := -1
-	for rows.Next() {
-		var issueID int
-		var issueTitle, issueDesc, issueStatus, commentSender, commentText sql.NullString
-		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil { continue }
-		if issueID != currentIssueID {
-			issuesHistory.WriteString(fmt.Sprintf("\n--- ISU BARU (ID: %d) ---\nJudul: %s\nDeskripsi: %s\nStatus: %s\n", issueID, issueTitle.String, issueDesc.String, issueStatus.String))
-			currentIssueID = issueID
-		}
-		if commentSender.Valid {
-			issuesHistory.WriteString(fmt.Sprintf(" - Komentar dari %s: %s\n", commentSender.String, commentText.String))
-		}
-	}
 
 
-	ctx := context.Background()
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
-		return
+// Salin dan ganti seluruh fungsi executeDatabaseFunction Anda dengan ini
+func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
+	executeUpdate := func(column string, value interface{}) error {
+		query := fmt.Sprintf("UPDATE panels SET %s = $1 WHERE no_pp = $2", column)
+		_, err := a.DB.Exec(query, value, panelNoPp)
+		return err
 	}
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error()); return }
-	defer client.Close()
 
-	model := client.GenerativeModel("gemini-1.5-flash")
-	model.Tools = getToolsForRole(senderRole)
-	cs := model.StartChat()
+	switch fc.Name {
+	case "get_panel_summary":
+		var panel pdd
+		err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM public.panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
+		if err != nil { return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err) }
+		return fmt.Sprintf("Progres panel saat ini %.0f%%. Status Busbar PCC: %s, Busbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatusBusbarPcc.String, panel.StatusBusbarMcc.String, panel.StatusComponent.String, panel.StatusPalet.String, panel.StatusCorepart.String), nil
+
+	case "update_issue_status":
+		tx, err := a.DB.Begin()
+		if err != nil { return "", fmt.Errorf("gagal memulai transaksi: %w", err) }
+		defer tx.Rollback()
+		
+		issueIDFloat, _ := fc.Args["issue_id"].(float64)
+		newStatus, _ := fc.Args["new_status"].(string)
+		issueID := int(issueIDFloat)
+
+		var currentLogs Logs
+		var issueTitle string
+		err = tx.QueryRow(`SELECT title, logs FROM public.issues WHERE id = $1`, issueID).Scan(&issueTitle, &currentLogs)
+		if err != nil { return "", fmt.Errorf("isu dengan ID %d tidak ditemukan", issueID) }
+
+		newLogEntry := LogEntry{Action: "menandai " + newStatus, User: "gemini_ai", Timestamp: time.Now()}
+		updatedLogs := append(currentLogs, newLogEntry)
+		
+		result, err := tx.Exec("UPDATE issues SET status = $1, logs = $2 WHERE id = $3", newStatus, updatedLogs, issueID)
+		if err != nil { return "", fmt.Errorf("gagal update isu: %w", err) }
+		if rows, _ := result.RowsAffected(); rows == 0 { return "", fmt.Errorf("tidak ada isu yang diupdate") }
+		
+		if err := tx.Commit(); err != nil { return "", fmt.Errorf("gagal commit: %w", err) }
+		
+		log.Printf("SUCCESS & COMMITTED: Issue ID %d ('%s') status changed to '%s'.", issueID, issueTitle, newStatus)
+		return fmt.Sprintf("Status untuk isu '%s' berhasil diubah menjadi '%s'.", issueTitle, newStatus), nil
+
+	case "add_issue_comment":
+		issueIDFloat, _ := fc.Args["issue_id"].(float64)
+		commentText, _ := fc.Args["comment_text"].(string)
+		issueID := int(issueIDFloat)
+
+		_, err := a.DB.Exec(`INSERT INTO issue_comments (id, issue_id, sender_id, text) VALUES ($1, $2, $3, $4)`, uuid.New().String(), issueID, "gemini_ai", commentText)
+		if err != nil { return "", fmt.Errorf("gagal menambah komentar: %w", err) }
+		
+		log.Printf("SUCCESS: Comment added to Issue ID %d. Text: %s", issueID, commentText)
+		return fmt.Sprintf("Komentar '%s' berhasil ditambahkan ke isu ID %d.", commentText, issueID), nil
+
+	case "update_panel_progress":
+		progress, _ := fc.Args["new_progress"].(float64)
+		if progress < 0 || progress > 100 { return "", fmt.Errorf("nilai progres harus antara 0 dan 100") }
+		if err := executeUpdate("percent_progress", progress); err != nil { return "", err }
+		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%.", progress), nil
 	
-	var promptParts []genai.Part
-	fullPromptText := fmt.Sprintf(
-	"**Persona & Aturan:**\n"+
-			"1. **Anda adalah Gemini, asisten AI yang cerdas.** Gunakan bahasa Indonesia profesional.\n"+
-			"2. **JANGAN panggil fungsi.** Tugas Anda adalah menganalisis konteks dan **HANYA memberikan rekomendasi aksi** dalam format JSON yang spesifik.\n"+
-			"3. **Format Rekomendasi:** Selalu pisahkan teks percakapan dan JSON rekomendasi dengan `***`. JSON harus berupa array. Contoh: `Tentu. ***[{\"display_text\": \"Ubah status Isu A\", \"action\": \"update_issue_status\", \"params\": {\"issue_id\": 123, \"new_status\": \"solved\"}}]`\n"+
-            "4. **Konteks:** Anda sedang membantu user '%s' (role: **%s**) pada panel **%s**. \n\n"+
-			"**Konteks Data Panel:**\n```json\n%s\n```\n\n"+
-			"**Riwayat Isu & Komentar:**\n```\n%s\n```\n\n"+
-			"**Permintaan User:** \"%s\"",
-		payload.SenderID, senderRole, panelNoPp, panelDetails, issuesHistory.String(), payload.Question,
-	)
-	promptParts = append(promptParts, genai.Text(fullPromptText))
-	
-	if payload.ImageB64 != nil && *payload.ImageB64 != "" {
-		if parts := strings.Split(*payload.ImageB64, ","); len(parts) == 2 {
-			if imageBytes, err := base64.StdEncoding.DecodeString(parts[1]); err == nil {
-				promptParts = append(promptParts, genai.ImageData("jpeg", imageBytes))
-			}
+	case "update_panel_remark":
+		newRemark, _ := fc.Args["new_remark"].(string)
+		if err := executeUpdate("remarks", newRemark); err != nil { return "", err }
+		return fmt.Sprintf("Catatan panel berhasil diupdate menjadi: '%s'.", newRemark), nil
+
+	case "update_busbar_status":
+		busbarType, _ := fc.Args["busbar_type"].(string)
+		newStatus, _ := fc.Args["new_status"].(string)
+		var dbColumn string
+		if busbarType == "pcc" { dbColumn = "status_busbar_pcc" } else { dbColumn = "status_busbar_mcc" }
+		if err := executeUpdate(dbColumn, newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Busbar %s berhasil diubah menjadi '%s'.", strings.ToUpper(busbarType), newStatus), nil
+
+	case "update_component_status":
+		newStatus, _ := fc.Args["new_status"].(string)
+		if err := executeUpdate("status_component", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Komponen berhasil diubah menjadi '%s'.", newStatus), nil
+
+	case "update_palet_status":
+		newStatus, _ := fc.Args["new_status"].(string)
+		if err := executeUpdate("status_palet", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Palet berhasil diubah menjadi '%s'.", newStatus), nil
+
+	case "update_corepart_status":
+		newStatus, _ := fc.Args["new_status"].(string)
+		if err := executeUpdate("status_corepart", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Corepart berhasil diubah menjadi '%s'.", newStatus), nil
+
+	case "assign_vendor":
+		vendorName, _ := fc.Args["vendor_name"].(string)
+		category, _ := fc.Args["category"].(string)
+
+		var vendorID string
+		err := a.DB.QueryRow("SELECT id FROM public.companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
+		if err != nil { return "", fmt.Errorf("vendor '%s' tidak ditemukan.", vendorName) }
+		
+		var tableName string
+		switch category {
+		case "busbar": tableName = "busbars"
+		case "component": tableName = "components"
+		case "palet": tableName = "palet"
+		case "corepart": tableName = "corepart"
+		default: return "", fmt.Errorf("kategori '%s' tidak valid", category)
 		}
+		
+		query := fmt.Sprintf("INSERT INTO %s (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING", tableName)
+		_, err = a.DB.Exec(query, panelNoPp, vendorID)
+		if err != nil { return "", fmt.Errorf("gagal menugaskan vendor: %w", err) }
+		
+		return fmt.Sprintf("Vendor '%s' berhasil ditugaskan untuk pekerjaan %s.", vendorName, category), nil
+
+	default:
+		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
-
-	resp, err := cs.SendMessage(ctx, promptParts...)
-	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
-	
-	finalResponseText := extractTextFromResponse(resp)
-	if finalResponseText == "" { finalResponseText = "Maaf, ada sedikit kendala. Boleh coba tanya lagi?" }
-
-	var suggestions []SuggestedAction
-	parts := strings.SplitN(finalResponseText, "***", 2)
-	finalResponseText = strings.TrimSpace(parts[0])
-
-	if len(parts) > 1 {
-		suggestionJSON := strings.TrimSpace(parts[1])
-		if err := json.Unmarshal([]byte(suggestionJSON), &suggestions); err != nil {
-			log.Printf("Gagal parse JSON sugesti dari AI: %v. JSON mentah: %s", err, suggestionJSON)
-			suggestions = nil 
-		}
-	}
-	
-	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":                uuid.New().String(),
-		"text":              finalResponseText,
-		"action_taken":      false, // Selalu false karena aksi dieksekusi di endpoint lain
-		"suggested_actions": suggestions,
-	})
-}
-
-func (a *App) executeAiActionHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	panelNoPp := vars["no_pp"]
-
-	var payload struct {
-		Action string                 `json:"action"`
-		Params map[string]interface{} `json:"params"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload")
-		return
-	}
-
-	// Buat objek FunctionCall tiruan untuk dioper ke executeDatabaseFunction
-	fc := genai.FunctionCall{
-		Name: payload.Action,
-		Args: payload.Params,
-	}
-
-	result, err := a.executeDatabaseFunction(fc, panelNoPp)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	respondWithJSON(w, http.StatusOK, map[string]string{"result": result})
 }
