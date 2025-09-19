@@ -4204,123 +4204,162 @@ func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
 	}
 	return ""
 }
-var tools = []*genai.Tool{
-	{
-		FunctionDeclarations: []*genai.FunctionDeclaration{
-			{
-				Name:        "get_issue_explanation",
-				Description: "Memberikan penjelasan dan ringkasan tentang isu yang sedang dibahas berdasarkan judul dan deskripsinya.",
-			},
-			{
-				Name:        "find_related_issues",
-				Description: "Mencari dan memberikan daftar isu-isu lain yang relevan di dalam panel yang sama.",
-			},
-			{
-				Name:        "update_issue_status",
-				Description: "Mengubah status dari sebuah isu. Status 'done' atau 'selesai' akan dianggap sebagai 'solved'.",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"new_status": {
-							Type:        genai.TypeString,
-							Description: "Status baru untuk isu ini. Pilihan: 'solved' atau 'unsolved'.",
-							Enum:        []string{"solved", "unsolved"},
-						},
-					},
-					Required: []string{"new_status"},
-				},
-			},
-			{
-				Name:        "assign_vendor_to_panel",
-				Description: "Menugaskan (assign) sebuah vendor/tim ke sebuah kategori pekerjaan di panel ini.",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"vendor_name": {
-							Type:        genai.TypeString,
-							Description: "Nama vendor atau tim yang akan ditugaskan, contoh: 'GPE', 'DSM', 'Warehouse'.",
-						},
-						"category": {
-							Type:        genai.TypeString,
-							Description: "Kategori pekerjaan yang akan ditugaskan. Pilihan: 'busbar', 'component', 'palet', 'corepart'.",
-							Enum:        []string{"busbar", "component", "palet", "corepart"},
-						},
-					},
-					Required: []string{"vendor_name", "category"},
-				},
-			},{
-				Name:        "update_busbar_status",
-				Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"busbar_type": {
-							Type:        genai.TypeString,
-							Description: "Tipe busbar yang akan diubah.",
-							Enum:        []string{"pcc", "mcc"},
-						},
-						"new_status": {
-							Type:        genai.TypeString,
-							Description: "Status baru untuk busbar.",
-							Enum:        []string{"Open", "Punching/Bending","Plating/Epoxy","100% Siap Kirim", "Close"},
-						},
-					},
-					Required: []string{"busbar_type", "new_status"},
-				},
-			},
 
-			// 2. Fungsi khusus untuk Component
-			{
-				Name:        "update_component_status",
-				Description: "Mengubah status untuk komponen utama (picking component).",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"new_status": {
-							Type:        genai.TypeString,
-							Description: "Status baru untuk komponen.",
-							Enum:        []string{"Open", "On Progress", "Done"},
-						},
-					},
-					Required: []string{"new_status"},
-				},
-			},
+// Salin dan ganti seluruh fungsi getToolsForRole Anda dengan ini
+func getToolsForRole(role string) []*genai.Tool {
+	// Kumpulan semua kemungkinan "alat"
+	var allTools []*genai.FunctionDeclaration
 
-			// 3. Fungsi khusus untuk Palet
-			{
-				Name:        "update_palet_status",
-				Description: "Mengubah status untuk komponen Palet.",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"new_status": {
-							Type:        genai.TypeString,
-							Description: "Status baru untuk palet.",
-							Enum:        []string{"Open", "Close"},
-						},
-					},
-					Required: []string{"new_status"},
-				},
-			},
-
-			// 4. Fungsi khusus untuk Corepart
-			{
-				Name:        "update_corepart_status",
-				Description: "Mengubah status untuk komponen Corepart.",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"new_status": {
-							Type:        genai.TypeString,
-							Description: "Status baru untuk corepart.",
-							Enum:        []string{"Open", "Close"},
-						},
-					},
-					Required: []string{"new_status"},
-				},
-			},
+	// --- Alat untuk Semua Role (Read-only) ---
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name:        "get_panel_summary",
+		Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
+	})
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name:        "find_similar_past_issues",
+		Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya.",
+		Parameters: &genai.Schema{
+			Type:       genai.TypeObject,
+			Properties: map[string]*genai.Schema{"issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."}},
+			Required:   []string{"issue_title"},
 		},
-	},
+	})
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "get_panel_details",
+		Description: "Mendapatkan semua detail dari panel saat ini, termasuk vendor dan status komponen.",
+	})
+
+
+	// --- Alat Aksi Umum (Update Isu & Komentar) ---
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name:        "update_issue_status",
+		Description: "Mengubah status dari sebuah isu spesifik menggunakan ID uniknya.",
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"issue_id":   {Type: genai.TypeNumber, Description: "ID unik dari isu yang statusnya ingin diubah."},
+				"new_status": {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
+			},
+			Required: []string{"issue_id", "new_status"},
+		},
+	})
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name:        "add_issue_comment",
+		Description: "Menambahkan komentar baru ke sebuah isu spesifik.",
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"issue_id":     {Type: genai.TypeNumber, Description: "ID unik dari isu yang ingin dikomentari."},
+				"comment_text": {Type: genai.TypeString, Description: "Isi teks dari komentar."},
+			},
+			Required: []string{"issue_id", "comment_text"},
+		},
+	})
+    
+    // [BARU] Menambahkan fungsi update tanggal yang lebih fleksibel
+    allTools = append(allTools, &genai.FunctionDeclaration{
+        Name:        "update_panel_dates",
+        Description: "Mengubah tanggal penting pada panel seperti Plan Start (start_date), Target Delivery, AO Busbar PCC, atau AO Busbar MCC.",
+        Parameters: &genai.Schema{
+            Type: genai.TypeObject,
+            Properties: map[string]*genai.Schema{
+                "date_type": {
+                    Type: genai.TypeString,
+                    Description: "Jenis tanggal yang akan diubah.",
+                    Enum: []string{"start_date", "target_delivery", "ao_busbar_pcc", "ao_busbar_mcc", "closed_date"},
+                },
+                "new_date": {
+                    Type: genai.TypeString,
+                    Description: "Tanggal baru dalam format 'YYYY-MM-DD'.",
+                },
+            },
+            Required: []string{"date_type", "new_date"},
+        },
+    })
+
+	// --- Alat Khusus Admin (Aksi Berbahaya & Update Penuh) ---
+	if role == AppRoleAdmin {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name:        "update_panel_progress",
+			Description: "ADMIN ONLY: Mengubah persentase progres dari panel saat ini.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNumber, Description: "Nilai progres baru antara 0-100."}},
+				Required:   []string{"new_progress"},
+			},
+		})
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name:        "update_panel_remark",
+			Description: "ADMIN ONLY: Menambah atau mengubah catatan/remark utama pada panel.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_remark": {Type: genai.TypeString, Description: "Teks remark yang baru."}},
+				Required:   []string{"new_remark"},
+			},
+		})
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name:        "assign_vendor",
+			Description: "ADMIN ONLY: Menugaskan vendor ke sebuah kategori pekerjaan di panel ini.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"vendor_name": {Type: genai.TypeString, Description: "Nama vendor yang akan ditugaskan, contoh: 'GPE', 'DSM', 'ABACUS'."},
+					"category":    {Type: genai.TypeString, Description: "Kategori pekerjaan.", Enum: []string{"busbar", "component", "palet", "corepart"}},
+				},
+				Required: []string{"vendor_name", "category"},
+			},
+		})
+        // [DIHAPUS] Fungsi delete_panel dihilangkan dari daftar tools
+	}
+
+	// --- Alat Berdasarkan Role Spesifik (K3, K5, WHS) ---
+	if role == AppRoleAdmin || role == AppRoleK3 {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_palet_status",
+			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Palet.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required:   []string{"new_status"},
+			},
+		})
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_corepart_status",
+			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Corepart.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required:   []string{"new_status"},
+			},
+		})
+	}
+	if role == AppRoleAdmin || role == AppRoleK5 {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name:        "update_busbar_status",
+			Description: "K5 & ADMIN ONLY: Mengubah status untuk komponen Busbar.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"busbar_type": {Type: genai.TypeString, Enum: []string{"pcc", "mcc"}},
+					"new_status":  {Type: genai.TypeString, Enum: []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"}},
+				},
+				Required: []string{"busbar_type", "new_status"},
+			},
+		})
+	}
+	if role == AppRoleAdmin || role == AppRoleWarehouse {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name:        "update_component_status",
+			Description: "WAREHOUSE & ADMIN ONLY: Mengubah status untuk komponen utama.",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
+				Required:   []string{"new_status"},
+			},
+		})
+	}
+
+	return []*genai.Tool{{FunctionDeclarations: allTools}}
 }
 type pdd struct {
 	NoPp               sql.NullString  `json:"no_pp"`
@@ -4630,7 +4669,6 @@ func getToolsForRole(role string) []*genai.Tool {
 	return []*genai.Tool{{FunctionDeclarations: allTools}}
 }
 
-
 // Salin dan ganti seluruh fungsi executeDatabaseFunction Anda dengan ini
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
 	executeUpdate := func(column string, value interface{}) error {
@@ -4640,11 +4678,21 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 	}
 
 	switch fc.Name {
-	case "get_panel_summary":
+	case "get_panel_details":
 		var panel pdd
-		err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM public.panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
-		if err != nil { return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err) }
-		return fmt.Sprintf("Progres panel saat ini %.0f%%. Status Busbar PCC: %s, Busbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatusBusbarPcc.String, panel.StatusBusbarMcc.String, panel.StatusComponent.String, panel.StatusPalet.String, panel.StatusCorepart.String), nil
+		err := a.DB.QueryRow(`
+			SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, 
+			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart, 
+			pu.name as panel_vendor_name, 
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names
+			FROM public.panels p
+			LEFT JOIN public.companies pu ON p.vendor_id = pu.id
+			WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.NoPp, &panel.NoPanel, &panel.Project, &panel.NoWbs, &panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart, &panel.PanelVendorName, &panel.BusbarVendorNames)
+		if err != nil {
+			return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err)
+		}
+		panelBytes, _ := json.Marshal(panel)
+		return string(panelBytes), nil
 
 	case "update_issue_status":
 		tx, err := a.DB.Begin()
@@ -4694,6 +4742,38 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		if err := executeUpdate("remarks", newRemark); err != nil { return "", err }
 		return fmt.Sprintf("Catatan panel berhasil diupdate menjadi: '%s'.", newRemark), nil
 
+	// [BARU] Logika untuk menangani update tanggal
+    case "update_panel_dates":
+        dateType, _ := fc.Args["date_type"].(string)
+        newDateStr, _ := fc.Args["new_date"].(string)
+
+        // Validasi dan parsing tanggal
+        parsedDate, err := time.Parse("2006-01-02", newDateStr)
+        if err != nil {
+            return "", fmt.Errorf("format tanggal tidak valid. Gunakan format 'YYYY-MM-DD'")
+        }
+
+        var dbColumn string
+        switch dateType {
+        case "start_date":
+            dbColumn = "start_date"
+        case "target_delivery":
+            dbColumn = "target_delivery"
+        case "ao_busbar_pcc":
+            dbColumn = "ao_busbar_pcc"
+        case "ao_busbar_mcc":
+            dbColumn = "ao_busbar_mcc"
+        case "closed_date":
+             dbColumn = "closed_date"
+        default:
+            return "", fmt.Errorf("jenis tanggal '%s' tidak dikenal", dateType)
+        }
+
+        if err := executeUpdate(dbColumn, parsedDate); err != nil {
+            return "", err
+        }
+        return fmt.Sprintf("Tanggal %s berhasil diubah menjadi %s.", dateType, newDateStr), nil
+
 	case "update_busbar_status":
 		busbarType, _ := fc.Args["busbar_type"].(string)
 		newStatus, _ := fc.Args["new_status"].(string)
@@ -4739,7 +4819,7 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		if err != nil { return "", fmt.Errorf("gagal menugaskan vendor: %w", err) }
 		
 		return fmt.Sprintf("Vendor '%s' berhasil ditugaskan untuk pekerjaan %s.", vendorName, category), nil
-
+    // [DIHAPUS] Case untuk delete_panel dihilangkan
 	default:
 		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
