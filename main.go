@@ -4219,6 +4219,118 @@ type pdd struct {
 	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
 }
 
+var tools = []*genai.Tool{
+	{
+		FunctionDeclarations: []*genai.FunctionDeclaration{
+			{
+				Name:        "get_issue_explanation",
+				Description: "Memberikan penjelasan dan ringkasan tentang isu yang sedang dibahas berdasarkan judul dan deskripsinya.",
+			},
+			{
+				Name:        "find_related_issues",
+				Description: "Mencari dan memberikan daftar isu-isu lain yang relevan di dalam panel yang sama.",
+			},
+			{
+				Name:        "update_issue_status",
+				Description: "Mengubah status dari sebuah isu. Status 'done' atau 'selesai' akan dianggap sebagai 'solved'.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk isu ini. Pilihan: 'solved' atau 'unsolved'.",
+							Enum:        []string{"solved", "unsolved"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
+			{
+				Name:        "assign_vendor_to_panel",
+				Description: "Menugaskan (assign) sebuah vendor/tim ke sebuah kategori pekerjaan di panel ini.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"vendor_name": {
+							Type:        genai.TypeString,
+							Description: "Nama vendor atau tim yang akan ditugaskan, contoh: 'GPE', 'DSM', 'Warehouse'.",
+						},
+						"category": {
+							Type:        genai.TypeString,
+							Description: "Kategori pekerjaan yang akan ditugaskan. Pilihan: 'busbar', 'component', 'palet', 'corepart'.",
+							Enum:        []string{"busbar", "component", "palet", "corepart"},
+						},
+					},
+					Required: []string{"vendor_name", "category"},
+				},
+			}, {
+				Name:        "update_busbar_status",
+				Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"busbar_type": {
+							Type:        genai.TypeString,
+							Description: "Tipe busbar yang akan diubah.",
+							Enum:        []string{"pcc", "mcc"},
+						},
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk busbar.",
+							Enum:        []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"},
+						},
+					},
+					Required: []string{"busbar_type", "new_status"},
+				},
+			},
+			{
+				Name:        "update_component_status",
+				Description: "Mengubah status untuk komponen utama (picking component).",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk komponen.",
+							Enum:        []string{"Open", "On Progress", "Done"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
+			{
+				Name:        "update_palet_status",
+				Description: "Mengubah status untuk komponen Palet.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk palet.",
+							Enum:        []string{"Open", "Close"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
+			{
+				Name:        "update_corepart_status",
+				Description: "Mengubah status untuk komponen Corepart.",
+				Parameters: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"new_status": {
+							Type:        genai.TypeString,
+							Description: "Status baru untuk corepart.",
+							Enum:        []string{"Open", "Close"},
+						},
+					},
+					Required: []string{"new_status"},
+				},
+			},
+		},
+	},
+}
 
 func getToolsForRole(role string) []*genai.Tool {
 	// Kumpulan semua kemungkinan "alat"
