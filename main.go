@@ -4916,7 +4916,7 @@ func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Requ
         ORDER BY ca.username
         LIMIT 5`
 
-    rows, err := a.DB.Query(query)
+    rows, err = a.DB.Query(query)
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Gagal mengambil rekomendasi email: "+err.Error())
         return
