@@ -3284,18 +3284,7 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal menjalankan migrasi untuk kolom is_system_comment: %v", err)
 	}
 	
-	alterIssuesTableSQL := `
-	DO $$
-	BEGIN
-		IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'issues' AND column_name = 'issue_type') THEN
-			ALTER TABLE issues DROP COLUMN issue_type;
-		END IF;
-	END;
-	$$;
-	`
-	if _, err := db.Exec(alterIssuesTableSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi untuk menghapus kolom issue_type: %v", err)
-	}
+
 
 	createTablesSQLPhotos:= `
 	CREATE TABLE IF NOT EXISTS photos (
@@ -4916,7 +4905,7 @@ func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Requ
         ORDER BY ca.username
         LIMIT 5`
 
-    rows, err = a.DB.Query(query)
+    rows, err := a.DB.Query(query)
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Gagal mengambil rekomendasi email: "+err.Error())
         return
