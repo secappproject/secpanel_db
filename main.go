@@ -25,6 +25,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/xuri/excelize/v2"
 	"google.golang.org/api/option"
+	"gopkg.in/gomail.v2"
 )
 
 // =============================================================================
@@ -37,6 +38,14 @@ const (
 	AppRoleK3        = "k3"
 	AppRoleK5        = "k5"
 )
+
+const (
+	CONFIG_SMTP_HOST     = "smtp.gmail.com"
+	CONFIG_SMTP_PORT     = 587
+	CONFIG_SENDER_EMAIL  = "trisutorpro@gmail.com"
+	CONFIG_AUTH_PASSWORD = "bbcsxqtxmxbzveod"
+)
+
 type LogEntry struct {
 	Action    string    `json:"action"`    // e.g., "membuat issue", "menandai solved"
 	User      string    `json:"user"`      // The username who performed the action
@@ -115,6 +124,8 @@ type Issue struct {
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	NotifyEmail *string   `json:"notify_email,omitempty"`
+
 }
 
 type Photo struct {
@@ -2662,10 +2673,13 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
 		return
 	}
+
+	// 1. Tambahkan NotifyEmail ke struct payload
 	var payload struct {
 		Description string   `json:"issue_description"`
 		Title       string   `json:"issue_title"`
 		CreatedBy   string   `json:"created_by"`
+		NotifyEmail string   `json:"notify_email"` 
 		Photos      []string `json:"photos"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -2676,28 +2690,34 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusBadRequest, "Root cause tidak boleh kosong")
 		return
 	}
+
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to start transaction")
 		return
 	}
 	defer tx.Rollback()
+
 	chatID, err := a.getOrCreateChatByPanel(panelNoPp, tx)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
 	initialLog := Logs{
 		{Action: "membuat issue", User: payload.CreatedBy, Timestamp: time.Now()},
 	}
 	var issueID int
-	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status)
-			VALUES ($1, $2, $3, $4, $5, 'unsolved') RETURNING id`
-	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog).Scan(&issueID)
+
+	// 2. Tambahkan notify_email ke query INSERT
+	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status, notify_email)
+			  VALUES ($1, $2, $3, $4, $5, 'unsolved', $6) RETURNING id`
+	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog, payload.NotifyEmail).Scan(&issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create issue: "+err.Error())
 		return
 	}
+
 	for _, photoBase64 := range payload.Photos {
 		_, err := tx.Exec("INSERT INTO photos (issue_id, photo_data) VALUES ($1, $2)", issueID, photoBase64)
 		if err != nil {
@@ -2743,6 +2763,22 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Failed to commit transaction")
 		return
 	}
+	// 3. Panggil fungsi email setelah commit berhasil (dalam goroutine)
+	go func() {
+		recipients := strings.Split(payload.NotifyEmail, ",")
+		subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
+		htmlBody := fmt.Sprintf(
+			`<h3>Isu Baru Telah Dibuat pada Panel %s</h3>
+			 <p><strong>Judul Isu:</strong> %s</p>
+			 <p><strong>Deskripsi:</strong> %s</p>
+			 <p><strong>Dibuat oleh:</strong> %s</p>
+			 <hr>
+			 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+			panelNoPp, payload.Title, payload.Description, payload.CreatedBy,
+		)
+		sendNotificationEmail(recipients, subject, htmlBody)
+	}()
+
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
 }
 func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
@@ -2863,11 +2899,14 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
 		return
 	}
+
+	// 1. Ubah NotifyEmail menjadi pointer agar bisa deteksi perubahannya
 	var payload struct {
-		Description string `json:"issue_description"`
-		Title       string `json:"issue_title"`
-		Status      string `json:"issue_status"`
-		UpdatedBy   string `json:"updated_by"`
+		Description string  `json:"issue_description"`
+		Title       string  `json:"issue_title"`
+		Status      string  `json:"issue_status"`
+		UpdatedBy   string  `json:"updated_by"`
+		NotifyEmail *string `json:"notify_email,omitempty"` // Pointer agar bisa nil
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -2878,7 +2917,6 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- ▼▼▼ PERUBAHAN DIMULAI DI SINI ▼▼▼ ---
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
@@ -2886,14 +2924,18 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	// 2. Ambil data lama termasuk notify_email dan panel_no_pp
 	var currentLogs Logs
-	var currentStatus string
-	err = tx.QueryRow("SELECT logs, status FROM public.issues WHERE id = $1", issueID).Scan(&currentLogs, &currentStatus)
+	var currentStatus, notifyEmail, panelNoPp string
+	err = tx.QueryRow(`
+		SELECT i.logs, i.status, COALESCE(i.notify_email, ''), c.panel_no_pp
+		FROM public.issues i JOIN public.chats c ON i.chat_id = c.id
+		WHERE i.id = $1`, issueID).Scan(&currentLogs, &currentStatus, &notifyEmail, &panelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatusNotFound, "Issue not found or failed to get logs: "+err.Error())
+		respondWithError(w, http.StatusNotFound, "Issue not found or failed to get details: "+err.Error())
 		return
 	}
-	
+
 	logAction := "mengubah issue"
 	if payload.Status != currentStatus {
 		if payload.Status == "solved" {
@@ -2902,12 +2944,22 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 			logAction = "membuka kembali issue"
 		}
 	}
+
 	newLogEntry := LogEntry{Action: logAction, User: payload.UpdatedBy, Timestamp: time.Now()}
 	updatedLogs := append(currentLogs, newLogEntry)
 
-	// 1. Update tabel 'issues' seperti biasa
-	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4 WHERE id = $5`
-	res, err := tx.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, issueID)
+	// 3. Tentukan nilai final notify_email
+	finalNotifyEmail := notifyEmail // Default pakai nilai lama
+	if payload.NotifyEmail != nil {
+		finalNotifyEmail = *payload.NotifyEmail // Pakai nilai baru jika dikirim di payload
+		if logAction == "mengubah issue" {
+			logAction = "mengubah daftar notifikasi" // Aksi lebih spesifik untuk email
+		}
+	}
+	
+	// 4. Update query untuk menyertakan notify_email
+	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4, notify_email = $5 WHERE id = $6`
+	res, err := tx.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, finalNotifyEmail, issueID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update issue: "+err.Error())
 		return
@@ -2944,6 +2996,24 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
+
+	// 5. Kirim email jika ada perubahan status atau perubahan daftar notifikasi
+	go func() {
+		if currentStatus != payload.Status || payload.NotifyEmail != nil {
+			recipients := strings.Split(finalNotifyEmail, ",")
+			subject := fmt.Sprintf("[SecPanel] Update Isu: %s", payload.Title)
+			htmlBody := fmt.Sprintf(
+				`<h3>Ada Update pada Isu di Panel %s</h3>
+				 <p><strong>Judul Isu:</strong> %s</p>
+				 <p><strong>Aksi:</strong> Isu ini telah <strong>%s</strong>.</p>
+				 <p><strong>Oleh:</strong> %s</p>
+				 <hr>
+				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+				panelNoPp, payload.Title, logAction, payload.UpdatedBy,
+			)
+			sendNotificationEmail(recipients, subject, htmlBody)
+		}
+	}()
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
@@ -3101,7 +3171,7 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel chats: %v", err)
 	}
 
-	createTablesSQLIssues:= `
+	createTablesSQLIssues := `
 	CREATE TABLE IF NOT EXISTS issues (
 		id SERIAL PRIMARY KEY,
 		chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
@@ -3110,11 +3180,24 @@ func initDB(db *sql.DB) {
 		status VARCHAR(50) NOT NULL DEFAULT 'unsolved',
 		logs JSONB,
 		created_by VARCHAR(255),
+		notify_email TEXT, -- TAMBAHKAN KOLOM INI
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
 	if _, err := db.Exec(createTablesSQLIssues); err != nil {
 		log.Fatalf("Gagal membuat tabel issues: %v", err)
+	}
+	alterIssuesTableSQL := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'issues' AND column_name = 'notify_email') THEN
+			ALTER TABLE issues ADD COLUMN notify_email TEXT;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(alterIssuesTableSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom notify_email: %v", err)
 	}
 
 	createIssueTitlesTableSQL := `
@@ -3792,18 +3875,57 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 		imageUrls = append(imageUrls, "/"+filepath)
 	}
 
-	imageUrlsJSON, _ := json.Marshal(imageUrls)
+	imageUrlsJSON, _ := json.Marshal(imageUrls) // Asumsikan `imageUrls` sudah diproses
 	newCommentID := uuid.New().String()
 
 	query := `
 		INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_comment_id, reply_to_user_id, image_urls)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
 	_, err = a.DB.Exec(query, newCommentID, issueID, payload.SenderID, payload.Text, payload.ReplyToCommentID, payload.ReplyToUserID, imageUrlsJSON)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create comment: "+err.Error())
 		return
 	}
+
+	// 1. Kirim notifikasi setelah komentar berhasil dibuat
+	go func() {
+		var notifyEmail, issueTitle, panelNoPp string
+		err := a.DB.QueryRow(`
+			SELECT COALESCE(i.notify_email, ''), i.title, c.panel_no_pp
+			FROM public.issues i JOIN public.chats c ON i.chat_id = c.id
+			WHERE i.id = $1`, issueID).Scan(&notifyEmail, &issueTitle, &panelNoPp)
+		if err != nil {
+			log.Printf("Gagal ambil info isu untuk notifikasi email (ID: %d): %v", issueID, err)
+			return
+		}
+
+		// 2. Filter agar tidak mengirim email ke orang yang membuat komentar
+		allRecipients := strings.Split(notifyEmail, ",")
+		finalRecipients := []string{}
+		for _, r := range allRecipients {
+			// Cek email tidak kosong dan bukan email si pengirim komentar
+			if strings.TrimSpace(r) != "" && strings.TrimSpace(r) != strings.TrimSpace(payload.SenderID) {
+				finalRecipients = append(finalRecipients, r)
+			}
+		}
+
+		if len(finalRecipients) > 0 {
+			subject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
+			htmlBody := fmt.Sprintf(
+				`<h3>Komentar Baru pada Isu di Panel %s</h3>
+				 <p><strong>Judul Isu:</strong> %s</p>
+				 <p><strong>Dari:</strong> %s</p>
+				 <p><strong>Komentar:</strong></p>
+				 <blockquote style="border-left: 2px solid #ccc; padding-left: 10px; margin-left: 5px; font-style: italic;">
+					%s
+				 </blockquote>
+				 <hr>
+				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+				panelNoPp, issueTitle, payload.SenderID, payload.Text,
+			)
+			sendNotificationEmail(finalRecipients, subject, htmlBody)
+		}
+	}()
 
 	respondWithJSON(w, http.StatusCreated, map[string]string{"id": newCommentID})
 }
@@ -4742,5 +4864,40 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 
 	default:
 		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
+	}
+}
+
+func sendNotificationEmail(recipients []string, subject, htmlBody string) {
+	// Filter email kosong atau tidak valid
+	validRecipients := []string{}
+	for _, r := range recipients {
+		if strings.Contains(strings.TrimSpace(r), "@") {
+			validRecipients = append(validRecipients, r)
+		}
+	}
+
+	if len(validRecipients) == 0 {
+		log.Println("Tidak ada penerima email yang valid, notifikasi dilewati.")
+		return
+	}
+
+	mailer := gomail.NewMessage()
+	mailer.SetHeader("From", fmt.Sprintf("SecPanel Notifikasi <%s>", CONFIG_SENDER_EMAIL))
+	mailer.SetHeader("To", validRecipients...)
+	mailer.SetHeader("Subject", subject)
+	mailer.SetBody("text/html", htmlBody)
+
+	dialer := gomail.NewDialer(
+		CONFIG_SMTP_HOST,
+		CONFIG_SMTP_PORT,
+		CONFIG_SENDER_EMAIL,
+		CONFIG_AUTH_PASSWORD,
+	)
+
+	log.Printf("Mengirim email notifikasi ke: %v", validRecipients)
+	if err := dialer.DialAndSend(mailer); err != nil {
+		log.Printf("Gagal mengirim email: %v", err)
+	} else {
+		log.Println("Email notifikasi berhasil dikirim.")
 	}
 }
