@@ -41,7 +41,7 @@ const (
 
 const (
 	CONFIG_SMTP_HOST     = "smtp.gmail.com"
-	CONFIG_SMTP_PORT     = 587
+	CONFIG_SMTP_PORT     = 2525
 	CONFIG_SENDER_EMAIL  = "trisutorpro@gmail.com"
 	CONFIG_AUTH_PASSWORD = "bbcsxqtxmxbzveod"
 )
