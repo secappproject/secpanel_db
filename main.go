@@ -41,7 +41,7 @@ const (
 
 const (
 	CONFIG_SMTP_HOST     = "smtp.gmail.com"
-	CONFIG_SMTP_PORT     = 2525
+	CONFIG_SMTP_PORT     = 587
 	CONFIG_SENDER_EMAIL  = "trisutorpro@gmail.com"
 	CONFIG_AUTH_PASSWORD = "bbcsxqtxmxbzveod"
 )
@@ -3000,24 +3000,65 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
-
 	// 5. Kirim email jika ada perubahan status atau perubahan daftar notifikasi
 	go func() {
-		if currentStatus != payload.Status || payload.NotifyEmail != nil {
-			recipients := strings.Split(finalNotifyEmail, ",")
-			subject := fmt.Sprintf("[SecPanel] Update Isu: %s", payload.Title)
-			htmlBody := fmt.Sprintf(
-				`<h3>Ada Update pada Isu di Panel %s</h3>
-				 <p><strong>Judul Isu:</strong> %s</p>
-				 <p><strong>Aksi:</strong> Isu ini telah <strong>%s</strong>.</p>
-				 <p><strong>Oleh:</strong> %s</p>
-				 <hr>
-				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
-				panelNoPp, payload.Title, logAction, payload.UpdatedBy,
-			)
-			sendNotificationEmail(recipients, subject, htmlBody)
-		}
+    // Ambil daftar email lama dan baru untuk perbandingan
+    oldEmails := make(map[string]bool)
+    for _, email := range strings.Split(notifyEmail, ",") { // 'notifyEmail' adalah email dari DB sebelum update
+        if strings.TrimSpace(email) != "" {
+            oldEmails[strings.TrimSpace(email)] = true
+        }
+    }
+
+    newEmailsList := strings.Split(finalNotifyEmail, ",") // 'finalNotifyEmail' adalah daftar email yang baru
+    newEmails := make(map[string]bool)
+    for _, email := range newEmailsList {
+        if strings.TrimSpace(email) != "" {
+            newEmails[strings.TrimSpace(email)] = true
+        }
+    }
+
+    // 1. Logika untuk perubahan status: Kirim ke semua orang
+    if currentStatus != payload.Status {
+        recipients := strings.Split(finalNotifyEmail, ",")
+        subject := fmt.Sprintf("[SecPanel] Update Status Isu: %s", payload.Title)
+        htmlBody := fmt.Sprintf(
+            `<h3>Status Isu pada Panel %s Telah Diubah</h3>
+             <p><strong>Judul Isu:</strong> %s</p>
+             <p><strong>Aksi:</strong> Status isu ini telah diubah menjadi <strong>%s</strong>.</p>
+             <p><strong>Oleh:</strong> %s</p>
+             <hr>
+             <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+            panelNoPp, payload.Title, payload.Status, payload.UpdatedBy,
+        )
+        sendNotificationEmail(recipients, subject, htmlBody)
+        return // Hentikan proses agar tidak ada email duplikat
+    }
+
+    // 2. Logika jika HANYA daftar email yang berubah
+    if payload.NotifyEmail != nil {
+        var addedEmails []string
+        // Cari email yang baru ditambahkan
+        for email := range newEmails {
+            if !oldEmails[email] { // Jika email ada di daftar baru tapi tidak ada di daftar lama
+                addedEmails = append(addedEmails, email)
+            }
+        }
+
+        // Kirim notifikasi HANYA ke email yang baru ditambahkan
+        if len(addedEmails) > 0 {
+            subject := fmt.Sprintf("[SecPanel] Anda Ditambahkan ke Notifikasi Isu: %s", payload.Title)
+            htmlBody := fmt.Sprintf(
+                `<h3>Anda Telah Ditambahkan ke Notifikasi Isu</h3>
+                 <p>Anda akan menerima pembaruan untuk isu <strong>"%s"</strong> pada panel <strong>%s</strong>.</p>
+                 <p><strong>Ditambahkan oleh:</strong> %s</p>
+                 <hr>
+                 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+                payload.Title, panelNoPp, payload.UpdatedBy,
+            )
+            sendNotificationEmail(addedEmails, subject, htmlBody)
+        }
+    	}
 	}()
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
