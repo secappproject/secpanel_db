@@ -417,6 +417,7 @@ func (a *App) initializeRoutes() {
 	// Issue Management Routes
 	a.Router.HandleFunc("/panels/{no_pp}/issues", a.getIssuesByPanelHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{no_pp}/issues", a.createIssueForPanelHandler).Methods("POST")
+    a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
 	a.Router.HandleFunc("/issues/{id}", a.getIssueByIDHandler).Methods("GET")
 	a.Router.HandleFunc("/issues/{id}", a.updateIssueHandler).Methods("PUT")
 	a.Router.HandleFunc("/issues/{id}", a.deleteIssueHandler).Methods("DELETE")
@@ -445,7 +446,6 @@ func (a *App) initializeRoutes() {
 	fs := http.FileServer(http.Dir("./uploads/"))
 	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 
-    a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
 
 }
 
@@ -4895,44 +4895,50 @@ func sendNotificationEmail(recipients []string, subject, htmlBody string) {
 		log.Println("Email notifikasi berhasil dikirim.")
 	}
 }
-
 func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Request) {
-	// Query untuk mengambil semua nilai dari kolom notify_email yang tidak kosong.
-	query := `SELECT notify_email FROM public.issues WHERE notify_email IS NOT NULL AND notify_email != ''`
+    // Ambil issue_title dari query parameter (?issue_title=...)
+    issueTitle := r.URL.Query().Get("issue_title")
 
-	rows, err := a.DB.Query(query)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data email: "+err.Error())
-		return
-	}
-	defer rows.Close()
+    // Query dasar untuk mengambil semua email unik
+    query := `SELECT DISTINCT unnest(string_to_array(notify_email, ',')) as email
+              FROM public.issues WHERE notify_email IS NOT NULL AND notify_email != ''`
+    var args []interface{}
 
-	// Menggunakan map (berperan sebagai Set) untuk memastikan setiap email unik.
-	emailSet := make(map[string]bool)
+    // Jika ada filter issue_title, tambahkan ke query
+    if issueTitle != "" {
+        query = `SELECT DISTINCT unnest(string_to_array(notify_email, ',')) as email
+                 FROM public.issues
+                 WHERE notify_email IS NOT NULL AND notify_email != '' AND title = $1`
+        args = append(args, issueTitle)
+    }
 
-	for rows.Next() {
-		var notifyEmails string
-		if err := rows.Scan(&notifyEmails); err != nil {
-			log.Printf("Gagal memindai notify_email: %v", err)
-			continue
-		}
+    rows, err := a.DB.Query(query, args...)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data email: "+err.Error())
+        return
+    }
+    defer rows.Close()
 
-		// Memisahkan string email berdasarkan koma, karena satu entri bisa berisi "a@mail.com,b@mail.com".
-		emails := strings.Split(notifyEmails, ",")
-		for _, email := range emails {
-			// Membersihkan spasi di awal/akhir dan memastikan email tidak kosong.
-			trimmedEmail := strings.TrimSpace(email)
-			if trimmedEmail != "" {
-				emailSet[trimmedEmail] = true
-			}
-		}
-	}
+    // Menggunakan map untuk memastikan setiap email unik.
+    emailSet := make(map[string]bool)
+    for rows.Next() {
+        var email sql.NullString
+        if err := rows.Scan(&email); err != nil {
+            log.Printf("Gagal memindai email: %v", err)
+            continue
+        }
+        if email.Valid {
+            trimmedEmail := strings.TrimSpace(email.String)
+            if trimmedEmail != "" {
+                emailSet[trimmedEmail] = true
+            }
+        }
+    }
 
-	// Mengonversi map kembali menjadi slice untuk dikirim sebagai respons JSON.
-	var recommendations []string
-	for email := range emailSet {
-		recommendations = append(recommendations, email)
-	}
+    var recommendations []string
+    for email := range emailSet {
+        recommendations = append(recommendations, email)
+    }
 
-	respondWithJSON(w, http.StatusOK, recommendations)
+    respondWithJSON(w, http.StatusOK, recommendations)
 }
