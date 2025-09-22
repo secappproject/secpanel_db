@@ -2653,8 +2653,8 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
 
-// getOrCreateChatByPanel is a helper function to find or create a chat for a panel.
-func (a *App) getOrCreateChatByPanel(panelNoPp string, tx *sql.Tx) (int, error) {
+
+func getOrCreateChatByPanel(tx *sql.Tx, panelNoPp string) (int, error) {
 	var chatID int
 	// Check if chat exists
 	err := tx.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
@@ -2669,6 +2669,7 @@ func (a *App) getOrCreateChatByPanel(panelNoPp string, tx *sql.Tx) (int, error) 
 	}
 	return chatID, nil
 }
+
 func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
