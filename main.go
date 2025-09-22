@@ -444,6 +444,9 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE")
 	fs := http.FileServer(http.Dir("./uploads/"))
 	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
+
+	a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
+
 }
 
 // =============================================================================
@@ -4900,4 +4903,35 @@ func sendNotificationEmail(recipients []string, subject, htmlBody string) {
 	} else {
 		log.Println("Email notifikasi berhasil dikirim.")
 	}
+}
+
+func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Request) {
+    // Logika ini bisa dikembangkan, misalnya mengambil user dari proyek yang sama,
+    // atau user yang paling sering di-mention.
+    // Untuk saat ini, kita akan ambil beberapa user non-admin secara acak.
+    query := `
+        SELECT ca.username FROM public.company_accounts ca
+        JOIN public.companies c ON ca.company_id = c.id
+        WHERE c.role != 'admin'
+        ORDER BY ca.username
+        LIMIT 5`
+
+    rows, err := a.DB.Query(query)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Gagal mengambil rekomendasi email: "+err.Error())
+        return
+    }
+    defer rows.Close()
+
+    var emails []string
+    for rows.Next() {
+        var email string
+        if err := rows.Scan(&email); err != nil {
+            continue // Lewati jika ada error
+        }
+        // Asumsi username adalah email, jika tidak, Anda perlu query tabel user/kontak
+        emails = append(emails, email)
+    }
+
+    respondWithJSON(w, http.StatusOK, emails)
 }
