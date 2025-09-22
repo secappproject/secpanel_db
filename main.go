@@ -415,9 +415,9 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST")
 
 	// Issue Management Routes
+	a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{no_pp}/issues", a.getIssuesByPanelHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{no_pp}/issues", a.createIssueForPanelHandler).Methods("POST")
-    a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
 	a.Router.HandleFunc("/issues/{id}", a.getIssueByIDHandler).Methods("GET")
 	a.Router.HandleFunc("/issues/{id}", a.updateIssueHandler).Methods("PUT")
 	a.Router.HandleFunc("/issues/{id}", a.deleteIssueHandler).Methods("DELETE")
@@ -4895,31 +4895,32 @@ func sendNotificationEmail(recipients []string, subject, htmlBody string) {
 		log.Println("Email notifikasi berhasil dikirim.")
 	}
 }
+
 func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Request) {
-    // Ambil issue_title dari query parameter (?issue_title=...)
-    issueTitle := r.URL.Query().Get("issue_title")
+    // Ambil panel_no_pp dari query parameter (?panel_no_pp=...)
+    panelNoPp := r.URL.Query().Get("panel_no_pp")
 
-    // Query dasar untuk mengambil semua email unik
-    query := `SELECT DISTINCT unnest(string_to_array(notify_email, ',')) as email
-              FROM public.issues WHERE notify_email IS NOT NULL AND notify_email != ''`
-    var args []interface{}
-
-    // Jika ada filter issue_title, tambahkan ke query
-    if issueTitle != "" {
-        query = `SELECT DISTINCT unnest(string_to_array(notify_email, ',')) as email
-                 FROM public.issues
-                 WHERE notify_email IS NOT NULL AND notify_email != '' AND title = $1`
-        args = append(args, issueTitle)
+    // Jika tidak ada panel_no_pp, tidak ada yang bisa direkomendasikan
+    if panelNoPp == "" {
+        respondWithJSON(w, http.StatusOK, []string{})
+        return
     }
 
-    rows, err := a.DB.Query(query, args...)
+    // Query untuk mengambil semua email unik dari semua isu pada panel yang sama
+    query := `
+        SELECT DISTINCT unnest(string_to_array(i.notify_email, ',')) as email
+        FROM public.issues i
+        JOIN public.chats c ON i.chat_id = c.id
+        WHERE c.panel_no_pp = $1 AND i.notify_email IS NOT NULL AND i.notify_email != ''
+    `
+
+    rows, err := a.DB.Query(query, panelNoPp)
     if err != nil {
         respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data email: "+err.Error())
         return
     }
     defer rows.Close()
 
-    // Menggunakan map untuk memastikan setiap email unik.
     emailSet := make(map[string]bool)
     for rows.Next() {
         var email sql.NullString
@@ -4927,6 +4928,7 @@ func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Requ
             log.Printf("Gagal memindai email: %v", err)
             continue
         }
+        // Pastikan email valid dan tidak kosong setelah dibersihkan
         if email.Valid {
             trimmedEmail := strings.TrimSpace(email.String)
             if trimmedEmail != "" {
