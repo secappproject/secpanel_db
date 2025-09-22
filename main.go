@@ -2670,19 +2670,18 @@ func (a *App) getOrCreateChatByPanel(panelNoPp string, tx *sql.Tx) (int, error) 
 	return chatID, nil
 }
 func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
+	vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
 	if !ok {
 		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
 		return
 	}
 
-	// 1. Tambahkan NotifyEmail ke struct payload
 	var payload struct {
 		Description string   `json:"issue_description"`
 		Title       string   `json:"issue_title"`
 		CreatedBy   string   `json:"created_by"`
-		NotifyEmail string   `json:"notify_email"` 
+		NotifyEmail string   `json:"notify_email"`
 		Photos      []string `json:"photos"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -2701,7 +2700,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 	defer tx.Rollback()
 
-	chatID, err := a.getOrCreateChatByPanel(panelNoPp, tx)
+	chatID, err := getOrCreateChatByPanel(tx, panelNoPp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2711,8 +2710,6 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		{Action: "membuat issue", User: payload.CreatedBy, Timestamp: time.Now()},
 	}
 	var issueID int
-
-	// 2. Tambahkan notify_email ke query INSERT
 	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status, notify_email)
 			  VALUES ($1, $2, $3, $4, $5, 'unsolved', $6) RETURNING id`
 	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog, payload.NotifyEmail).Scan(&issueID)
@@ -2728,6 +2725,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+
 
 	commentText := fmt.Sprintf(payload.Title)
 	if payload.Description != "" {
@@ -2762,11 +2760,13 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to commit transaction")
 		return
 	}
-	// 3. Panggil fungsi email setelah commit berhasil (dalam goroutine)
+
+	// Kirim email notifikasi setelah commit berhasil
 	go func() {
 		recipients := strings.Split(payload.NotifyEmail, ",")
 		subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
@@ -2784,6 +2784,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
 }
+
 func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
@@ -2800,7 +2801,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query utama untuk mendapatkan semua isu
-	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM public.issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
+	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at, notify_email FROM public.issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2813,7 +2814,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var issue Issue
-		if err := rows.Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
+		if err := rows.Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt, &issue.NotifyEmail); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to scan issue: "+err.Error())
 			return
 		}
