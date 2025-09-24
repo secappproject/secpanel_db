@@ -5124,8 +5124,8 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 			quantity = $3,
 			status = $4,
 			remarks = $5
-			received_date = $5
-		WHERE id = $6`
+			received_date = $6
+		WHERE id = $7`
 	res, err := a.DB.Exec(query, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks, sr.ReceivedDate, id)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update Additional SR: "+err.Error())
