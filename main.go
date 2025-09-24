@@ -461,8 +461,8 @@ func (a *App) initializeRoutes() {
 	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 
 	// Additional SR
-	a.Router.HandleFunc("/panels/{no_pp}/additional-sr", a.getAdditionalSRsByPanelHandler).Methods("GET")
-	a.Router.HandleFunc("/panels/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
+	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.getAdditionalSRsByPanelHandler).Methods("GET")
+	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
 	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT")
 	a.Router.HandleFunc("/additional-sr/{id}", a.deleteAdditionalSRHandler).Methods("DELETE")
 }
@@ -1254,6 +1254,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 				pdd.IssueCount = count
 			} else {
 				pdd.IssueCount = 0
+			}
+			if count, found := srCounts[panelID]; found {
+				pdd.AdditionalSRCount = count
 			}
 
 			finalResults = append(finalResults, *pdd)
