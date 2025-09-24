@@ -259,6 +259,7 @@ type AdditionalSR struct {
 	Status    string    `json:"status"` 
 	Remarks   string    `json:"remarks"` 
 	CreatedAt time.Time `json:"created_at"`
+	ReceivedDate *time.Time `json:"received_date,omitempty" db:"received_date"`
 }
 
 type PanelDisplayData struct {
@@ -3249,6 +3250,14 @@ func initDB(db *sql.DB) {
         log.Fatalf("Gagal membuat tabel additional_sr: %v", err)
     }
 
+	alterTableAdditionalSRSQL := `
+    ALTER TABLE additional_sr
+    ADD COLUMN IF NOT EXISTS received_date TIMESTAMPTZ NULL;
+    `
+    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
+        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
+    }
+
 	createTablesSQLChats:= `
 	CREATE TABLE IF NOT EXISTS chats (
 		id SERIAL PRIMARY KEY,
@@ -5027,128 +5036,130 @@ func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Requ
 
     respondWithJSON(w, http.StatusOK, recommendations)
 }
-
+// --- POST: Membuat Additional SR baru ---
 func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
 	if !ok {
-		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		respondWithError(w, http.StatusBadRequest, "Panel No PP tidak ditemukan")
 		return
 	}
 
 	var sr AdditionalSR
 	if err := json.NewDecoder(r.Body).Decode(&sr); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		respondWithError(w, http.StatusBadRequest, "Request body tidak valid")
 		return
 	}
-	sr.PanelNoPp = panelNoPp // Pastikan panel_no_pp diset dari URL
 
-	query := `
-		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, status, remarks)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, created_at`
-	err := a.DB.QueryRow(
-		query,
-		sr.PanelNoPp, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks,
-	).Scan(&sr.ID, &sr.CreatedAt)
+	// Set nilai default dan dari path
+	sr.PanelNoPp = panelNoPp
+	sr.CreatedAt = time.Now()
 
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
+	// **LOGIKA UTAMA**: Jika status saat dibuat adalah "close", set received_date
+	if strings.ToLower(sr.Status) == "close" {
+		now := time.Now()
+		sr.ReceivedDate = &now
+	}
+
+	// Asumsi Anda punya fungsi ini untuk menyimpan data ke DB
+	// Fungsi ini sebaiknya mengembalikan ID yang baru dibuat
+	if err := a.DB.CreateAdditionalSR(&sr); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menyimpan data ke database")
 		return
 	}
 
 	respondWithJSON(w, http.StatusCreated, sr)
 }
 
-func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	panelNoPp, ok := vars["no_pp"]
-	if !ok {
-		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
-		return
-	}
 
-	query := `
-		SELECT id, panel_no_pp, po_number, item, quantity, status, remarks, created_at
-		FROM additional_sr
-		WHERE panel_no_pp = $1
-		ORDER BY created_at DESC`
-	rows, err := a.DB.Query(query, panelNoPp)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer rows.Close()
-
-	var srs []AdditionalSR
-	for rows.Next() {
-		var sr AdditionalSR
-		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Status, &sr.Remarks, &sr.CreatedAt); err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
-			return
-		}
-		srs = append(srs, sr)
-	}
-
-	respondWithJSON(w, http.StatusOK, srs)
-}
-
+// --- PUT: Memperbarui Additional SR ---
 func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	id, err := strconv.Atoi(vars["id"])
+	idStr, ok := vars["id"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "ID tidak ditemukan")
+		return
+	}
+
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid Additional SR ID")
+		respondWithError(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	var sr AdditionalSR
-	if err := json.NewDecoder(r.Body).Decode(&sr); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+	var updatedSR AdditionalSR
+	if err := json.NewDecoder(r.Body).Decode(&updatedSR); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Request body tidak valid")
 		return
 	}
 
-	query := `
-		UPDATE additional_sr SET
-			po_number = $1,
-			item = $2,
-			quantity = $3,
-			status = $4,
-			remarks = $5
-		WHERE id = $6`
-	res, err := a.DB.Exec(query, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks, id)
+	// **LOGIKA UTAMA**: Cek status lama untuk menentukan received_date
+	// 1. Ambil data lama dari DB
+	existingSR, err := a.DB.GetAdditionalSRByID(id)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to update Additional SR: "+err.Error())
+		// Jika tidak ditemukan, kirim error 404 Not Found
+		respondWithError(w, http.StatusNotFound, "Data SR tidak ditemukan")
 		return
 	}
 
-	count, _ := res.RowsAffected()
-	if count == 0 {
-		respondWithError(w, http.StatusNotFound, "Additional SR not found")
+	// 2. Bandingkan status
+	// Jika status berubah dari BUKAN 'close' menjadi 'close'
+	if strings.ToLower(existingSR.Status) != "close" && strings.ToLower(updatedSR.Status) == "close" {
+		now := time.Now()
+		updatedSR.ReceivedDate = &now // Set waktu sekarang
+	} else if strings.ToLower(updatedSR.Status) != "close" {
+		updatedSR.ReceivedDate = nil // Hapus tanggal jika status kembali ke 'open'
+	} else {
+		// Jika statusnya tetap 'close', pertahankan tanggal yang sudah ada
+		updatedSR.ReceivedDate = existingSR.ReceivedDate
+	}
+	
+	updatedSR.ID = id // Pastikan ID ter-set
+
+	// Asumsi Anda punya fungsi ini untuk update data di DB
+	if err := a.DB.UpdateAdditionalSR(&updatedSR); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memperbarui data di database")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+	respondWithJSON(w, http.StatusOK, updatedSR)
 }
 
+
+// --- DELETE: Menghapus Additional SR ---
 func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	id, err := strconv.Atoi(vars["id"])
+	idStr, ok := vars["id"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "ID tidak ditemukan")
+		return
+	}
+
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid Additional SR ID")
+		respondWithError(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	res, err := a.DB.Exec("DELETE FROM additional_sr WHERE id = $1", id)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+	// Asumsi Anda punya fungsi ini untuk menghapus data dari DB
+	if err := a.DB.DeleteAdditionalSR(id); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus data dari database")
 		return
 	}
 
-	count, _ := res.RowsAffected()
-	if count == 0 {
-		respondWithError(w, http.StatusNotFound, "Additional SR not found")
-		return
-	}
+	// Status 204 No Content adalah respons standar untuk DELETE yang berhasil
+	w.WriteHeader(http.StatusNoContent)
+}
 
-	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+// --- Helper Functions ---
+func respondWithError(w http.ResponseWriter, code int, message string) {
+	respondWithJSON(w, code, map[string]string{"error": message})
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	response, _ := json.Marshal(payload)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(response)
 }
