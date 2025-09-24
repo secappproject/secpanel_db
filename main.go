@@ -5123,7 +5123,7 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 			item = $2,
 			quantity = $3,
 			status = $4,
-			remarks = $5
+			remarks = $5,
 			received_date = $6
 		WHERE id = $7`
 	res, err := a.DB.Exec(query, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks, sr.ReceivedDate, id)
