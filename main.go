@@ -249,6 +249,18 @@ type Corepart struct {
 	PanelNoPp string `json:"panel_no_pp"`
 	Vendor    string `json:"vendor"`
 }
+
+type AdditionalSR struct {
+	ID        int       `json:"id"`
+	PanelNoPp string    `json:"panel_no_pp"`
+	PoNumber  string    `json:"po_number"`
+	Item      string    `json:"item"`
+	Quantity  int       `json:"quantity"`
+	Status    string    `json:"status"` 
+	Remarks   string    `json:"remarks"` 
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type PanelDisplayData struct {
 	Panel                Panel           `json:"panel"`
 	PanelVendorName      *string         `json:"panel_vendor_name"`
@@ -263,6 +275,8 @@ type PanelDisplayData struct {
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
 	IssueCount           int             `json:"issue_count"`
+	IssueCount      	 int 			 `json:"issue_count"`
+	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
 }
 
 // =============================================================================
@@ -446,7 +460,11 @@ func (a *App) initializeRoutes() {
 	fs := http.FileServer(http.Dir("./uploads/"))
 	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 
-
+	// Additional SR
+	a.Router.HandleFunc("/panels/{no_pp}/additional-sr", a.getAdditionalSRsByPanelHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
+	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT")
+	a.Router.HandleFunc("/additional-sr/{id}", a.deleteAdditionalSRHandler).Methods("DELETE")
 }
 
 // =============================================================================
@@ -1071,25 +1089,32 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	issueCounts := make(map[string]int)
-	issueQuery := `
-		SELECT ch.panel_no_pp, COUNT(i.id)
-		FROM public.chats ch
-		JOIN public.issues i ON ch.id = i.chat_id
-		WHERE ch.panel_no_pp = ANY($1)
-		GROUP BY ch.panel_no_pp
+	srCounts := make(map[string]int)
+	countQuery := `
+		SELECT
+			p.no_pp,
+			COUNT(DISTINCT i.id) as issue_count,
+			COUNT(DISTINCT asr.id) as sr_count
+		FROM public.panels p
+		LEFT JOIN public.chats ch ON p.no_pp = ch.panel_no_pp
+		LEFT JOIN public.issues i ON ch.id = i.chat_id
+		LEFT JOIN public.additional_sr asr ON p.no_pp = asr.panel_no_pp
+		WHERE p.no_pp = ANY($1)
+		GROUP BY p.no_pp
 	`
-	issueRows, err := a.DB.QueryContext(r.Context(), issueQuery, pq.Array(relevantPanelIds))
+	countRows, err := a.DB.QueryContext(r.Context(), countQuery, pq.Array(relevantPanelIds))
 	if err == nil {
-		for issueRows.Next() {
+		for countRows.Next() {
 			var panelNoPp string
-			var count int
-			if err := issueRows.Scan(&panelNoPp, &count); err == nil {
-				issueCounts[panelNoPp] = count
+			var iCount, sCount int
+			if err := countRows.Scan(&panelNoPp, &iCount, &sCount); err == nil {
+				issueCounts[panelNoPp] = iCount
+				srCounts[panelNoPp] = sCount // [BARU] Simpan SR count
 			}
 		}
-		issueRows.Close()
+		countRows.Close()
 	} else {
-		log.Printf("SQL ERROR (getIssueCounts): %v", err)
+		log.Printf("SQL ERROR (getCounts): %v", err)
 	}
 
 	panelQuery := `
@@ -3207,6 +3232,21 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel awal: %v", err)
 	}
 
+	createAdditionalSRTableSQL := `
+    CREATE TABLE IF NOT EXISTS additional_sr (
+        id SERIAL PRIMARY KEY,
+        panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
+        po_number TEXT,
+        item TEXT,
+        quantity INTEGER,
+        status TEXT DEFAULT 'open',
+        remarks TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );`
+    if _, err := db.Exec(createAdditionalSRTableSQL); err != nil {
+        log.Fatalf("Gagal membuat tabel additional_sr: %v", err)
+    }
+
 	createTablesSQLChats:= `
 	CREATE TABLE IF NOT EXISTS chats (
 		id SERIAL PRIMARY KEY,
@@ -4984,4 +5024,129 @@ func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Requ
     }
 
     respondWithJSON(w, http.StatusOK, recommendations)
+}
+
+func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	panelNoPp, ok := vars["no_pp"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		return
+	}
+
+	var sr AdditionalSR
+	if err := json.NewDecoder(r.Body).Decode(&sr); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+	sr.PanelNoPp = panelNoPp // Pastikan panel_no_pp diset dari URL
+
+	query := `
+		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, status, remarks)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at`
+	err := a.DB.QueryRow(
+		query,
+		sr.PanelNoPp, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks,
+	).Scan(&sr.ID, &sr.CreatedAt)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, sr)
+}
+
+func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	panelNoPp, ok := vars["no_pp"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		return
+	}
+
+	query := `
+		SELECT id, panel_no_pp, po_number, item, quantity, status, remarks, created_at
+		FROM additional_sr
+		WHERE panel_no_pp = $1
+		ORDER BY created_at DESC`
+	rows, err := a.DB.Query(query, panelNoPp)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var srs []AdditionalSR
+	for rows.Next() {
+		var sr AdditionalSR
+		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Status, &sr.Remarks, &sr.CreatedAt); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
+			return
+		}
+		srs = append(srs, sr)
+	}
+
+	respondWithJSON(w, http.StatusOK, srs)
+}
+
+func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Additional SR ID")
+		return
+	}
+
+	var sr AdditionalSR
+	if err := json.NewDecoder(r.Body).Decode(&sr); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+
+	query := `
+		UPDATE additional_sr SET
+			po_number = $1,
+			item = $2,
+			quantity = $3,
+			status = $4,
+			remarks = $5
+		WHERE id = $6`
+	res, err := a.DB.Exec(query, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks, id)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update Additional SR: "+err.Error())
+		return
+	}
+
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Additional SR not found")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Additional SR ID")
+		return
+	}
+
+	res, err := a.DB.Exec("DELETE FROM additional_sr WHERE id = $1", id)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Additional SR not found")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
