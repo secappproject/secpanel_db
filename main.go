@@ -275,7 +275,6 @@ type PanelDisplayData struct {
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
 	IssueCount           int             `json:"issue_count"`
-	IssueCount      	 int 			 `json:"issue_count"`
 	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
 }
 
