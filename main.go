@@ -226,8 +226,17 @@ type Panel struct {
 	Remarks         *string     `json:"remarks,omitempty"`
 	CloseDateBusbarPcc *customTime `json:"close_date_busbar_pcc,omitempty"`
 	CloseDateBusbarMcc *customTime `json:"close_date_busbar_mcc,omitempty"`
-
+	
+    StatusPenyelesaian *string `json:"status_penyelesaian,omitempty"`
+    ProductionSlot     *string `json:"production_slot,omitempty"`
 }
+
+type ProductionSlot struct {
+    PositionCode string `json:"position_code"`
+    IsOccupied   bool   `json:"is_occupied"`
+    PanelNoPp    *string `json:"panel_no_pp,omitempty"`
+}
+
 type Busbar struct {
 	ID        int     `json:"id"`
 	PanelNoPp string  `json:"panel_no_pp"`
@@ -465,6 +474,10 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
 	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT")
 	a.Router.HandleFunc("/additional-sr/{id}", a.deleteAdditionalSRHandler).Methods("DELETE")
+
+	 // Workflow Transfer
+    a.Router.HandleFunc("/production-slots", a.getProductionSlotsHandler).Methods("GET")
+    a.Router.HandleFunc("/panels/{no_pp}/transfer", a.transferPanelHandler).Methods("POST")
 }
 
 // =============================================================================
@@ -3235,6 +3248,8 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel awal: %v", err)
 	}
 
+
+
 	createAdditionalSRTableSQL := `
     CREATE TABLE IF NOT EXISTS additional_sr (
         id SERIAL PRIMARY KEY,
@@ -3498,6 +3513,85 @@ func initDB(db *sql.DB) {
 		log.Println("Database kosong, membuat data dummy...")
 		insertDummyData(db)
 	}
+
+	// Migrasi untuk menambahkan kolom status_penyelesaian dan production_slot ke tabel panels
+	alterPanelsForTransferSQL := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'status_penyelesaian') THEN
+			ALTER TABLE panels ADD COLUMN status_penyelesaian TEXT DEFAULT 'VendorWarehouse';
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'production_slot') THEN
+			ALTER TABLE panels ADD COLUMN production_slot TEXT;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(alterPanelsForTransferSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk workflow transfer: %v", err)
+	}
+
+	// Membuat tabel production_slots
+	createProductionSlotsTableSQL := `
+	CREATE TABLE IF NOT EXISTS production_slots (
+		position_code TEXT PRIMARY KEY,
+		is_occupied BOOLEAN DEFAULT false NOT NULL
+	);
+	`
+	if _, err := db.Exec(createProductionSlotsTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel production_slots: %v", err)
+	}
+
+	// Menambahkan data slot awal jika tabel masih kosong
+	var slotCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM production_slots").Scan(&slotCount); err == nil && slotCount == 0 {
+		log.Println("Tabel production_slots kosong, menambahkan data slot awal...")
+		tx, err := db.Begin()
+		if err != nil {
+			log.Fatalf("Gagal memulai transaksi untuk slot: %v", err)
+		}
+		stmt, err := tx.Prepare("INSERT INTO production_slots (position_code) VALUES ($1)")
+		if err != nil {
+			tx.Rollback()
+			log.Fatalf("Gagal prepare statement untuk slot: %v", err)
+		}
+		defer stmt.Close()
+
+		// Membuat 28 slot dari A1-D7
+		for col := 'A'; col <= 'D'; col++ {
+			for row := 1; row <= 7; row++ {
+				slotCode := fmt.Sprintf("%c%d", col, row)
+				if _, err := stmt.Exec(slotCode); err != nil {
+					tx.Rollback()
+					log.Fatalf("Gagal insert slot %s: %v", slotCode, err)
+				}
+			}
+		}
+		tx.Commit()
+		log.Println("Berhasil menambahkan 28 slot produksi.")
+	}
+
+	// Menambahkan foreign key constraint dari panels.production_slot ke production_slots.position_code
+	addForeignKeyConstraintSQL := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint
+			WHERE conname = 'fk_panels_production_slot' AND conrelid = 'panels'::regclass
+		) THEN
+			ALTER TABLE panels
+			ADD CONSTRAINT fk_panels_production_slot
+			FOREIGN KEY (production_slot) REFERENCES production_slots(position_code) ON DELETE SET NULL;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(addForeignKeyConstraintSQL); err != nil {
+		log.Fatalf("Gagal menambahkan foreign key constraint untuk production_slot: %v", err)
+	}
+
+
+	log.Println("Memastikan user sistem untuk Gemini AI ada...")
 
 }
 
@@ -5162,4 +5256,199 @@ func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// =============================================================================
+// HANDLERS FOR PANEL TRANSFER WORKFLOW
+// =============================================================================
+
+func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
+    query := `
+        SELECT
+            ps.position_code,
+            ps.is_occupied,
+            p.no_pp AS panel_no_pp
+        FROM production_slots ps
+        LEFT JOIN panels p ON ps.position_code = p.production_slot
+        ORDER BY ps.position_code;
+    `
+    rows, err := a.DB.Query(query)
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to fetch production slots: "+err.Error())
+        return
+    }
+    defer rows.Close()
+
+    var slots []ProductionSlot
+    for rows.Next() {
+        var slot ProductionSlot
+        if err := rows.Scan(&slot.PositionCode, &slot.IsOccupied, &slot.PanelNoPp); err != nil {
+            respondWithError(w, http.StatusInternalServerError, "Failed to scan slot: "+err.Error())
+            return
+        }
+        slots = append(slots, slot)
+    }
+
+    respondWithJSON(w, http.StatusOK, slots)
+}
+
+
+func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    noPp := vars["no_pp"]
+
+    var payload struct {
+        Action string `json:"action"` // "to_production", "to_fat", "to_done", "rollback"
+        Slot   string `json:"slot,omitempty"`
+    }
+
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+        return
+    }
+
+    tx, err := a.DB.Begin()
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Failed to start transaction: "+err.Error())
+        return
+    }
+    defer tx.Rollback()
+
+    // Fetch current panel state
+    var p Panel
+    query := "SELECT status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, status_penyelesaian, production_slot, percent_progress, is_closed FROM panels WHERE no_pp = $1 FOR UPDATE"
+    err = tx.QueryRow(query, noPp).Scan(
+        &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart,
+        &p.StatusPenyelesaian, &p.ProductionSlot, &p.PercentProgress, &p.IsClosed,
+    )
+    if err != nil {
+        if err == sql.ErrNoRows {
+            respondWithError(w, http.StatusNotFound, "Panel not found")
+        } else {
+            respondWithError(w, http.StatusInternalServerError, "Failed to fetch panel data: "+err.Error())
+        }
+        return
+    }
+
+    currentStatus := "VendorWarehouse"
+    if p.StatusPenyelesaian != nil {
+        currentStatus = *p.StatusPenyelesaian
+    }
+
+    switch payload.Action {
+    case "to_production":
+        if currentStatus != "VendorWarehouse" {
+            respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Panel cannot be transferred to production from its current state: %s", currentStatus))
+            return
+        }
+        if payload.Slot == "" {
+            respondWithError(w, http.StatusBadRequest, "A production slot must be selected.")
+            return
+        }
+        
+        // Cek ketersediaan slot
+        var isOccupied bool
+        err := tx.QueryRow("SELECT is_occupied FROM production_slots WHERE position_code = $1 FOR UPDATE", payload.Slot).Scan(&isOccupied)
+        if err != nil {
+            if err == sql.ErrNoRows {
+                respondWithError(w, http.StatusNotFound, "Production slot not found.")
+            } else {
+                respondWithError(w, http.StatusInternalServerError, "Failed to check slot availability.")
+            }
+            return
+        }
+        if isOccupied {
+            respondWithError(w, http.StatusConflict, "The selected production slot is already occupied.")
+            return
+        }
+
+        // ++ LOGIKA BARU: UPDATE SEMUA STATUS SECARA OTOMATIS ++
+        // Alih-alih memvalidasi, kita langsung set semua status ke kondisi "selesai"
+        updateQuery := `
+            UPDATE panels SET
+                status_busbar_pcc = 'Close',
+                status_busbar_mcc = 'Close',
+                status_component = 'Done',
+                status_palet = 'Close',
+                status_corepart = 'Close',
+                percent_progress = 100,
+                is_closed = true,
+                closed_date = NOW(),
+                status_penyelesaian = 'Production',
+                production_slot = $1
+            WHERE no_pp = $2
+        `
+        _, err = tx.Exec(updateQuery, payload.Slot, noPp)
+        if err != nil { 
+            respondWithError(w, http.StatusInternalServerError, "Failed to update panel status: "+err.Error())
+            return 
+        }
+
+        // Tandai slot sebagai terisi
+        _, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
+        if err != nil { 
+            respondWithError(w, http.StatusInternalServerError, "Failed to occupy slot: "+err.Error())
+            return 
+        }
+
+    case "to_fat":
+        if currentStatus != "Production" {
+            respondWithError(w, http.StatusBadRequest, "Panel can only be transferred to FAT from Production.")
+            return
+        }
+        
+        occupiedSlot := p.ProductionSlot
+        _, err = tx.Exec("UPDATE panels SET status_penyelesaian = 'FAT', production_slot = NULL WHERE no_pp = $1", noPp)
+        if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to update panel status."); return }
+
+        if occupiedSlot != nil && *occupiedSlot != "" {
+            _, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
+            if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot."); return }
+        }
+
+    case "to_done":
+        if currentStatus != "FAT" {
+            respondWithError(w, http.StatusBadRequest, "Panel can only be marked as Done from FAT.")
+            return
+        }
+        _, err = tx.Exec("UPDATE panels SET status_penyelesaian = 'Done' WHERE no_pp = $1", noPp)
+        if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to update panel status."); return }
+
+    case "rollback":
+        var targetStatus string
+        switch currentStatus {
+        case "Production":
+            targetStatus = "VendorWarehouse"
+            occupiedSlot := p.ProductionSlot
+            _, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL WHERE no_pp = $2", targetStatus, noPp)
+            if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
+
+            if occupiedSlot != nil && *occupiedSlot != "" {
+                 _, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
+                 if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot on rollback."); return }
+            }
+        case "FAT":
+            targetStatus = "Production"
+             _, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1 WHERE no_pp = $2", targetStatus, noPp)
+             if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
+        case "Done":
+            targetStatus = "FAT"
+             _, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1 WHERE no_pp = $2", targetStatus, noPp)
+             if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
+        default:
+            respondWithError(w, http.StatusBadRequest, "Panel is in a state that cannot be rolled back.")
+            return
+        }
+
+    default:
+        respondWithError(w, http.StatusBadRequest, "Invalid action specified.")
+        return
+    }
+
+    if err := tx.Commit(); err != nil {
+        respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
+        return
+    }
+
+    respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": fmt.Sprintf("Action '%s' completed successfully for panel %s.", payload.Action, noPp)})
 }
