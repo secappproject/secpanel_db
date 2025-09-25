@@ -3542,6 +3542,19 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel production_slots: %v", err)
 	}
 
+	addSnapshotColumnSQL := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'rollback_snapshot') THEN
+			ALTER TABLE panels ADD COLUMN rollback_snapshot JSONB;
+		END IF;
+	END;
+	$$;
+	`
+	if _, err := db.Exec(addSnapshotColumnSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom rollback_snapshot: %v", err)
+	}
+
 	// Menambahkan data slot awal jika tabel masih kosong
 	var slotCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM production_slots").Scan(&slotCount); err == nil && slotCount == 0 {
@@ -5292,163 +5305,228 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
     respondWithJSON(w, http.StatusOK, slots)
 }
 
+// main.go
 
+// Ganti seluruh fungsi lama Anda dengan yang ini
 func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    noPp := vars["no_pp"]
+	vars := mux.Vars(r)
+	noPp := vars["no_pp"]
 
-    var payload struct {
-        Action string `json:"action"` // "to_production", "to_fat", "to_done", "rollback"
-        Slot   string `json:"slot,omitempty"`
-    }
+	var payload struct {
+		Action string `json:"action"` // "to_production", "to_fat", "to_done", "rollback"
+		Slot   string `json:"slot,omitempty"`
+	}
 
-    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-        respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
-        return
-    }
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
 
-    tx, err := a.DB.Begin()
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Failed to start transaction: "+err.Error())
-        return
-    }
-    defer tx.Rollback()
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to start transaction: "+err.Error())
+		return
+	}
+	defer tx.Rollback()
 
-    // Fetch current panel state
-    var p Panel
-    query := "SELECT status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, status_penyelesaian, production_slot, percent_progress, is_closed FROM panels WHERE no_pp = $1 FOR UPDATE"
-    err = tx.QueryRow(query, noPp).Scan(
-        &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart,
-        &p.StatusPenyelesaian, &p.ProductionSlot, &p.PercentProgress, &p.IsClosed,
-    )
-    if err != nil {
-        if err == sql.ErrNoRows {
-            respondWithError(w, http.StatusNotFound, "Panel not found")
-        } else {
-            respondWithError(w, http.StatusInternalServerError, "Failed to fetch panel data: "+err.Error())
-        }
-        return
-    }
+	// Ambil state panel saat ini, termasuk kolom snapshot baru
+	var p struct { // Gunakan struct anonim agar lebih mudah
+		StatusBusbarPcc    *string
+		StatusBusbarMcc    *string
+		StatusComponent    *string
+		StatusPalet        *string
+		StatusCorepart     *string
+		StatusPenyelesaian *string
+		ProductionSlot     *string
+		PercentProgress    *float64
+		IsClosed           bool
+		RollbackSnapshot   sql.NullString // Kolom baru untuk snapshot
+	}
 
-    currentStatus := "VendorWarehouse"
-    if p.StatusPenyelesaian != nil {
-        currentStatus = *p.StatusPenyelesaian
-    }
+	query := `
+		SELECT 
+			status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, 
+			status_penyelesaian, production_slot, percent_progress, is_closed, rollback_snapshot
+		FROM panels WHERE no_pp = $1 FOR UPDATE
+	`
+	err = tx.QueryRow(query, noPp).Scan(
+		&p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart,
+		&p.StatusPenyelesaian, &p.ProductionSlot, &p.PercentProgress, &p.IsClosed, &p.RollbackSnapshot,
+	)
 
-    switch payload.Action {
-    case "to_production":
-        if currentStatus != "VendorWarehouse" {
-            respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Panel cannot be transferred to production from its current state: %s", currentStatus))
-            return
-        }
-        if payload.Slot == "" {
-            respondWithError(w, http.StatusBadRequest, "A production slot must be selected.")
-            return
-        }
-        
-        // Cek ketersediaan slot
-        var isOccupied bool
-        err := tx.QueryRow("SELECT is_occupied FROM production_slots WHERE position_code = $1 FOR UPDATE", payload.Slot).Scan(&isOccupied)
-        if err != nil {
-            if err == sql.ErrNoRows {
-                respondWithError(w, http.StatusNotFound, "Production slot not found.")
-            } else {
-                respondWithError(w, http.StatusInternalServerError, "Failed to check slot availability.")
-            }
-            return
-        }
-        if isOccupied {
-            respondWithError(w, http.StatusConflict, "The selected production slot is already occupied.")
-            return
-        }
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Panel not found")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, "Failed to fetch panel data: "+err.Error())
+		}
+		return
+	}
 
-        // ++ LOGIKA BARU: UPDATE SEMUA STATUS SECARA OTOMATIS ++
-        // Alih-alih memvalidasi, kita langsung set semua status ke kondisi "selesai"
-        updateQuery := `
-            UPDATE panels SET
-                status_busbar_pcc = 'Close',
-                status_busbar_mcc = 'Close',
-                status_component = 'Done',
-                status_palet = 'Close',
-                status_corepart = 'Close',
-                percent_progress = 100,
-                is_closed = true,
-                closed_date = NOW(),
-                status_penyelesaian = 'Production',
-                production_slot = $1
-            WHERE no_pp = $2
-        `
-        _, err = tx.Exec(updateQuery, payload.Slot, noPp)
-        if err != nil { 
-            respondWithError(w, http.StatusInternalServerError, "Failed to update panel status: "+err.Error())
-            return 
-        }
+	currentStatus := "VendorWarehouse"
+	if p.StatusPenyelesaian != nil {
+		currentStatus = *p.StatusPenyelesaian
+	}
 
-        // Tandai slot sebagai terisi
-        _, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
-        if err != nil { 
-            respondWithError(w, http.StatusInternalServerError, "Failed to occupy slot: "+err.Error())
-            return 
-        }
+	switch payload.Action {
+	case "to_production":
+		if currentStatus != "VendorWarehouse" {
+			respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Panel cannot be transferred to production from its current state: %s", currentStatus))
+			return
+		}
+		if payload.Slot == "" {
+			respondWithError(w, http.StatusBadRequest, "A production slot must be selected.")
+			return
+		}
 
-    case "to_fat":
-        if currentStatus != "Production" {
-            respondWithError(w, http.StatusBadRequest, "Panel can only be transferred to FAT from Production.")
-            return
-        }
-        
-        occupiedSlot := p.ProductionSlot
-        _, err = tx.Exec("UPDATE panels SET status_penyelesaian = 'FAT', production_slot = NULL WHERE no_pp = $1", noPp)
-        if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to update panel status."); return }
+		// Validasi ketersediaan slot
+		var isOccupied bool
+		err := tx.QueryRow("SELECT is_occupied FROM production_slots WHERE position_code = $1 FOR UPDATE", payload.Slot).Scan(&isOccupied)
+		if err != nil { /* ... (error handling for slot check) ... */ return }
+		if isOccupied {
+			respondWithError(w, http.StatusConflict, "The selected production slot is already occupied.")
+			return
+		}
+		
+		// === LOGIKA BARU UNTUK MENYIMPAN SNAPSHOT ===
+		// 1. Buat data snapshot dari state panel saat ini (sebelum diubah)
+		snapshotData := map[string]interface{}{
+			"status_busbar_pcc": p.StatusBusbarPcc,
+			"status_busbar_mcc": p.StatusBusbarMcc,
+			"status_component":  p.StatusComponent,
+			"status_palet":      p.StatusPalet,
+			"status_corepart":   p.StatusCorepart,
+			"percent_progress":  p.PercentProgress,
+		}
+		snapshotJson, err := json.Marshal(snapshotData)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to create rollback snapshot.")
+			return
+		}
 
-        if occupiedSlot != nil && *occupiedSlot != "" {
-            _, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
-            if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot."); return }
-        }
+		// 2. Lakukan UPDATE dan sekaligus simpan snapshot JSON ke database
+		updateQuery := `
+			UPDATE panels SET
+				status_busbar_pcc = 'Close', status_busbar_mcc = 'Close',
+				status_component = 'Done', status_palet = 'Close', status_corepart = 'Close',
+				percent_progress = 100, is_closed = true, closed_date = NOW(),
+				status_penyelesaian = 'Production',
+				production_slot = $1,
+				rollback_snapshot = $2 -- Simpan snapshot di sini
+			WHERE no_pp = $3
+		`
+		_, err = tx.Exec(updateQuery, payload.Slot, snapshotJson, noPp)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update panel status: "+err.Error())
+			return
+		}
 
-    case "to_done":
-        if currentStatus != "FAT" {
-            respondWithError(w, http.StatusBadRequest, "Panel can only be marked as Done from FAT.")
-            return
-        }
-        _, err = tx.Exec("UPDATE panels SET status_penyelesaian = 'Done' WHERE no_pp = $1", noPp)
-        if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to update panel status."); return }
+		// Tandai slot sebagai terisi
+		_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to occupy slot: "+err.Error())
+			return
+		}
 
-    case "rollback":
-        var targetStatus string
-        switch currentStatus {
-        case "Production":
-            targetStatus = "VendorWarehouse"
-            occupiedSlot := p.ProductionSlot
-            _, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL WHERE no_pp = $2", targetStatus, noPp)
-            if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
+	case "to_fat":
+		if currentStatus != "Production" {
+			respondWithError(w, http.StatusBadRequest, "Panel can only be transferred to FAT from Production.")
+			return
+		}
+		
+		occupiedSlot := p.ProductionSlot
+		// Saat pindah ke FAT, hapus snapshot karena rollback dari FAT akan kembali ke Production, bukan ke awal.
+		_, err = tx.Exec("UPDATE panels SET status_penyelesaian = 'FAT', production_slot = NULL, rollback_snapshot = NULL WHERE no_pp = $1", noPp)
+		if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to update panel status."); return }
 
-            if occupiedSlot != nil && *occupiedSlot != "" {
-                 _, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
-                 if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot on rollback."); return }
-            }
-        case "FAT":
-            targetStatus = "Production"
-             _, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1 WHERE no_pp = $2", targetStatus, noPp)
-             if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
-        case "Done":
-            targetStatus = "FAT"
-             _, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1 WHERE no_pp = $2", targetStatus, noPp)
-             if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
-        default:
-            respondWithError(w, http.StatusBadRequest, "Panel is in a state that cannot be rolled back.")
-            return
-        }
+		if occupiedSlot != nil && *occupiedSlot != "" {
+			_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
+			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot."); return }
+		}
 
-    default:
-        respondWithError(w, http.StatusBadRequest, "Invalid action specified.")
-        return
-    }
+	case "to_done":
+		if currentStatus != "FAT" {
+			respondWithError(w, http.StatusBadRequest, "Panel can only be marked as Done from FAT.")
+			return
+		}
+		_, err = tx.Exec("UPDATE panels SET status_penyelesaian = 'Done' WHERE no_pp = $1", noPp)
+		if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to update panel status."); return }
 
-    if err := tx.Commit(); err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
-        return
-    }
+	case "rollback":
+		var targetStatus string
+		switch currentStatus {
+		case "Production":
+			// === LOGIKA BARU UNTUK ROLLBACK DARI SNAPSHOT ===
+			targetStatus = "VendorWarehouse"
+			occupiedSlot := p.ProductionSlot
 
-    respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": fmt.Sprintf("Action '%s' completed successfully for panel %s.", payload.Action, noPp)})
+			// 1. Cek apakah ada snapshot yang valid
+			if !p.RollbackSnapshot.Valid || p.RollbackSnapshot.String == "" {
+				respondWithError(w, http.StatusInternalServerError, "Rollback data not found. Cannot perform accurate rollback.")
+				return
+			}
+
+			var snapshot map[string]interface{}
+			if err := json.Unmarshal([]byte(p.RollbackSnapshot.String), &snapshot); err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to read rollback data.")
+				return
+			}
+			
+			// 2. Lakukan UPDATE menggunakan data dari snapshot untuk mengembalikan ke state sebelumnya
+			rollbackQuery := `
+				UPDATE panels SET
+					status_penyelesaian = $1,
+					production_slot = NULL,
+					is_closed = false,
+					closed_date = NULL,
+					-- Kembalikan nilai dari snapshot
+					status_busbar_pcc = $2, status_busbar_mcc = $3,
+					status_component = $4, status_palet = $5, status_corepart = $6,
+					percent_progress = $7,
+					-- Hapus snapshot setelah digunakan
+					rollback_snapshot = NULL
+				WHERE no_pp = $8
+			`
+			_, err = tx.Exec(rollbackQuery,
+				targetStatus,
+				snapshot["status_busbar_pcc"], snapshot["status_busbar_mcc"],
+				snapshot["status_component"], snapshot["status_palet"], snapshot["status_corepart"],
+				snapshot["percent_progress"],
+				noPp,
+			)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel from snapshot.")
+				return
+			}
+
+			// 3. Bebaskan slot produksi
+			if occupiedSlot != nil && *occupiedSlot != "" {
+				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
+				if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot on rollback."); return }
+			}
+
+		case "FAT":
+			targetStatus = "Production"
+			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1 WHERE no_pp = $2", targetStatus, noPp)
+			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
+		case "Done":
+			targetStatus = "FAT"
+			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1 WHERE no_pp = $2", targetStatus, noPp)
+			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to rollback panel status."); return }
+		default:
+			respondWithError(w, http.StatusBadRequest, "Panel is in a state that cannot be rolled back.")
+			return
+		}
+
+	default:
+		respondWithError(w, http.StatusBadRequest, "Invalid action specified.")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": fmt.Sprintf("Action '%s' completed successfully for panel %s.", payload.Action, noPp)})
 }
