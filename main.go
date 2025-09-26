@@ -3637,8 +3637,30 @@ func initDB(db *sql.DB) {
     if _, err := db.Exec(alterTableAddSupplierSQL); err != nil {
         log.Fatalf("Gagal menjalankan migrasi untuk kolom additional_sr.supplier: %v", err)
     }
-	
-	log.Println("Memastikan user sistem untuk Gemini AI ada...")
+
+	fixChatsForeignKeySQL := `
+    DO $$
+    BEGIN
+        -- Cek apakah constraint yang lama ada
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'chats_panel_no_pp_fkey' AND conrelid = 'chats'::regclass
+        ) THEN
+            -- Hapus constraint yang lama
+            ALTER TABLE chats DROP CONSTRAINT chats_panel_no_pp_fkey;
+        END IF;
+
+        -- Tambahkan constraint yang baru dengan ON UPDATE CASCADE
+        ALTER TABLE chats
+            ADD CONSTRAINT chats_panel_no_pp_fkey
+            FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp)
+            ON DELETE CASCADE ON UPDATE CASCADE; -- <-- INI KUNCINYA
+    END
+    $$;
+    `
+    if _, err := db.Exec(fixChatsForeignKeySQL); err != nil {
+        log.Fatalf("Gagal memperbaiki foreign key untuk tabel chats: %v", err)
+    }
 
 }
 
