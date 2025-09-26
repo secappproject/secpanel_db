@@ -265,6 +265,7 @@ type AdditionalSR struct {
 	PoNumber  string    `json:"po_number"`
 	Item      string    `json:"item"`
 	Quantity  int       `json:"quantity"`
+	Supplier  string    `json:"supplier"`
 	Status    string    `json:"status"` 
 	Remarks   string    `json:"remarks"` 
 	CreatedAt time.Time `json:"created_at"`
@@ -474,6 +475,8 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
 	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT")
 	a.Router.HandleFunc("/additional-sr/{id}", a.deleteAdditionalSRHandler).Methods("DELETE")
+	a.Router.HandleFunc("/suppliers", a.getSuppliersHandler).Methods("GET")
+
 
 	 // Workflow Transfer
     a.Router.HandleFunc("/production-slots", a.getProductionSlotsHandler).Methods("GET")
@@ -3622,7 +3625,19 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal menambahkan foreign key constraint untuk production_slot: %v", err)
 	}
 
-
+    alterTableAddSupplierSQL := `
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'supplier') THEN
+            ALTER TABLE additional_sr ADD COLUMN supplier TEXT;
+        END IF;
+    END;
+    $$;
+    `
+    if _, err := db.Exec(alterTableAddSupplierSQL); err != nil {
+        log.Fatalf("Gagal menjalankan migrasi untuk kolom additional_sr.supplier: %v", err)
+    }
+	
 	log.Println("Memastikan user sistem untuk Gemini AI ada...")
 
 }
@@ -5172,23 +5187,23 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var sr AdditionalSR
+var sr AdditionalSR
 	if err := json.NewDecoder(r.Body).Decode(&sr); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
 	sr.PanelNoPp = panelNoPp 
 
-	// CORRECTED QUERY: Added the missing $7 placeholder
+	// Perbarui Query INSERT
 	query := `
-		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, status, remarks, received_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, supplier, status, remarks, received_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at`
 	err := a.DB.QueryRow(
 		query,
-		sr.PanelNoPp, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks, sr.ReceivedDate,
+		sr.PanelNoPp, sr.PoNumber, sr.Item, sr.Quantity, sr.Supplier, sr.Status, sr.Remarks, sr.ReceivedDate,
 	).Scan(&sr.ID, &sr.CreatedAt)
-
+	
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
 		return
@@ -5206,7 +5221,7 @@ func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	query := `
-		SELECT id, panel_no_pp, po_number, item, quantity, status, remarks, created_at, received_date
+		SELECT id, panel_no_pp, po_number, item, quantity, supplier, status, remarks, created_at, received_date
 		FROM additional_sr
 		WHERE panel_no_pp = $1
 		ORDER BY created_at DESC`
@@ -5220,7 +5235,8 @@ func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Requ
 	var srs []AdditionalSR
 	for rows.Next() {
 		var sr AdditionalSR
-		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.ReceivedDate); err != nil {
+		// Perbarui Scan
+		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.ReceivedDate); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
 			return
 		}
@@ -5249,11 +5265,13 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 			po_number = $1,
 			item = $2,
 			quantity = $3,
-			status = $4,
-			remarks = $5,
-			received_date = $6
-		WHERE id = $7`
-	res, err := a.DB.Exec(query, sr.PoNumber, sr.Item, sr.Quantity, sr.Status, sr.Remarks, sr.ReceivedDate, id)
+			supplier = $4,
+			status = $5,
+			remarks = $6,
+			received_date = $7
+		WHERE id = $8`
+	res, err := a.DB.Exec(query, sr.PoNumber, sr.Item, sr.Quantity, sr.Supplier, sr.Status, sr.Remarks, sr.ReceivedDate, id)
+	
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update Additional SR: "+err.Error())
 		return
@@ -5289,6 +5307,29 @@ func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *App) getSuppliersHandler(w http.ResponseWriter, r *http.Request) {
+	query := `SELECT DISTINCT supplier FROM additional_sr WHERE supplier IS NOT NULL AND supplier != '' ORDER BY supplier ASC`
+	
+	rows, err := a.DB.Query(query)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch suppliers: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var suppliers []string
+	for rows.Next() {
+		var supplier string
+		if err := rows.Scan(&supplier); err != nil {
+			log.Printf("Failed to scan supplier: %v", err)
+			continue
+		}
+		suppliers = append(suppliers, supplier)
+	}
+
+	respondWithJSON(w, http.StatusOK, suppliers)
 }
 
 // =============================================================================
