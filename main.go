@@ -5177,11 +5177,12 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
-	sr.PanelNoPp = panelNoPp // Pastikan panel_no_pp diset dari URL
+	sr.PanelNoPp = panelNoPp 
 
+	// CORRECTED QUERY: Added the missing $7 placeholder
 	query := `
 		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, status, remarks, received_date)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at`
 	err := a.DB.QueryRow(
 		query,
