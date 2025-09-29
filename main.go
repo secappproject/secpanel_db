@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/messaging"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/gorilla/handlers"
@@ -304,6 +306,7 @@ type DBTX interface {
 type App struct {
 	Router *mux.Router
 	DB     *sql.DB
+	FCMClient *messaging.Client
 }
 
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
@@ -351,7 +354,6 @@ func (a *App) Run(addr string) {
 	// Gunakan handler CORS yang sudah dikonfigurasi untuk menjalankan server
 	log.Fatal(http.ListenAndServe(addr, handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(a.Router)))
 }
-
 func main() {
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
@@ -362,8 +364,26 @@ func main() {
 		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
 	}
 
+	ctx := context.Background()
+	// Ganti "path/to/serviceAccountKey.json" dengan path file JSON-mu
+	opt := option.WithCredentialsFile("serviceAccountKey.json")
+	firebaseApp, err := firebase.NewApp(ctx, nil, opt)
+	if err != nil {
+		log.Fatalf("error initializing Firebase app: %v\n", err)
+	}
+
+	fcmClient, err := firebaseApp.Messaging(ctx)
+	if err != nil {
+		log.Fatalf("error getting FCM client: %v\n", err)
+	}
+
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
+	app.FCMClient = fcmClient // Simpan client ke struct App
+
+	// Jalankan scheduler notifikasi di background
+	go app.startNotificationScheduler()
+
 	app.Run(":8080")
 }
 // =============================================================================
@@ -372,6 +392,7 @@ func main() {
 func (a *App) initializeRoutes() {
 	// Auth & User Management
 	a.Router.HandleFunc("/login", a.loginHandler).Methods("POST")
+	a.Router.HandleFunc("/user/register-device", a.registerDeviceHandler).Methods("POST")
 	a.Router.HandleFunc("/company-by-username/{username}", a.getCompanyByUsernameHandler).Methods("GET")
 	a.Router.HandleFunc("/user/{username}/password", a.updatePasswordHandler).Methods("PUT")
 	a.Router.HandleFunc("/company-with-account", a.insertCompanyWithAccountHandler).Methods("POST")
@@ -519,6 +540,11 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var isNewPanel bool
+	var exists bool
+	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", p.NoPp).Scan(&exists)
+	isNewPanel = (err == nil && !exists)
+
 	query := `
 		INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
@@ -533,7 +559,40 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
+	}go func() {
+		admins, err := a.getAdminUsernames()
+		if err != nil || len(admins) == 0 {
+			return
+		}
+
+		actor := "seseorang"
+		if p.CreatedBy != nil {
+			actor = *p.CreatedBy
+		}
+
+		finalRecipients := []string{}
+		for _, admin := range admins {
+			if admin != actor {
+				finalRecipients = append(finalRecipients, admin)
+			}
+		}
+
+		if len(finalRecipients) > 0 {
+			if isNewPanel {
+				title := "Panel Baru Ditambahkan"
+				body := fmt.Sprintf("%s menambahkan panel baru: %s", actor, p.NoPp)
+				if p.VendorID == nil || *p.VendorID == "" {
+					body = fmt.Sprintf("%s menambahkan panel TANPA VENDOR: %s", actor, p.NoPp)
+				}
+				a.sendNotificationToUsers(finalRecipients, title, body)
+			} else {
+				title := fmt.Sprintf("Panel Diedit: %s", p.NoPp)
+				body := fmt.Sprintf("Detail untuk panel %s baru saja diperbarui oleh %s.", p.NoPp, actor)
+				a.sendNotificationToUsers(finalRecipients, title, body)
+			}
+		}
+	}()
+
 	respondWithJSON(w, http.StatusCreated, p)
 }
 
@@ -2811,20 +2870,41 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Kirim email notifikasi setelah commit berhasil
 	go func() {
-		recipients := strings.Split(payload.NotifyEmail, ",")
-		subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
-		htmlBody := fmt.Sprintf(
-			`<h3>Isu Baru Telah Dibuat pada Panel %s</h3>
-			 <p><strong>Judul Isu:</strong> %s</p>
-			 <p><strong>Deskripsi:</strong> %s</p>
-			 <p><strong>Dibuat oleh:</strong> %s</p>
-			 <hr>
-			 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
-			panelNoPp, payload.Title, payload.Description, payload.CreatedBy,
-		)
-		sendNotificationEmail(recipients, subject, htmlBody)
+		// 1. Cek & Filter daftar penerima (cukup sekali)
+		if payload.NotifyEmail == "" {
+			return
+		}
+		allRecipients := strings.Split(payload.NotifyEmail, ",")
+		finalRecipients := []string{}
+		for _, r := range allRecipients {
+			trimmed := strings.TrimSpace(r)
+			// Jangan kirim notifikasi ke diri sendiri
+			if trimmed != "" && trimmed != payload.CreatedBy {
+				finalRecipients = append(finalRecipients, trimmed)
+			}
+		}
+
+		// 2. Jika ada penerima, kirim kedua notifikasi
+		if len(finalRecipients) > 0 {
+			// A. Kirim Push Notification
+			title := fmt.Sprintf("Isu Baru di Panel %s", panelNoPp)
+			body := fmt.Sprintf("%s membuat isu baru: '%s'", payload.CreatedBy, payload.Title)
+			a.sendNotificationToUsers(finalRecipients, title, body)
+
+			// B. Kirim Email Notifikasi
+			subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
+			htmlBody := fmt.Sprintf(
+				`<h3>Isu Baru Telah Dibuat pada Panel %s</h3>
+				 <p><strong>Judul Isu:</strong> %s</p>
+				 <p><strong>Deskripsi:</strong> %s</p>
+				 <p><strong>Dibuat oleh:</strong> %s</p>
+				 <hr>
+				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+				panelNoPp, payload.Title, payload.Description, payload.CreatedBy,
+			)
+			sendNotificationEmail(finalRecipients, subject, htmlBody)
+		}
 	}()
 
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
@@ -3044,65 +3124,78 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// 5. Kirim email jika ada perubahan status atau perubahan daftar notifikasi
-	go func() {
-    // Ambil daftar email lama dan baru untuk perbandingan
-    oldEmails := make(map[string]bool)
-    for _, email := range strings.Split(notifyEmail, ",") { // 'notifyEmail' adalah email dari DB sebelum update
-        if strings.TrimSpace(email) != "" {
-            oldEmails[strings.TrimSpace(email)] = true
-        }
-    }
+		go func() {
+		if currentStatus != payload.Status {
+			// Ambil daftar penerima final dan filter pelaku aksi
+			allRecipients := strings.Split(finalNotifyEmail, ",")
+			finalRecipients := []string{}
+			for _, recipient := range allRecipients {
+				trimmed := strings.TrimSpace(recipient)
+				if trimmed != "" && trimmed != payload.UpdatedBy {
+					finalRecipients = append(finalRecipients, trimmed)
+				}
+			}
 
-    newEmailsList := strings.Split(finalNotifyEmail, ",") // 'finalNotifyEmail' adalah daftar email yang baru
-    newEmails := make(map[string]bool)
-    for _, email := range newEmailsList {
-        if strings.TrimSpace(email) != "" {
-            newEmails[strings.TrimSpace(email)] = true
-        }
-    }
+			if len(finalRecipients) > 0 {
+				// A. Kirim Push Notification Perubahan Status
+				notifTitle := fmt.Sprintf("Update Isu di Panel %s", panelNoPp)
+				notifBody := fmt.Sprintf("%s mengubah status isu '%s' menjadi %s.", payload.UpdatedBy, payload.Title, payload.Status)
+				a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
-    // 1. Logika untuk perubahan status: Kirim ke semua orang
-    if currentStatus != payload.Status {
-        recipients := strings.Split(finalNotifyEmail, ",")
-        subject := fmt.Sprintf("[SecPanel] Update Status Isu: %s", payload.Title)
-        htmlBody := fmt.Sprintf(
-            `<h3>Status Isu pada Panel %s Telah Diubah</h3>
-             <p><strong>Judul Isu:</strong> %s</p>
-             <p><strong>Aksi:</strong> Status isu ini telah diubah menjadi <strong>%s</strong>.</p>
-             <p><strong>Oleh:</strong> %s</p>
-             <hr>
-             <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
-            panelNoPp, payload.Title, payload.Status, payload.UpdatedBy,
-        )
-        sendNotificationEmail(recipients, subject, htmlBody)
-        return // Hentikan proses agar tidak ada email duplikat
-    }
+				// B. Kirim Email Perubahan Status
+				subject := fmt.Sprintf("[SecPanel] Update Status Isu: %s", payload.Title)
+				htmlBody := fmt.Sprintf(
+					`<h3>Status Isu pada Panel %s Telah Diubah</h3>
+					 <p><strong>Judul Isu:</strong> %s</p>
+					 <p><strong>Aksi:</strong> Status isu ini telah diubah menjadi <strong>%s</strong>.</p>
+					 <p><strong>Oleh:</strong> %s</p>
+					 <hr>
+					 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+					panelNoPp, payload.Title, payload.Status, payload.UpdatedBy,
+				)
+				sendNotificationEmail(finalRecipients, subject, htmlBody)
+			}
+			return // Penting: Hentikan proses agar tidak lanjut ke skenario 2
+		}
 
-    // 2. Logika jika HANYA daftar email yang berubah
-    if payload.NotifyEmail != nil {
-        var addedEmails []string
-        // Cari email yang baru ditambahkan
-        for email := range newEmails {
-            if !oldEmails[email] { // Jika email ada di daftar baru tapi tidak ada di daftar lama
-                addedEmails = append(addedEmails, email)
-            }
-        }
+		// --- SKENARIO 2: HANYA DAFTAR NOTIFIKASI YANG BERUBAH ---
+		// Kode ini hanya akan berjalan jika status isu TIDAK berubah
+		if payload.NotifyEmail != nil {
+			// Ambil daftar email lama dan baru untuk perbandingan
+			oldEmails := make(map[string]bool)
+			for _, email := range strings.Split(notifyEmail, ",") {
+				if strings.TrimSpace(email) != "" {
+					oldEmails[strings.TrimSpace(email)] = true
+				}
+			}
 
-        // Kirim notifikasi HANYA ke email yang baru ditambahkan
-        if len(addedEmails) > 0 {
-            subject := fmt.Sprintf("[SecPanel] Anda Ditambahkan ke Notifikasi Isu: %s", payload.Title)
-            htmlBody := fmt.Sprintf(
-                `<h3>Anda Telah Ditambahkan ke Notifikasi Isu</h3>
-                 <p>Anda akan menerima pembaruan untuk isu <strong>"%s"</strong> pada panel <strong>%s</strong>.</p>
-                 <p><strong>Ditambahkan oleh:</strong> %s</p>
-                 <hr>
-                 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
-                payload.Title, panelNoPp, payload.UpdatedBy,
-            )
-            sendNotificationEmail(addedEmails, subject, htmlBody)
-        }
-    	}
+			var addedEmails []string
+			for _, emailStr := range strings.Split(finalNotifyEmail, ",") {
+				email := strings.TrimSpace(emailStr)
+				if email != "" && !oldEmails[email] { // Jika email baru dan tidak ada di daftar lama
+					addedEmails = append(addedEmails, email)
+				}
+			}
+			
+			if len(addedEmails) > 0 {
+				// A. Kirim Push Notifikasi "Anda Ditambahkan"
+				notifTitle := fmt.Sprintf("Anda ditambahkan ke Isu di Panel %s", panelNoPp)
+				notifBody := fmt.Sprintf("%s menambahkan Anda ke notifikasi isu '%s'.", payload.UpdatedBy, payload.Title)
+				a.sendNotificationToUsers(addedEmails, notifTitle, notifBody)
+
+				// B. Kirim Email Notifikasi "Anda Ditambahkan"
+				subject := fmt.Sprintf("[SecPanel] Anda Ditambahkan ke Notifikasi Isu: %s", payload.Title)
+				htmlBody := fmt.Sprintf(
+					`<h3>Anda Telah Ditambahkan ke Notifikasi Isu</h3>
+					 <p>Anda akan menerima pembaruan untuk isu <strong>"%s"</strong> pada panel <strong>%s</strong>.</p>
+					 <p><strong>Ditambahkan oleh:</strong> %s</p>
+					 <hr>
+					 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+					payload.Title, panelNoPp, payload.UpdatedBy,
+				)
+				sendNotificationEmail(addedEmails, subject, htmlBody)
+			}
+		}
 	}()
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
@@ -4136,31 +4229,42 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Kirim notifikasi setelah komentar berhasil dibuat
 	go func() {
-		var notifyEmail, issueTitle, panelNoPp string
+		// 1. Ambil data dari database (cukup sekali)
+		var notifyList, issueTitle, panelNoPp string
 		err := a.DB.QueryRow(`
 			SELECT COALESCE(i.notify_email, ''), i.title, c.panel_no_pp
 			FROM public.issues i JOIN public.chats c ON i.chat_id = c.id
-			WHERE i.id = $1`, issueID).Scan(&notifyEmail, &issueTitle, &panelNoPp)
+			WHERE i.id = $1`, issueID).Scan(&notifyList, &issueTitle, &panelNoPp)
 		if err != nil {
-			log.Printf("Gagal ambil info isu untuk notifikasi email (ID: %d): %v", issueID, err)
+			log.Printf("Gagal ambil info isu untuk notifikasi (ID: %d): %v", issueID, err)
 			return
 		}
+		if notifyList == "" {
+			return // Tidak ada yang perlu dinotifikasi
+		}
 
-		// 2. Filter agar tidak mengirim email ke orang yang membuat komentar
-		allRecipients := strings.Split(notifyEmail, ",")
+		// 2. Filter daftar penerima (cukup sekali)
+		allRecipients := strings.Split(notifyList, ",")
 		finalRecipients := []string{}
-		for _, r := range allRecipients {
-			// Cek email tidak kosong dan bukan email si pengirim komentar
-			if strings.TrimSpace(r) != "" && strings.TrimSpace(r) != strings.TrimSpace(payload.SenderID) {
-				finalRecipients = append(finalRecipients, r)
+		for _, recipient := range allRecipients {
+			trimmedRecipient := strings.TrimSpace(recipient)
+			// Jangan kirim notifikasi ke diri sendiri
+			if trimmedRecipient != "" && trimmedRecipient != payload.SenderID {
+				finalRecipients = append(finalRecipients, trimmedRecipient)
 			}
 		}
 
+		// 3. Jika ada penerima, kirim kedua jenis notifikasi
 		if len(finalRecipients) > 0 {
-			subject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
-			htmlBody := fmt.Sprintf(
+			// A. Kirim Push Notification
+			notifTitle := fmt.Sprintf("Komentar baru di Panel %s", panelNoPp)
+			notifBody := fmt.Sprintf("%s: \"%s\"", payload.SenderID, payload.Text)
+			a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
+
+			// B. Kirim Email Notifikasi
+			emailSubject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
+			emailHtmlBody := fmt.Sprintf(
 				`<h3>Komentar Baru pada Isu di Panel %s</h3>
 				 <p><strong>Judul Isu:</strong> %s</p>
 				 <p><strong>Dari:</strong> %s</p>
@@ -4172,7 +4276,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
 				panelNoPp, issueTitle, payload.SenderID, payload.Text,
 			)
-			sendNotificationEmail(finalRecipients, subject, htmlBody)
+			sendNotificationEmail(finalRecipients, emailSubject, emailHtmlBody)
 		}
 	}()
 
@@ -5201,38 +5305,6 @@ func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Requ
 }
 
 
-func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	panelNoPp, ok := vars["no_pp"]
-	if !ok {
-		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
-		return
-	}
-
-var sr AdditionalSR
-	if err := json.NewDecoder(r.Body).Decode(&sr); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
-		return
-	}
-	sr.PanelNoPp = panelNoPp 
-
-	// Perbarui Query INSERT
-	query := `
-		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, supplier, status, remarks, received_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, created_at`
-	err := a.DB.QueryRow(
-		query,
-		sr.PanelNoPp, sr.PoNumber, sr.Item, sr.Quantity, sr.Supplier, sr.Status, sr.Remarks, sr.ReceivedDate,
-	).Scan(&sr.ID, &sr.CreatedAt)
-	
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
-		return
-	}
-
-	respondWithJSON(w, http.StatusCreated, sr)
-}
 
 func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -5267,6 +5339,65 @@ func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Requ
 
 	respondWithJSON(w, http.StatusOK, srs)
 }
+func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	panelNoPp, ok := vars["no_pp"]
+	if !ok {
+		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		return
+	}
+
+	// Penting: Client harus mengirim field 'createdBy' dalam payload
+	var payload struct {
+		AdditionalSR
+		CreatedBy string `json:"createdBy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
+	}
+	payload.PanelNoPp = panelNoPp
+
+	// Query INSERT ke database
+	query := `
+		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, supplier, status, remarks, received_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, created_at`
+	err := a.DB.QueryRow(
+		query,
+		payload.PanelNoPp, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.ReceivedDate,
+	).Scan(&payload.ID, &payload.CreatedAt)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
+		return
+	}
+
+	// --- Logika Notifikasi ---
+	go func() {
+		stakeholders, err := a.getPanelStakeholders(panelNoPp)
+		if err != nil {
+			log.Printf("Error getting stakeholders for panel %s: %v", panelNoPp, err)
+			return
+		}
+
+		finalRecipients := []string{}
+		for _, user := range stakeholders {
+			if user != payload.CreatedBy {
+				finalRecipients = append(finalRecipients, user)
+			}
+		}
+
+		if len(finalRecipients) > 0 {
+			title := fmt.Sprintf("SR Baru di Panel %s", panelNoPp)
+			body := fmt.Sprintf("%s menambahkan SR baru: '%s'", payload.CreatedBy, payload.Item)
+			a.sendNotificationToUsers(finalRecipients, title, body)
+		}
+	}()
+
+	respondWithJSON(w, http.StatusCreated, payload.AdditionalSR)
+}
+
 
 func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -5276,37 +5407,71 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var sr AdditionalSR
-	if err := json.NewDecoder(r.Body).Decode(&sr); err != nil {
+	// Penting: Client harus mengirim field 'updatedBy' dalam payload
+	var payload struct {
+		AdditionalSR
+		UpdatedBy string `json:"updatedBy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
 
+	// Dapatkan No PP dari database sebelum update, untuk notifikasi
+	var panelNoPp string
+	err = a.DB.QueryRow("SELECT panel_no_pp FROM additional_sr WHERE id = $1", id).Scan(&panelNoPp)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Additional SR not found")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, "Failed to query panel for SR: "+err.Error())
+		}
+		return
+	}
+
+	// Lakukan update ke database
 	query := `
 		UPDATE additional_sr SET
-			po_number = $1,
-			item = $2,
-			quantity = $3,
-			supplier = $4,
-			status = $5,
-			remarks = $6,
-			received_date = $7
+			po_number = $1, item = $2, quantity = $3, supplier = $4,
+			status = $5, remarks = $6, received_date = $7
 		WHERE id = $8`
-	res, err := a.DB.Exec(query, sr.PoNumber, sr.Item, sr.Quantity, sr.Supplier, sr.Status, sr.Remarks, sr.ReceivedDate, id)
-	
+	res, err := a.DB.Exec(query, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.ReceivedDate, id)
+
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update Additional SR: "+err.Error())
 		return
 	}
-
 	count, _ := res.RowsAffected()
 	if count == 0 {
-		respondWithError(w, http.StatusNotFound, "Additional SR not found")
+		respondWithError(w, http.StatusNotFound, "Additional SR not found during update")
 		return
 	}
 
+	// --- Logika Notifikasi ---
+	go func() {
+		stakeholders, err := a.getPanelStakeholders(panelNoPp)
+		if err != nil {
+			log.Printf("Error getting stakeholders for panel %s: %v", panelNoPp, err)
+			return
+		}
+
+		finalRecipients := []string{}
+		for _, user := range stakeholders {
+			if user != payload.UpdatedBy {
+				finalRecipients = append(finalRecipients, user)
+			}
+		}
+
+		if len(finalRecipients) > 0 {
+			title := fmt.Sprintf("SR Diedit di Panel %s", panelNoPp)
+			body := fmt.Sprintf("%s mengubah SR: '%s'", payload.UpdatedBy, payload.Item)
+			a.sendNotificationToUsers(finalRecipients, title, body)
+		}
+	}()
+
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
+
 
 func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -5397,6 +5562,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Action string `json:"action"`
 		Slot   string `json:"slot,omitempty"`
+		Actor  string `json:"actor"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload")
@@ -5584,6 +5750,251 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	go func() {
+		stakeholders, err := a.getPanelStakeholders(noPp)
+		if err != nil { return }
+
+		finalRecipients := []string{}
+		for _, user := range stakeholders {
+			if user != payload.Actor {
+				finalRecipients = append(finalRecipients, user)
+			}
+		}
+
+		var actionText string
+		switch payload.Action {
+		case "to_production": actionText = "masuk ke tahap Produksi"
+		case "to_fat": actionText = "masuk ke tahap FAT"
+		case "to_done": actionText = "dinyatakan Selesai"
+		case "rollback": actionText = "dikembalikan ke tahap sebelumnya"
+		default: return
+		}
+		
+		if len(finalRecipients) > 0 {
+			title := fmt.Sprintf("Transfer Panel: %s", noPp)
+			body := fmt.Sprintf("%s memindahkan panel %s, kini %s.", payload.Actor, noPp, actionText)
+			a.sendNotificationToUsers(finalRecipients, title, body)
+		}
+	}()
 	// Kembalikan seluruh data panel yang sudah ter-update
 	respondWithJSON(w, http.StatusOK, updatedPanel)
+}
+// sendNotificationToUsers mengirim notifikasi ke banyak pengguna.
+func (a *App) sendNotificationToUsers(usernames []string, title string, body string) {
+	if len(usernames) == 0 {
+		return // Tidak ada target, hentikan
+	}
+
+	// 1. Ambil semua token unik dari daftar username
+	query := "SELECT DISTINCT fcm_token FROM user_devices WHERE username = ANY($1)"
+	rows, err := a.DB.Query(query, pq.Array(usernames))
+	if err != nil {
+		log.Printf("Error querying tokens for users %v: %v", usernames, err)
+		return
+	}
+	defer rows.Close()
+
+	var tokens []string
+	for rows.Next() {
+		var token string
+		if err := rows.Scan(&token); err != nil {
+			log.Printf("Error scanning token: %v", err)
+			continue
+		}
+		tokens = append(tokens, token)
+	}
+
+	if len(tokens) == 0 {
+		log.Printf("No devices found for users %v, skipping notification.", usernames)
+		return
+	}
+
+	// 2. Buat dan kirim pesan notifikasi
+	message := &messaging.MulticastMessage{
+		Notification: &messaging.Notification{
+			Title: title,
+			Body:  body,
+		},
+		Tokens: tokens,
+		Android: &messaging.AndroidConfig{
+			Priority: "high",
+			Notification: &messaging.AndroidNotification{
+				ChannelID: "high_importance_channel",
+				Sound:     "default",
+			},
+		},
+	}
+
+	br, err := a.FCMClient.SendMulticast(context.Background(), message)
+	if err != nil {
+		log.Printf("Error sending FCM message to users %v: %v", usernames, err)
+		return
+	}
+
+	log.Printf("Successfully sent %d notifications to %d devices for users %v. Failures: %d", br.SuccessCount, len(tokens), usernames, br.FailureCount)
+}
+
+// getAdminUsernames mengambil semua username dengan role 'admin'.
+func (a *App) getAdminUsernames() ([]string, error) {
+	query := `
+		SELECT ca.username FROM company_accounts ca
+		JOIN companies c ON ca.company_id = c.id
+		WHERE c.role = 'admin'
+	`
+	rows, err := a.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var admins []string
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err == nil {
+			admins = append(admins, username)
+		}
+	}
+	return admins, nil
+}
+
+// getPanelStakeholders mengambil semua user yang terkait dengan sebuah panel.
+func (a *App) getPanelStakeholders(panelNoPp string) ([]string, error) {
+	query := `
+		SELECT DISTINCT ca.username
+		FROM company_accounts ca
+		JOIN companies c ON ca.company_id = c.id
+		WHERE c.role = 'admin' -- Semua admin
+		UNION
+		SELECT p.created_by FROM panels p WHERE p.no_pp = $1 AND p.created_by IS NOT NULL -- Pembuat panel
+		UNION
+		-- Semua user dari vendor panel utama
+		SELECT ca.username
+		FROM company_accounts ca
+		WHERE ca.company_id = (SELECT vendor_id FROM panels WHERE no_pp = $1)
+	`
+	rows, err := a.DB.Query(query, panelNoPp)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stakeholderSet := make(map[string]bool)
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err == nil {
+			stakeholderSet[username] = true
+		}
+	}
+
+	var stakeholders []string
+	for user := range stakeholderSet {
+		stakeholders = append(stakeholders, user)
+	}
+	return stakeholders, nil
+}
+
+// startNotificationScheduler adalah worker utama yang berjalan di background.
+func (a *App) startNotificationScheduler() {
+	log.Println("⏰ Starting notification scheduler...")
+	// Untuk testing, ganti menjadi `time.NewTicker(1 * time.Minute)`
+	// Untuk produksi, jalankan setiap jam
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	// Jalankan sekali saat startup
+	a.runScheduledChecks()
+
+	for range ticker.C {
+		// Cek apakah sudah waktunya (misal: jam 8 pagi)
+		if time.Now().Hour() == 8 {
+			a.runScheduledChecks()
+		}
+	}
+}
+
+// runScheduledChecks menjalankan semua pemeriksaan terjadwal.
+func (a *App) runScheduledChecks() {
+	log.Println("Running scheduled checks for notifications...")
+	a.checkPanelsDueToday()
+	a.checkOverduePanels()
+}
+
+// checkPanelsDueToday mengirim notifikasi untuk panel yang harus dikirim hari ini.
+func (a *App) checkPanelsDueToday() {
+	query := `SELECT no_pp FROM panels WHERE target_delivery::date = CURRENT_DATE AND is_closed = false`
+	rows, err := a.DB.Query(query)
+	if err != nil {
+		log.Printf("Error checking due panels: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var noPp string
+		if err := rows.Scan(&noPp); err == nil {
+			go func(panelId string) {
+				stakeholders, _ := a.getPanelStakeholders(panelId)
+				if len(stakeholders) > 0 {
+					title := "🔔 Pengingat Pengiriman"
+					body := fmt.Sprintf("Panel %s dijadwalkan untuk pengiriman hari ini.", panelId)
+					a.sendNotificationToUsers(stakeholders, title, body)
+				}
+			}(noPp)
+		}
+	}
+}
+
+// checkOverduePanels mengirim notifikasi untuk panel yang telat.
+func (a *App) checkOverduePanels() {
+	query := `SELECT no_pp FROM panels WHERE target_delivery::date < CURRENT_DATE AND is_closed = false`
+	rows, err := a.DB.Query(query)
+	if err != nil {
+		log.Printf("Error checking overdue panels: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var noPp string
+		if err := rows.Scan(&noPp); err == nil {
+			go func(panelId string) {
+				stakeholders, _ := a.getPanelStakeholders(panelId)
+				if len(stakeholders) > 0 {
+					title := "⚠️ Peringatan Keterlambatan"
+					body := fmt.Sprintf("Pengiriman untuk panel %s telah melewati jadwal.", panelId)
+					a.sendNotificationToUsers(stakeholders, title, body)
+				}
+			}(noPp)
+		}
+	}
+}
+
+// registerDeviceHandler menerima dan menyimpan FCM token dari client.
+func (a *App) registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Username string `json:"username"`
+		Token    string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+
+	if payload.Username == "" || payload.Token == "" {
+		respondWithError(w, http.StatusBadRequest, "Username and token are required")
+		return
+	}
+
+	query := `
+        INSERT INTO user_devices (username, fcm_token)
+        VALUES ($1, $2)
+        ON CONFLICT (username, fcm_token) DO UPDATE SET last_login = CURRENT_TIMESTAMP
+    `
+	_, err := a.DB.Exec(query, payload.Username, payload.Token)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to register device: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
