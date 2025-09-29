@@ -551,7 +551,8 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT (no_pp) DO UPDATE SET
 		no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
 
-	_, err := a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
+
+	_, err = a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			respondWithError(w, http.StatusConflict, "Gagal menyimpan: Terdapat duplikasi pada No Panel.")
@@ -560,24 +561,22 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
 	go func() {
 		admins, err := a.getAdminUsernames()
 		if err != nil || len(admins) == 0 {
 			return
 		}
-
 		actor := "seseorang"
 		if p.CreatedBy != nil {
 			actor = *p.CreatedBy
 		}
-
 		finalRecipients := []string{}
 		for _, admin := range admins {
 			if admin != actor {
 				finalRecipients = append(finalRecipients, admin)
 			}
 		}
-
 		if len(finalRecipients) > 0 {
 			if isNewPanel {
 				title := "Panel Baru Ditambahkan"
@@ -596,7 +595,6 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusCreated, p)
 }
-
 
 func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. Ambil no_pp dari URL, contoh: /panel/PP-123/status-ao
