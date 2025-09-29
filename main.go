@@ -559,7 +559,8 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
-	}go func() {
+	}
+	go func() {
 		admins, err := a.getAdminUsernames()
 		if err != nil || len(admins) == 0 {
 			return
