@@ -561,26 +561,32 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		admins, err := a.getAdminUsernames()
-		if err != nil || len(admins) == 0 {
+		stakeholders, err := a.getPanelStakeholders(p.NoPp)
+		if err != nil {
+			log.Printf("Error getting stakeholders for panel %s: %v", p.NoPp, err)
 			return
 		}
-		actor := "seseorang"
+
+		actor := "seseorang" // Default actor
 		if p.CreatedBy != nil {
 			actor = *p.CreatedBy
 		}
+
 		finalRecipients := []string{}
-		for _, admin := range admins {
-			if admin != actor {
-				finalRecipients = append(finalRecipients, admin)
+		for _, user := range stakeholders {
+			// Filter agar tidak mengirim notifikasi ke diri sendiri
+			if user != actor {
+				finalRecipients = append(finalRecipients, user)
 			}
 		}
+
 		if len(finalRecipients) > 0 {
 			if isNewPanel {
 				title := "Panel Baru Ditambahkan"
 				body := fmt.Sprintf("%s menambahkan panel baru: %s", actor, p.NoPp)
+				// Cek jika panel baru tidak punya vendor
 				if p.VendorID == nil || *p.VendorID == "" {
-					body = fmt.Sprintf("%s menambahkan panel TANPA VENDOR: %s", actor, p.NoPp)
+					body = fmt.Sprintf("%s menambahkan panel baru TANPA VENDOR: %s", actor, p.NoPp)
 				}
 				a.sendNotificationToUsers(finalRecipients, title, body)
 			} else {
