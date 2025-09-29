@@ -3341,7 +3341,18 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel awal: %v", err)
 	}
 
-
+	createUserDevicesTableSQL := `
+	CREATE TABLE IF NOT EXISTS user_devices (
+		id SERIAL PRIMARY KEY,
+		username TEXT NOT NULL REFERENCES company_accounts(username) ON DELETE CASCADE,
+		fcm_token TEXT NOT NULL,
+		last_login TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(username, fcm_token)
+	);
+	`
+	if _, err := db.Exec(createUserDevicesTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel user_devices: %v", err)
+	}
 
 	createAdditionalSRTableSQL := `
     CREATE TABLE IF NOT EXISTS additional_sr (
