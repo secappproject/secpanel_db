@@ -366,22 +366,10 @@ func main() {
 
 	ctx := context.Background()
 
-    // 1. Baca Project ID dari Environment Variable
-    projectID := os.Getenv("FIREBASE_PROJECT_ID")
-    if projectID == "" {
-        log.Println("WARNING: FIREBASE_PROJECT_ID environment variable not set.")
-    }
-
-    // 2. Buat konfigurasi eksplisit
-    config := &firebase.Config{ProjectID: projectID}
-    opt := option.WithCredentialsFile("serviceAccountKey.json")
-
-    // 3. Gunakan config saat membuat aplikasi Firebase
-	firebaseApp, err := firebase.NewApp(ctx, config, opt)
+	firebaseApp, err := firebase.NewApp(ctx, nil) 
 	if err != nil {
 		log.Fatalf("error initializing Firebase app: %v\n", err)
 	}
-    // --- AKHIR PERUBAHAN ---
 
 	fcmClient, err := firebaseApp.Messaging(ctx)
 	if err != nil {
