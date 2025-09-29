@@ -365,12 +365,23 @@ func main() {
 	}
 
 	ctx := context.Background()
-	// Ganti "path/to/serviceAccountKey.json" dengan path file JSON-mu
-	opt := option.WithCredentialsFile("serviceAccountKey.json")
-	firebaseApp, err := firebase.NewApp(ctx, nil, opt)
+
+    // 1. Baca Project ID dari Environment Variable
+    projectID := os.Getenv("FIREBASE_PROJECT_ID")
+    if projectID == "" {
+        log.Println("WARNING: FIREBASE_PROJECT_ID environment variable not set.")
+    }
+
+    // 2. Buat konfigurasi eksplisit
+    config := &firebase.Config{ProjectID: projectID}
+    opt := option.WithCredentialsFile("serviceAccountKey.json")
+
+    // 3. Gunakan config saat membuat aplikasi Firebase
+	firebaseApp, err := firebase.NewApp(ctx, config, opt)
 	if err != nil {
 		log.Fatalf("error initializing Firebase app: %v\n", err)
 	}
+    // --- AKHIR PERUBAHAN ---
 
 	fcmClient, err := firebaseApp.Messaging(ctx)
 	if err != nil {
@@ -379,9 +390,8 @@ func main() {
 
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
-	app.FCMClient = fcmClient // Simpan client ke struct App
+	app.FCMClient = fcmClient
 
-	// Jalankan scheduler notifikasi di background
 	go app.startNotificationScheduler()
 
 	app.Run(":8080")
