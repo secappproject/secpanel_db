@@ -5647,11 +5647,16 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		switch payload.Action {
 		case "to_production":
 			nextStatus = "Production"
-			// Logika validasi slot...
-			// ...
+			// updateQuery := `
+			// 	UPDATE panels SET
+			// 		status_busbar_pcc = 'Close', status_busbar_mcc = 'Close',
+			// 		status_component = 'Done', status_palet = 'Close', status_corepart = 'Close',
+			// 		percent_progress = 100, is_closed = true, closed_date = NOW(),
+			// 		status_penyelesaian = $1, production_slot = $2, history_stack = $3
+			// 	WHERE no_pp = $4
+			// `
 			updateQuery := `
 				UPDATE panels SET
-					status_busbar_pcc = 'Close', status_busbar_mcc = 'Close',
 					status_component = 'Done', status_palet = 'Close', status_corepart = 'Close',
 					percent_progress = 100, is_closed = true, closed_date = NOW(),
 					status_penyelesaian = $1, production_slot = $2, history_stack = $3
