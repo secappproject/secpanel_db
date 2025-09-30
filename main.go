@@ -234,9 +234,10 @@ type Panel struct {
 }
 
 type ProductionSlot struct {
-    PositionCode string `json:"position_code"`
-    IsOccupied   bool   `json:"is_occupied"`
-    PanelNoPp    *string `json:"panel_no_pp,omitempty"`
+	PositionCode string  `json:"position_code"`
+	IsOccupied   bool    `json:"is_occupied"`
+	PanelNoPp    *string `json:"panel_no_pp,omitempty"`
+	PanelNoPanel *string `json:"panel_no_panel,omitempty"`
 }
 
 type Busbar struct {
@@ -5569,6 +5570,7 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
 
     respondWithJSON(w, http.StatusOK, slots)
 }
+
 func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
@@ -5867,6 +5869,39 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 	// Kirim response JSON yang sudah diperkaya dengan tanggal
 	respondWithJSON(w, http.StatusOK, finalResponse)
+}
+
+func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
+	// UBAH QUERY INI untuk menyertakan p.no_panel
+	query := `
+		SELECT
+			ps.position_code,
+			ps.is_occupied,
+			p.no_pp AS panel_no_pp,
+			p.no_panel AS panel_no_panel -- TAMBAHKAN KOLOM INI
+		FROM production_slots ps
+		LEFT JOIN panels p ON ps.position_code = p.production_slot
+		ORDER BY ps.position_code;
+	`
+	rows, err := a.DB.Query(query)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch production slots: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var slots []ProductionSlot
+	for rows.Next() {
+		var slot ProductionSlot
+		// TAMBAHKAN &slot.PanelNoPanel di sini
+		if err := rows.Scan(&slot.PositionCode, &slot.IsOccupied, &slot.PanelNoPp, &slot.PanelNoPanel); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan slot: "+err.Error())
+			return
+		}
+		slots = append(slots, slot)
+	}
+
+	respondWithJSON(w, http.StatusOK, slots)
 }
 // sendNotificationToUsers mengirim notifikasi ke banyak pengguna.
 func (a *App) sendNotificationToUsers(usernames []string, title string, body string) {
