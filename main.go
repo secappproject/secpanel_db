@@ -5537,40 +5537,6 @@ func (a *App) getSuppliersHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, suppliers)
 }
 
-// =============================================================================
-// HANDLERS FOR PANEL TRANSFER WORKFLOW
-// =============================================================================
-
-func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
-    query := `
-        SELECT
-            ps.position_code,
-            ps.is_occupied,
-            p.no_pp AS panel_no_pp
-        FROM production_slots ps
-        LEFT JOIN panels p ON ps.position_code = p.production_slot
-        ORDER BY ps.position_code;
-    `
-    rows, err := a.DB.Query(query)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Failed to fetch production slots: "+err.Error())
-        return
-    }
-    defer rows.Close()
-
-    var slots []ProductionSlot
-    for rows.Next() {
-        var slot ProductionSlot
-        if err := rows.Scan(&slot.PositionCode, &slot.IsOccupied, &slot.PanelNoPp); err != nil {
-            respondWithError(w, http.StatusInternalServerError, "Failed to scan slot: "+err.Error())
-            return
-        }
-        slots = append(slots, slot)
-    }
-
-    respondWithJSON(w, http.StatusOK, slots)
-}
-
 func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
