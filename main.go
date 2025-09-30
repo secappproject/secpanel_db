@@ -5566,9 +5566,6 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
 
     respondWithJSON(w, http.StatusOK, slots)
 }
-// main.go
-
-
 func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
@@ -5612,7 +5609,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		currentStatus = *p.StatusPenyelesaian
 	}
 
-	// Helper untuk mengambil semua data panel sebagai snapshot
+	// Helper BARU: createSnapshot sekarang menyertakan timestamp
 	createSnapshot := func(status string) (map[string]interface{}, error) {
 		var panelState map[string]interface{}
 		var panelData []byte
@@ -5621,9 +5618,14 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		json.Unmarshal(panelData, &panelState)
-		// Simpan status 'sebelumnya' di dalam snapshot itu sendiri
-		panelState["snapshot_status"] = status
-		return panelState, nil
+
+		// BUNGKUS SNAPSHOT DENGAN METADATA
+		snapshotWrapper := map[string]interface{}{
+			"timestamp":       time.Now(), // <-- KUNCI PERUBAHAN
+			"snapshot_status": status,
+			"state":           panelState,
+		}
+		return snapshotWrapper, nil
 	}
 
 	// Parse history stack yang ada
@@ -5647,14 +5649,6 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		switch payload.Action {
 		case "to_production":
 			nextStatus = "Production"
-			// updateQuery := `
-			// 	UPDATE panels SET
-			// 		status_busbar_pcc = 'Close', status_busbar_mcc = 'Close',
-			// 		status_component = 'Done', status_palet = 'Close', status_corepart = 'Close',
-			// 		percent_progress = 100, is_closed = true, closed_date = NOW(),
-			// 		status_penyelesaian = $1, production_slot = $2, history_stack = $3
-			// 	WHERE no_pp = $4
-			// `
 			updateQuery := `
 				UPDATE panels SET
 					status_component = 'Done', status_palet = 'Close', status_corepart = 'Close',
@@ -5663,24 +5657,34 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				WHERE no_pp = $4
 			`
 			_, err = tx.Exec(updateQuery, nextStatus, payload.Slot, historyJson, noPp)
-			if err != nil { /* error handling */ return }
+			if err != nil { /* error handling */
+				return
+			}
 			_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
-			if err != nil { /* error handling */ return }
-		
+			if err != nil { /* error handling */
+				return
+			}
+
 		case "to_fat":
 			nextStatus = "FAT"
 			occupiedSlot := p.ProductionSlot
 			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
-			if err != nil { /* error handling */ return }
+			if err != nil { /* error handling */
+				return
+			}
 			if occupiedSlot != nil {
 				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
-				if err != nil { /* error handling */ return }
+				if err != nil { /* error handling */
+					return
+				}
 			}
 
 		case "to_done":
 			nextStatus = "Done"
 			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
-			if err != nil { /* error handling */ return }
+			if err != nil { /* error handling */
+				return
+			}
 		}
 
 	case "rollback":
@@ -5690,9 +5694,16 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Ambil snapshot terakhir dari tumpukan
-		lastState := historyStack[len(historyStack)-1]
+		lastStateWrapper := historyStack[len(historyStack)-1]
 		historyStack = historyStack[:len(historyStack)-1] // Hapus dari tumpukan
 		historyJson, _ := json.Marshal(historyStack)
+
+		// Ekstrak state panel dari dalam wrapper
+		lastState, ok := lastStateWrapper["state"].(map[string]interface{})
+		if !ok {
+			respondWithError(w, http.StatusInternalServerError, "Invalid history format")
+			return
+		}
 
 		// Hapus kunci yang tidak perlu dari map sebelum melakukan UPDATE
 		delete(lastState, "history_stack")
@@ -5709,10 +5720,11 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		// Tambahkan update untuk history_stack itu sendiri
 		columns = append(columns, fmt.Sprintf("history_stack = $%d", i))
 		values = append(values, historyJson)
+		i++
 		values = append(values, noPp) // Untuk klausa WHERE
 
 		// Bangun query UPDATE dinamis
-		updateQuery := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(columns, ", "), i+1)
+		updateQuery := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(columns, ", "), i)
 
 		// Eksekusi pemulihan
 		_, err = tx.Exec(updateQuery, values...)
@@ -5724,7 +5736,9 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		// Jika panel yang di-rollback sedang menempati slot, kosongkan slot itu
 		if p.ProductionSlot != nil && *p.ProductionSlot != "" {
 			_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *p.ProductionSlot)
-			if err != nil { /* error handling */ return }
+			if err != nil { /* error handling */
+				return
+			}
 		}
 
 	default:
@@ -5737,8 +5751,10 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// === BAGIAN PENTING: Ambil dan kembalikan data panel terbaru ===
+	// === BAGIAN PENTING: Ambil data terbaru DAN ekstrak tanggal dari histori ===
 	var updatedPanel PanelDisplayData
+
+	// TAMBAHKAN history_stack ke query
 	panelQuery := `
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
@@ -5746,6 +5762,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
 			p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
+            p.history_stack, -- <-- AMBIL HISTORY
 			pu.name as panel_vendor_name,
 			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
 			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names
@@ -5753,25 +5770,70 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp = $1
 	`
+	var historyStackJSON []byte
 	err = a.DB.QueryRow(panelQuery, noPp).Scan(
 		&updatedPanel.Panel.NoPp, &updatedPanel.Panel.NoPanel, &updatedPanel.Panel.NoWbs, &updatedPanel.Panel.Project, &updatedPanel.Panel.PercentProgress, &updatedPanel.Panel.StartDate, &updatedPanel.Panel.TargetDelivery,
 		&updatedPanel.Panel.StatusBusbarPcc, &updatedPanel.Panel.StatusBusbarMcc, &updatedPanel.Panel.StatusComponent, &updatedPanel.Panel.StatusPalet, &updatedPanel.Panel.StatusCorepart,
 		&updatedPanel.Panel.AoBusbarPcc, &updatedPanel.Panel.AoBusbarMcc, &updatedPanel.Panel.CreatedBy, &updatedPanel.Panel.VendorID, &updatedPanel.Panel.IsClosed,
 		&updatedPanel.Panel.ClosedDate, &updatedPanel.Panel.PanelType, &updatedPanel.Panel.Remarks, &updatedPanel.Panel.CloseDateBusbarPcc, &updatedPanel.Panel.CloseDateBusbarMcc,
 		&updatedPanel.Panel.StatusPenyelesaian, &updatedPanel.Panel.ProductionSlot,
+		&historyStackJSON, // <-- SIMPAN HISTORY KE VARIABEL
 		&updatedPanel.PanelVendorName, &updatedPanel.BusbarVendorNames, &updatedPanel.ComponentVendorNames,
 	)
 
 	if err != nil {
-		// Jika gagal mengambil data terbaru, kirim saja status sukses standar
 		log.Printf("Warning: could not fetch updated panel data for %s after transfer: %v", noPp, err)
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 		return
 	}
 
+	// EKSTRAK TANGGAL DARI HISTORY
+	var historyStackData []map[string]interface{}
+	var productionDate, fatDate, allDoneDate *time.Time
+
+	if historyStackJSON != nil {
+		json.Unmarshal(historyStackJSON, &historyStackData)
+		for _, item := range historyStackData {
+			if status, ok := item["snapshot_status"].(string); ok {
+				if timestampStr, ok := item["timestamp"].(string); ok {
+					ts, err := time.Parse(time.RFC3339, timestampStr)
+					if err == nil {
+						// State "Production" disimpan SETELAH "VendorWarehouse" selesai.
+						// Jadi, timestamp dari "VendorWarehouse" adalah waktu masuk ke "Production".
+						if status == "VendorWarehouse" && productionDate == nil {
+							productionDate = &ts
+						}
+						// Timestamp dari "Production" adalah waktu masuk ke "FAT".
+						if status == "Production" && fatDate == nil {
+							fatDate = &ts
+						}
+						// Timestamp dari "FAT" adalah waktu masuk ke "Done".
+						if status == "FAT" && allDoneDate == nil {
+							allDoneDate = &ts
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// BUAT RESPONSE JSON FINAL
+	finalResponse := map[string]interface{}{
+		"panel":                  updatedPanel.Panel,
+		"panel_vendor_name":      updatedPanel.PanelVendorName,
+		"busbar_vendor_names":    updatedPanel.BusbarVendorNames,
+		"component_vendor_names": updatedPanel.ComponentVendorNames,
+		// TAMBAHKAN FIELD TANGGAL BARU
+		"production_date": productionDate,
+		"fat_date":        fatDate,
+		"all_done_date":   allDoneDate,
+	}
+
 	go func() {
 		stakeholders, err := a.getPanelStakeholders(noPp)
-		if err != nil { return }
+		if err != nil {
+			return
+		}
 
 		finalRecipients := []string{}
 		for _, user := range stakeholders {
@@ -5782,21 +5844,26 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 
 		var actionText string
 		switch payload.Action {
-		case "to_production": actionText = "masuk ke tahap Produksi"
-		case "to_fat": actionText = "masuk ke tahap FAT"
-		case "to_done": actionText = "dinyatakan Selesai"
-		case "rollback": actionText = "dikembalikan ke tahap sebelumnya"
-		default: return
+		case "to_production":
+			actionText = "masuk ke tahap Produksi"
+		case "to_fat":
+			actionText = "masuk ke tahap FAT"
+		case "to_done":
+			actionText = "dinyatakan Selesai"
+		case "rollback":
+			actionText = "dikembalikan ke tahap sebelumnya"
+		default:
+			return
 		}
-		
+
 		if len(finalRecipients) > 0 {
 			title := fmt.Sprintf("Transfer Panel: %s", noPp)
 			body := fmt.Sprintf("%s memindahkan panel %s, kini %s.", payload.Actor, noPp, actionText)
 			a.sendNotificationToUsers(finalRecipients, title, body)
 		}
 	}()
-	// Kembalikan seluruh data panel yang sudah ter-update
-	respondWithJSON(w, http.StatusOK, updatedPanel)
+	// Kirim response JSON yang sudah diperkaya dengan tanggal
+	respondWithJSON(w, http.StatusOK, finalResponse)
 }
 // sendNotificationToUsers mengirim notifikasi ke banyak pengguna.
 func (a *App) sendNotificationToUsers(usernames []string, title string, body string) {
