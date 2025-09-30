@@ -1364,7 +1364,6 @@ func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusOK, keys)
 }
-
 func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		NoPps []string `json:"no_pps"`
@@ -1378,32 +1377,111 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := "DELETE FROM public.panels WHERE no_pp = ANY($1)"
-	result, err := a.DB.Exec(query, pq.Array(payload.NoPps))
+	// 1. Mulai transaksi
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	// 2. Cari semua slot yang ditempati oleh panel-panel yang akan dihapus
+	querySlots := "SELECT production_slot FROM panels WHERE no_pp = ANY($1) AND production_slot IS NOT NULL"
+	rows, err := tx.Query(querySlots, pq.Array(payload.NoPps))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mencari slot yang ditempati: "+err.Error())
+		return
+	}
+	
+	var slotsToFree []string
+	for rows.Next() {
+		var slot string
+		if err := rows.Scan(&slot); err == nil {
+			slotsToFree = append(slotsToFree, slot)
+		}
+	}
+	rows.Close() // Selalu tutup rows setelah selesai
+
+	// 3. Hapus panel-panelnya
+	queryDelete := "DELETE FROM public.panels WHERE no_pp = ANY($1)"
+	result, err := tx.Exec(queryDelete, pq.Array(payload.NoPps))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
+		return
+	}
+
+	// 4. Jika ada slot yang perlu dikosongkan, lakukan update
+	if len(slotsToFree) > 0 {
+		queryFreeSlots := "UPDATE production_slots SET is_occupied = false WHERE position_code = ANY($1)"
+		_, err = tx.Exec(queryFreeSlots, pq.Array(slotsToFree))
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengosongkan slot produksi: "+err.Error())
+			return
+		}
+	}
+
+	// 5. Commit transaksi jika semua OK
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	message := fmt.Sprintf("%d panel berhasil dihapus dan slot terkait telah dikosongkan.", rowsAffected)
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": message})
+}
+func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
+	noPp := mux.Vars(r)["no_pp"]
+
+	// 1. Mulai transaksi database
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+		return
+	}
+	defer tx.Rollback() // Otomatis batalkan jika ada error
+
+	// 2. Cari tahu slot mana yang sedang ditempati panel ini (jika ada)
+	var occupiedSlot sql.NullString
+	err = tx.QueryRow("SELECT production_slot FROM panels WHERE no_pp = $1", noPp).Scan(&occupiedSlot)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Gagal mencari data panel: "+err.Error())
+		return
+	}
+
+	// 3. Hapus panelnya
+	result, err := tx.Exec("DELETE FROM public.panels WHERE no_pp = $1", noPp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
 		return
 	}
 	rowsAffected, _ := result.RowsAffected()
-	message := fmt.Sprintf("%d panel berhasil dihapus.", rowsAffected)
-	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": message})
-}
-
-func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
-	noPp := mux.Vars(r)["no_pp"]
-
-	query := "DELETE FROM public.panels WHERE no_pp = $1"
-	result, err := a.DB.Exec(query, noPp)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
+		// Seharusnya tidak terjadi karena sudah dicek di atas, tapi untuk keamanan
+		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan saat proses hapus")
 		return
 	}
-	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Panel berhasil dihapus"})
+
+	// 4. Jika panel tadi menempati slot, kosongkan slotnya
+	if occupiedSlot.Valid && occupiedSlot.String != "" {
+		_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", occupiedSlot.String)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengosongkan slot produksi: "+err.Error())
+			return
+		}
+	}
+
+	// 5. Jika semua berhasil, simpan perubahan
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Panel berhasil dihapus dan slot produksi telah dikosongkan."})
 }
 
 func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
