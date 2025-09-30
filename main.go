@@ -3684,7 +3684,6 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal menjalankan migrasi untuk kolom history_stack: %v", err)
 	}
 	
-	// Menambahkan data slot awal jika tabel masih kosong
 	var slotCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM production_slots").Scan(&slotCount); err == nil && slotCount == 0 {
 		log.Println("Tabel production_slots kosong, menambahkan data slot awal...")
@@ -3699,20 +3698,24 @@ func initDB(db *sql.DB) {
 		}
 		defer stmt.Close()
 
-		// Membuat 28 slot dari A1-D7
-		for col := 'A'; col <= 'D'; col++ {
-			for row := 1; row <= 7; row++ {
-				slotCode := fmt.Sprintf("%c%d", col, row)
+		// === BAGIAN INI SUDAH BENAR UNTUK LOGIKA TERBARU ===
+		// Membuat 7 baris, masing-masing dengan 4 slot (A-D)
+		// Total 28 slot unik
+		for row := 1; row <= 7; row++ {
+			for col := 'A'; col <= 'H'; col++ {
+				// Kode unik seperti "Cell 1-A", "Cell 1-B", dst.
+				slotCode := fmt.Sprintf("Cell %d-%c", row, col)
 				if _, err := stmt.Exec(slotCode); err != nil {
 					tx.Rollback()
 					log.Fatalf("Gagal insert slot %s: %v", slotCode, err)
 				}
 			}
 		}
-		tx.Commit()
-		log.Println("Berhasil menambahkan 28 slot produksi.")
-	}
+		// === AKHIR BAGIAN PENTING ===
 
+		tx.Commit()
+		log.Println("Berhasil menambahkan 28 slot produksi dalam format baris.")
+	}
 	// Menambahkan foreign key constraint dari panels.production_slot ke production_slots.position_code
 	addForeignKeyConstraintSQL := `
 	DO $$
