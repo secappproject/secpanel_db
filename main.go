@@ -275,22 +275,22 @@ type AdditionalSR struct {
 	ReceivedDate *time.Time `json:"received_date,omitempty" db:"received_date"`
 }
 
-// type PanelDisplayData struct {
-// 	Panel                Panel           `json:"panel"`
-// 	PanelVendorName      *string         `json:"panel_vendor_name"`
-// 	PanelRemarks         *string         `json:"panel_remarks"`
-// 	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
-// 	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
-// 	BusbarRemarks        json.RawMessage `json:"busbar_remarks"` 
-// 	ComponentVendorNames *string         `json:"component_vendor_names"`
-// 	ComponentVendorIds   []string        `json:"component_vendor_ids"`
-// 	PaletVendorNames     *string         `json:"palet_vendor_names"`
-// 	PaletVendorIds       []string        `json:"palet_vendor_ids"`
-// 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
-// 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
-// 	IssueCount           int             `json:"issue_count"`
-// 	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
-// }
+type PanelDisplayData struct {
+	Panel                Panel           `json:"panel"`
+	PanelVendorName      *string         `json:"panel_vendor_name"`
+	PanelRemarks         *string         `json:"panel_remarks"`
+	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
+	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
+	BusbarRemarks        json.RawMessage `json:"busbar_remarks"` 
+	ComponentVendorNames *string         `json:"component_vendor_names"`
+	ComponentVendorIds   []string        `json:"component_vendor_ids"`
+	PaletVendorNames     *string         `json:"palet_vendor_names"`
+	PaletVendorIds       []string        `json:"palet_vendor_ids"`
+	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
+	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
+	IssueCount           int             `json:"issue_count"`
+	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
+}
 type PanelDisplayDataWithTimeline struct {
 	Panel                Panel           `json:"panel"`
 	PanelVendorName      *string         `json:"panel_vendor_name"`
