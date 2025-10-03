@@ -3426,6 +3426,17 @@ func splitIds(ns sql.NullString) []string {
 	}
 	return strings.Split(ns.String, ",")
 }
+
+func toColumnName(n int) string {
+    result := ""
+    for n >= 0 {
+        // Modulo 26 untuk mendapatkan karakter saat ini
+        remainder := n % 26
+        result = string('A'+remainder) + result
+        n = (n / 26) - 1
+    }
+    return result
+}
 func initDB(db *sql.DB) {
 	createTablesSQL := `
 	CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
@@ -3810,19 +3821,25 @@ func initDB(db *sql.DB) {
 		}
 		defer stmt.Close()
 
-		// === BAGIAN INI SUDAH BENAR UNTUK LOGIKA TERBARU ===
-		// Membuat 7 baris, masing-masing dengan 4 slot (A-D)
-		// Total 28 slot unik
+		        // --- [PERUBAHAN UTAMA DI SINI] ---
+        // Jumlah total slot yang diinginkan per cell.
+        // A-Z   = 26
+        // A-ZZ  = 26 + 26*26 = 702
+        // A-ZZZ = 26 + 26*26 + 26*26*26 = 18278
+        const slotsPerCell = 702 
 		for row := 1; row <= 7; row++ {
-			for col := 'A'; col <= 'H'; col++ {
-				// Kode unik seperti "Cell 1-A", "Cell 1-B", dst.
-				slotCode := fmt.Sprintf("Cell %d-%c", row, col)
-				if _, err := stmt.Exec(slotCode); err != nil {
-					tx.Rollback()
-					log.Fatalf("Gagal insert slot %s: %v", slotCode, err)
-				}
-			}
-		}
+            // Lakukan perulangan berdasarkan angka, bukan karakter
+            for i := 0; i < slotsPerCell; i++ {
+                // Ubah angka 'i' menjadi kode kolom (A, B, ..., AA, AB, ...)
+                colName := toColumnName(i)
+                
+                slotCode := fmt.Sprintf("Cell %d-%s", row, colName)
+                if _, err := stmt.Exec(slotCode); err != nil {
+                    tx.Rollback()
+                    log.Fatalf("Gagal insert slot %s: %v", slotCode, err)
+                }
+            }
+        }
 		// === AKHIR BAGIAN PENTING ===
 
 		tx.Commit()
