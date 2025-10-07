@@ -2306,7 +2306,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			&p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc,
 			&p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate,
 			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc,
-			&p.StatusPenyelesaian, &p.ProductionSlot, &p.HistoryStack, 
+			&p.StatusPenyelesaian, &p.ProductionSlot, 
 		); err != nil {
 			log.Printf("Peringatan: Gagal scan panel row: %v", err)
 			continue
