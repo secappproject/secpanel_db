@@ -5904,12 +5904,12 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
+	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed")
 		return
 	}
-
-	// Logika pengambilan data terbaru dan pengiriman notifikasi tetap sama...
+	// Ambil data panel yang paling update, TERMASUK history_stack
 	var updatedPanel PanelDisplayData
 	panelQuery := `
 		SELECT
@@ -5925,14 +5925,14 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		FROM public.panels p
 		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp = $1`
-	var historyStackJSON []byte
+	var historyStackJSON []byte // Variabel untuk menampung JSON dari DB
 	err = a.DB.QueryRow(panelQuery, noPp).Scan(
 		&updatedPanel.Panel.NoPp, &updatedPanel.Panel.NoPanel, &updatedPanel.Panel.NoWbs, &updatedPanel.Panel.Project, &updatedPanel.Panel.PercentProgress, &updatedPanel.Panel.StartDate, &updatedPanel.Panel.TargetDelivery,
 		&updatedPanel.Panel.StatusBusbarPcc, &updatedPanel.Panel.StatusBusbarMcc, &updatedPanel.Panel.StatusComponent, &updatedPanel.Panel.StatusPalet, &updatedPanel.Panel.StatusCorepart,
 		&updatedPanel.Panel.AoBusbarPcc, &updatedPanel.Panel.AoBusbarMcc, &updatedPanel.Panel.CreatedBy, &updatedPanel.Panel.VendorID, &updatedPanel.Panel.IsClosed,
 		&updatedPanel.Panel.ClosedDate, &updatedPanel.Panel.PanelType, &updatedPanel.Panel.Remarks, &updatedPanel.Panel.CloseDateBusbarPcc, &updatedPanel.Panel.CloseDateBusbarMcc,
 		&updatedPanel.Panel.StatusPenyelesaian, &updatedPanel.Panel.ProductionSlot,
-		&historyStackJSON,
+		&historyStackJSON, // Scan kolom history_stack ke variabel ini
 		&updatedPanel.PanelVendorName, &updatedPanel.BusbarVendorNames, &updatedPanel.ComponentVendorNames,
 	)
 	if err != nil {
@@ -5941,8 +5941,9 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- [BAGIAN KRITIS] Tambahkan logika parsing history_stack di sini ---
 	var historyStackData []map[string]interface{}
-	var productionDate, fatDate, allDoneDate *time.Time
+	var productionDate, fatDate, allDoneDate *time.Time // pointer ke time.Time
 
 	if historyStackJSON != nil {
 		json.Unmarshal(historyStackJSON, &historyStackData)
@@ -5966,15 +5967,17 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Buat response map yang lengkap, termasuk tanggal yang sudah di-parsing
 	finalResponse := map[string]interface{}{
 		"panel":                  updatedPanel.Panel,
 		"panel_vendor_name":      updatedPanel.PanelVendorName,
 		"busbar_vendor_names":    updatedPanel.BusbarVendorNames,
 		"component_vendor_names": updatedPanel.ComponentVendorNames,
-		"production_date":        productionDate,
-		"fat_date":               fatDate,
-		"all_done_date":          allDoneDate,
+		"production_date":        productionDate, // Tambahkan ini
+		"fat_date":               fatDate,        // Tambahkan ini
+		"all_done_date":          allDoneDate,    // Tambahkan ini
 	}
+
 
 	go func() {
 		stakeholders, err := a.getPanelStakeholders(noPp)
