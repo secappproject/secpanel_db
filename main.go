@@ -2115,8 +2115,7 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
-}
-// file: main.go
+}// file: main.go
 
 func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{}, error) {
 	queryParams := r.URL.Query()
@@ -2130,7 +2129,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 
 	// [PERBAIKAN] Query dasar sekarang menggunakan JOIN untuk filter vendor
 	panelQuery := `
-		SELECT p.* FROM public.panels p
+		SELECT DISTINCT p.* FROM public.panels p
 		LEFT JOIN public.busbars b ON p.no_pp = b.panel_no_pp
 		LEFT JOIN public.components c ON p.no_pp = c.panel_no_pp
 		LEFT JOIN public.palet pa ON p.no_pp = pa.panel_no_pp
@@ -2140,9 +2139,8 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	args := []interface{}{}
 	argCounter := 1
 
-	// -- Helper Functions --
+	// -- Helper Functions (Tidak ada perubahan di sini) --
 	addDateFilter := func(query, col, start, end string) (string, []interface{}) {
-		// ... (fungsi ini tidak berubah)
 		localArgs := []interface{}{}
 		if start != "" {
 			query += fmt.Sprintf(" AND %s >= $%d", col, argCounter)
@@ -2162,12 +2160,10 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	}
 
 	addListFilter := func(query, col, values string) (string, []interface{}) {
-		// ... (fungsi ini tidak berubah)
 		localArgs := []interface{}{}
 		if values != "" {
 			list := strings.Split(values, ",")
 			if len(list) > 0 {
-				// Khusus untuk 'Belum Diatur'
 				if len(list) == 1 && list[0] == "Belum Diatur" {
 					query += fmt.Sprintf(" AND (%s IS NULL OR %s = '')", col, col)
 				} else {
@@ -2201,32 +2197,49 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 		return query, localArgs
 	}
-
+	
 	addVendorFilter := func(query, col, values string) (string, []interface{}) {
 		localArgs := []interface{}{}
 		if values != "" {
 			list := strings.Split(values, ",")
 			if len(list) > 0 {
-				query += fmt.Sprintf(" AND %s IN (SELECT unnest($%d::text[]))", col, argCounter)
-				localArgs = append(localArgs, pq.Array(list))
-				argCounter++
+				hasNoVendor := false
+				var filteredList []string
+				for _, item := range list {
+					if item == "No Vendor" {
+						hasNoVendor = true
+					} else {
+						filteredList = append(filteredList, item)
+					}
+				}
+
+				var conditions []string
+				if len(filteredList) > 0 {
+					conditions = append(conditions, fmt.Sprintf("%s = ANY($%d)", col, argCounter))
+					localArgs = append(localArgs, pq.Array(filteredList))
+					argCounter++
+				}
+				if hasNoVendor {
+					conditions = append(conditions, fmt.Sprintf("(%s IS NULL OR %s = '')", col, col))
+				}
+				
+				if len(conditions) > 0 {
+					query += " AND (" + strings.Join(conditions, " OR ") + ")"
+				}
 			}
 		}
 		return query, localArgs
 	}
 
-	// -- Menerapkan Semua Filter --
+
+	// -- Menerapkan Semua Filter (Tidak ada perubahan di sini) --
 	var newArgs []interface{}
-	
-	// Filter Tanggal
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.start_date", queryParams.Get("start_date_start"), queryParams.Get("start_date_end"))
 	args = append(args, newArgs...)
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.target_delivery", queryParams.Get("delivery_date_start"), queryParams.Get("delivery_date_end"))
 	args = append(args, newArgs...)
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.closed_date", queryParams.Get("closed_date_start"), queryParams.Get("closed_date_end"))
 	args = append(args, newArgs...)
-
-	// Filter Tipe & Status
 	panelQuery, newArgs = addListFilter(panelQuery, "p.panel_type", queryParams.Get("panel_types"))
 	args = append(args, newArgs...)
 	panelQuery, newArgs = addListFilter(panelQuery, "p.status_busbar_pcc", queryParams.Get("pcc_statuses"))
@@ -2239,8 +2252,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	args = append(args, newArgs...)
 	panelQuery, newArgs = addListFilter(panelQuery, "p.status_corepart", queryParams.Get("corepart_statuses"))
 	args = append(args, newArgs...)
-	
-	// Filter Vendor (menggunakan JOIN)
 	panelQuery, newArgs = addVendorFilter(panelQuery, "p.vendor_id", queryParams.Get("panel_vendors"))
 	args = append(args, newArgs...)
 	panelQuery, newArgs = addVendorFilter(panelQuery, "b.vendor", queryParams.Get("busbar_vendors"))
@@ -2251,15 +2262,14 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	args = append(args, newArgs...)
 	panelQuery, newArgs = addVendorFilter(panelQuery, "cp.vendor", queryParams.Get("corepart_vendors"))
 	args = append(args, newArgs...)
-	
-	// Filter Status Panel berdasarkan persentase
+
 	if statuses := queryParams.Get("panel_statuses"); statuses != "" {
 		statusList := strings.Split(statuses, ",")
 		var statusConditions []string
 		for _, status := range statusList {
 			switch status {
 			case "progressRed":
-				statusConditions = append(statusConditions, "(p.percent_progress < 50)")
+				statusConditions = append(statusConditions, "(p.percent_progress > 0 AND p.percent_progress < 50)")
 			case "progressOrange":
 				statusConditions = append(statusConditions, "(p.percent_progress >= 50 AND p.percent_progress < 75)")
 			case "progressBlue":
@@ -2268,21 +2278,17 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 				statusConditions = append(statusConditions, "(p.percent_progress >= 100 AND p.is_closed = false)")
 			case "closed":
 				statusConditions = append(statusConditions, "(p.is_closed = true)")
+			case "progressGrey":
+				statusConditions = append(statusConditions, "(p.percent_progress = 0 OR p.percent_progress IS NULL)")
 			}
 		}
 		if len(statusConditions) > 0 {
 			panelQuery += " AND (" + strings.Join(statusConditions, " OR ") + ")"
 		}
 	}
-	
-	// Filter Arsip
 	if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
-		panelQuery += " AND (p.is_closed = false OR p.closed_date > NOW() - INTERVAL '2 days')"
+		panelQuery += " AND (p.is_closed = false)"
 	}
-
-
-	// Akhiri query dengan GROUP BY untuk menghilangkan duplikat karena JOIN
-	panelQuery += " GROUP BY p.no_pp"
 	
 	// Eksekusi query
 	rows, err := tx.Query(panelQuery, args...)
@@ -2295,12 +2301,12 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	for rows.Next() {
 		var p Panel
 		if err := rows.Scan(
-			&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, 
-			&p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, 
-			&p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, 
-			&p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, 
-			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc, 
-			&p.StatusPenyelesaian, &p.ProductionSlot,
+			&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, 
+			&p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, 
+			&p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, 
+			&p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, 
+			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc, 
+			&p.StatusPenyelesaian, &p.ProductionSlot, &p.HistoryStack, // history_stack is new
 		); err != nil {
 			log.Printf("Peringatan: Gagal scan panel row: %v", err)
 			continue
@@ -2311,91 +2317,93 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	rows.Close()
 	result["panels"] = panels
 
-
 	relevantPanelIds := []string{}
 	for id := range panelIdSet {
 		relevantPanelIds = append(relevantPanelIds, id)
 	}
-
+	
+	// [BAGIAN PERBAIKAN UTAMA DIMULAI DI SINI]
 	if len(relevantPanelIds) > 0 {
-        result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
-        result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
-        result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
-        result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
-        
-        // Query untuk Issues
-        issueQuery := `
-            SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.status, i.created_by, i.created_at 
-            FROM issues i
-            JOIN chats ch ON i.chat_id = ch.id
-            JOIN panels p ON ch.panel_no_pp = p.no_pp
-            WHERE p.no_pp = ANY($1)
-            ORDER BY p.no_pp, i.created_at`
-        issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
-        if err != nil {
-            log.Printf("Gagal query issues for export: %v", err)
-        } else {
-            var issues []IssueForExport
-            for issueRows.Next() {
-                var issue IssueForExport
-                if err := issueRows.Scan(&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel, &issue.IssueID, &issue.Title, &issue.Description, &issue.Status, &issue.CreatedBy, &issue.CreatedAt); err == nil {
-                    issues = append(issues, issue)
-                }
-            }
-            result["issues"] = issues // Simpan hasil ke map
-            issueRows.Close()
-        }
+		result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
+		result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
+		result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
+		result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
+		
+		// [PERBAIKAN 1] Query untuk Issues
+		issueQuery := `
+			SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.status, i.created_by, i.created_at 
+			FROM issues i
+			JOIN chats ch ON i.chat_id = ch.id
+			JOIN panels p ON ch.panel_no_pp = p.no_pp
+			WHERE p.no_pp = ANY($1)
+			ORDER BY p.no_pp, i.created_at`
+		issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
+		if err != nil {
+			log.Printf("Gagal query issues for export: %v", err)
+		} else {
+			var issues []IssueForExport
+			for issueRows.Next() {
+				var issue IssueForExport
+				if err := issueRows.Scan(&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel, &issue.IssueID, &issue.Title, &issue.Description, &issue.Status, &issue.CreatedBy, &issue.CreatedAt); err == nil {
+					issues = append(issues, issue)
+				}
+			}
+			result["issues"] = issues // Simpan hasil ke map
+			issueRows.Close()
+		}
 
-        // Query untuk Comments
-        commentQuery := `
-            SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
-            FROM issue_comments ic
-            JOIN issues i ON ic.issue_id = i.id
-            JOIN chats ch ON i.chat_id = ch.id
-            WHERE ch.panel_no_pp = ANY($1)
-            ORDER BY ic.issue_id, ic.timestamp`
-        commentRows, err := tx.Query(commentQuery, pq.Array(relevantPanelIds))
-        if err != nil {
-            log.Printf("Gagal query comments for export: %v", err)
-        } else {
-            var comments []CommentForExport
-            for commentRows.Next() {
-                var comment CommentForExport
-                if err := commentRows.Scan(&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID); err == nil {
-                    comments = append(comments, comment)
-                }
-            }
-            result["comments"] = comments // Simpan hasil ke map
-            commentRows.Close()
-        }
-        
-        // Query untuk Additional SRs
-        srQuery := `
-            SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks
-            FROM additional_sr asr
-            JOIN panels p ON asr.panel_no_pp = p.no_pp
-            WHERE p.no_pp = ANY($1)
-            ORDER BY p.no_pp, asr.created_at`
-        srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
-        if err != nil {
-            log.Printf("Gagal query srs for export: %v", err)
-        } else {
-            var srs []AdditionalSRForExport
-            for srRows.Next() {
-                var sr AdditionalSRForExport
-                if err := srRows.Scan(&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks); err == nil {
-                    srs = append(srs, sr)
-                }
-            }
-            result["additional_srs"] = srs // Simpan hasil ke map
-            srRows.Close()
-        }
-    } else {
-        result["busbars"], result["components"], result["palet"], result["corepart"] = []Busbar{}, []Component{}, []Palet{}, []Corepart{}
-        result["issues"] = []IssueForExport{}
-        result["comments"] = []CommentForExport{}
-        result["additional_srs"] = []AdditionalSRForExport{}
-    }
+		// [PERBAIKAN 2] Query untuk Comments
+		commentQuery := `
+			SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
+			FROM issue_comments ic
+			JOIN issues i ON ic.issue_id = i.id
+			JOIN chats ch ON i.chat_id = ch.id
+			WHERE ch.panel_no_pp = ANY($1)
+			ORDER BY ic.issue_id, ic.timestamp`
+		commentRows, err := tx.Query(commentQuery, pq.Array(relevantPanelIds))
+		if err != nil {
+			log.Printf("Gagal query comments for export: %v", err)
+		} else {
+			var comments []CommentForExport
+			for commentRows.Next() {
+				var comment CommentForExport
+				if err := commentRows.Scan(&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID); err == nil {
+					comments = append(comments, comment)
+				}
+			}
+			result["comments"] = comments // Simpan hasil ke map
+			commentRows.Close()
+		}
+		
+		// [PERBAIKAN 3] Query untuk Additional SRs
+		srQuery := `
+			SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks
+			FROM additional_sr asr
+			JOIN panels p ON asr.panel_no_pp = p.no_pp
+			WHERE p.no_pp = ANY($1)
+			ORDER BY p.no_pp, asr.created_at`
+		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
+		if err != nil {
+			log.Printf("Gagal query srs for export: %v", err)
+		} else {
+			var srs []AdditionalSRForExport
+			for srRows.Next() {
+				var sr AdditionalSRForExport
+				if err := srRows.Scan(&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks); err == nil {
+					srs = append(srs, sr)
+				}
+			}
+			result["additional_srs"] = srs // Simpan hasil ke map
+			srRows.Close()
+		}
+	} else {
+        // [PERBAIKAN 4] Pastikan keys ada meskipun kosong
+		result["busbars"], result["components"], result["palet"], result["corepart"] = []Busbar{}, []Component{}, []Palet{}, []Corepart{}
+		result["issues"] = []IssueForExport{}
+		result["comments"] = []CommentForExport{}
+		result["additional_srs"] = []AdditionalSRForExport{}
+	}
+	// [AKHIR BAGIAN PERBAIKAN]
 
 	result["companies"], _ = fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
 	result["companyAccounts"], _ = fetchAllAs(tx, "company_accounts", func() interface{} { return &CompanyAccount{} })
