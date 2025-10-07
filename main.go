@@ -2115,7 +2115,7 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
-}// file: main.go
+}
 
 func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{}, error) {
 	queryParams := r.URL.Query()
@@ -5075,13 +5075,8 @@ type pdd struct {
 	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
 	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
 }
-// File: main.go
+// file: main.go
 
-// =============================================================================
-// FUNGSI AI UTAMA (GANTI SEMUA DI BAWAH INI)
-// =============================================================================
-
-// Salin dan ganti seluruh fungsi askGeminiAboutPanelHandler Anda dengan ini
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
@@ -5117,7 +5112,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	panelDetailsBytes, _ := json.MarshalIndent(panel, "", "  ")
-    panelDetails := string(panelDetailsBytes)
+	panelDetails := string(panelDetailsBytes)
 
 	rows, err := a.DB.Query(`
 		SELECT i.id, i.title, i.description, i.status, ic.sender_id, ic.text
@@ -5137,8 +5132,10 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	for rows.Next() {
 		var issueID int
 		var issueTitle, issueDesc, issueStatus, commentSender, commentText sql.NullString
-		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil { continue }
-		
+		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil {
+			continue
+		}
+
 		if issueID != currentIssueID {
 			issuesHistory.WriteString(fmt.Sprintf("\n--- ISU BARU (ID: %d) ---\nJudul: %s\nDeskripsi: %s\nStatus: %s\n", issueID, issueTitle.String, issueDesc.String, issueStatus.String))
 			currentIssueID = issueID
@@ -5149,37 +5146,41 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	ctx := context.Background()
-	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" // Pastikan API Key Anda benar
+	apiKey := os.Getenv("GEMINI_API_KEY") // [REKOMENDASI] Ambil dari environment variable
+	if apiKey == "" {
+		apiKey = "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" // Fallback jika tidak ada di env
+	}
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
 		return
 	}
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error()); return }
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error())
+		return
+	}
 	defer client.Close()
 
 	model := client.GenerativeModel("gemini-1.5-flash")
 	model.Tools = getToolsForRole(senderRole)
 	cs := model.StartChat()
-	
+
 	var promptParts []genai.Part
 	fullPromptText := fmt.Sprintf(
-	"**Persona & Aturan:**\n"+
-			"1.  **Kamu adalah asisten AI yang cerdas dan kontekstual bernama Gemini.** Gunakan bahasa Indonesia yang profesional dan proaktif.\n"+
-			"2. Saat kamu perlu mengambil data atau melakukan sebuah aksi, panggil fungsi yang sesuai. Setelah fungsi berhasil dieksekusi, rangkum hasilnya untuk user dalam bahasa percakapan yang natural.\n"	+		
-			"3.  Gunakan format tebal (`**teks**`) untuk menekankan nama isu atau item penting.\n"+
-			"4.  Kamu bisa melakukan banyak hal: meringkas status, mengubah progres panel, mengubah status isu, menambah komentar, mengubah status komponen (Busbar, Palet, dll), dan menugaskan vendor. Selalu tawarkan bantuan jika relevan.\n"+
-			"5.  Lakukan aksi HANYA jika diizinkan oleh role user: **%s**.\n\n"+
-			
+		"**Persona & Aturan:**\n"+
+			"1. **Kamu adalah asisten AI yang cerdas dan kontekstual bernama Gemini.** Gunakan bahasa Indonesia yang profesional dan proaktif.\n"+
+			"2. Saat kamu perlu mengambil data atau melakukan sebuah aksi, panggil fungsi yang sesuai. Setelah fungsi berhasil dieksekusi, rangkum hasilnya untuk user dalam bahasa percakapan yang natural.\n"+
+			"3. Gunakan format tebal (`**teks**`) untuk menekankan nama isu atau item penting.\n"+
+			"4. Kamu bisa melakukan banyak hal: meringkas status, mengubah progres panel, mengubah status isu, menambah komentar, mengubah status komponen (Busbar, Palet, dll), dan menugaskan vendor. Selalu tawarkan bantuan jika relevan.\n"+
+			"5. Lakukan aksi HANYA jika diizinkan oleh role user: **%s**.\n\n"+
 			"**Aturan Penting untuk Memberi 'Rekomendasi Aksi' (`[SUGGESTION]`):**\n"+
-			"1.  **Sintesis Konteks Penuh:** Rekomendasi HARUS relevan dengan topik utama dari keseluruhan diskusi (pertanyaan terakhir user + histori komentar). Jangan membuat rekomendasi acak tentang isu lain yang tidak sedang dibicarakan.\n"+
-			"2.  **Logika Menentukan PIC:** PIC sebuah isu adalah **user terakhir yang memberikan komentar** pada isu tersebut (selain 'gemini_ai'). Jika belum ada komentar, PIC adalah pembuat isu.\n"+
-			"3.  **Rekomendasi Bertahap & Logis:**\n"+
-			"    - **Prioritaskan Komunikasi:** Jika sebuah isu belum ada update, prioritaskan untuk merekomendasikan **penambahan komentar** untuk menanyakan progres ke PIC. Contoh: `[SUGGESTION: Tambah komentar 'bagaimana progresnya?' ke isu 'Missing Metal Part']`.\n"+
-			"    - **JANGAN** langsung menyarankan 'ubah status jadi solved' jika belum ada bukti penyelesaian di histori komentar.\n"+
-			"4.  **Rekomendasi 'Solved' yang Cerdas:**\n"+
-			"    - Kamu HANYA boleh merekomendasikan `[SUGGESTION: Ubah status 'Nama Isu' menjadi solved]` jika **dari histori komentar sudah ada konfirmasi eksplisit** bahwa masalahnya telah teratasi.\n"+
-
+			"1. **Sintesis Konteks Penuh:** Rekomendasi HARUS relevan dengan topik utama dari keseluruhan diskusi (pertanyaan terakhir user + histori komentar). Jangan membuat rekomendasi acak tentang isu lain yang tidak sedang dibicarakan.\n"+
+			"2. **Logika Menentukan PIC:** PIC sebuah isu adalah **user terakhir yang memberikan komentar** pada isu tersebut (selain 'gemini_ai'). Jika belum ada komentar, PIC adalah pembuat isu.\n"+
+			"3. **Rekomendasi Bertahap & Logis:**\n"+
+			"   - **Prioritaskan Komunikasi:** Jika sebuah isu belum ada update, prioritaskan untuk merekomendasikan **penambahan komentar** untuk menanyakan progres ke PIC. Contoh: `[SUGGESTION: Tambah komentar 'bagaimana progresnya?' ke isu 'Missing Metal Part']`.\n"+
+			"   - **JANGAN** langsung menyarankan 'ubah status jadi solved' jika belum ada bukti penyelesaian di histori komentar.\n"+
+			"4. **Rekomendasi 'Solved' yang Cerdas:**\n"+
+			"   - Kamu HANYA boleh merekomendasikan `[SUGGESTION: Ubah status 'Nama Isu' menjadi solved]` jika **dari histori komentar sudah ada konfirmasi eksplisit** bahwa masalahnya telah teratasi.\n\n"+
 			"**Konteks Data Proyek Saat Ini:**\n"+
 			"Gunakan `ID` isu jika ingin melakukan aksi pada isu tertentu.\n"+
 			"```json\n%s\n```\n\n"+
@@ -5190,7 +5191,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		senderRole, panelDetails, issuesHistory.String(), payload.SenderID, payload.Question,
 	)
 	promptParts = append(promptParts, genai.Text(fullPromptText))
-	
+
 	if payload.ImageB64 != nil && *payload.ImageB64 != "" {
 		if parts := strings.Split(*payload.ImageB64, ","); len(parts) == 2 {
 			if imageBytes, err := base64.StdEncoding.DecodeString(parts[1]); err == nil {
@@ -5200,7 +5201,10 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp, err := cs.SendMessage(ctx, promptParts...)
-	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error())
+		return
+	}
 
 	actionTaken := false
 	if resp.Candidates != nil && len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
@@ -5210,18 +5214,23 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 
 			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
-			if err != nil { 
-				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err) 
+			if err != nil {
+				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err)
 			}
 			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
-			
+
 			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
-			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error()); return }
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error())
+				return
+			}
 		}
 	}
-	
+
 	finalResponseText := extractTextFromResponse(resp)
-	if finalResponseText == "" { finalResponseText = "Maaf, ada sedikit kendala. Boleh coba tanya lagi?" }
+	if finalResponseText == "" {
+		finalResponseText = "Maaf, ada sedikit kendala. Boleh coba tanya lagi?"
+	}
 
 	var suggestions []string
 	re := regexp.MustCompile(`\[SUGGESTION:\s*(.*?)\]`)
@@ -5232,15 +5241,14 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	finalResponseText = re.ReplaceAllString(finalResponseText, "")
-	
+
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":   uuid.New().String(),
-		"text": strings.TrimSpace(finalResponseText),
-		"action_taken": actionTaken,
+		"id":                uuid.New().String(),
+		"text":              strings.TrimSpace(finalResponseText),
+		"action_taken":      actionTaken,
 		"suggested_actions": suggestions,
 	})
 }
-
 // Salin dan ganti seluruh fungsi getToolsForRole Anda dengan ini
 func getToolsForRole(role string) []*genai.Tool {
 	// Kumpulan semua kemungkinan "alat"
