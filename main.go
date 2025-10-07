@@ -2294,7 +2294,14 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	panelIdSet := make(map[string]bool)
 	for rows.Next() {
 		var p Panel
-		if err := rows.Scan(&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType); err != nil {
+		if err := rows.Scan(
+			&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, 
+			&p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, 
+			&p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, 
+			&p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, 
+			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc, 
+			&p.StatusPenyelesaian, &p.ProductionSlot,
+		); err != nil {
 			log.Printf("Peringatan: Gagal scan panel row: %v", err)
 			continue
 		}
@@ -2303,6 +2310,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	}
 	rows.Close()
 	result["panels"] = panels
+
 
 	relevantPanelIds := []string{}
 	for id := range panelIdSet {
