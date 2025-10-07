@@ -5665,7 +5665,6 @@ func (a *App) getSuppliersHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, suppliers)
 }
 
-
 func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
@@ -5674,7 +5673,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		Action         string  `json:"action"`
 		Slot           string  `json:"slot,omitempty"`
 		Actor          string  `json:"actor"`
-		VendorID       *string `json:"vendor_id,omitempty"` // Untuk subcontractor
+		VendorID       *string `json:"vendor_id,omitempty"`
 		StartDate      *string `json:"start_date,omitempty"`
 		ProductionDate *string `json:"production_date,omitempty"`
 		FatDate        *string `json:"fat_date,omitempty"`
@@ -5718,22 +5717,17 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		var panelState map[string]interface{}
 		var panelData []byte
 		err := tx.QueryRow("SELECT row_to_json(p) FROM panels p WHERE no_pp = $1", noPp).Scan(&panelData)
-		if err != nil {
-			return nil, err
-		}
+		if err != nil { return nil, err }
 		json.Unmarshal(panelData, &panelState)
-
 		timestampToUse := time.Now()
 		if customTimestamp != nil && !customTimestamp.IsZero() {
 			timestampToUse = *customTimestamp
 		}
-
-		snapshotWrapper := map[string]interface{}{
+		return map[string]interface{}{
 			"timestamp":       timestampToUse.UTC().Format(time.RFC3339),
 			"snapshot_status": status,
 			"state":           panelState,
-		}
-		return snapshotWrapper, nil
+		}, nil
 	}
 
 	var historyStack []map[string]interface{}
@@ -5741,108 +5735,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal(p.HistoryStack, &historyStack)
 	}
 
-	if payload.Action == "update_dates" {
-		var updates []string
-		var args []interface{}
-		argCounter := 1
-
-		if payload.StartDate != nil {
-			if parsedDate, err := time.Parse(time.RFC3339, *payload.StartDate); err == nil {
-				updates = append(updates, fmt.Sprintf("start_date = $%d", argCounter))
-				args = append(args, parsedDate)
-				argCounter++
-			}
-		}
-
-		historyChanged := false
-		for i, item := range historyStack {
-			status, _ := item["snapshot_status"].(string)
-			switch status {
-			case "VendorWarehouse":
-				if payload.ProductionDate != nil {
-					if newDate, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
-						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
-						historyChanged = true
-					}
-				}
-			case "Production", "Subcontractor":
-				if payload.FatDate != nil {
-					if newDate, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
-						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
-						historyChanged = true
-					}
-				}
-			case "FAT":
-				if payload.AllDoneDate != nil {
-					if newDate, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
-						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
-						historyChanged = true
-					}
-				}
-			}
-		}
-
-		if historyChanged {
-			historyJson, _ := json.Marshal(historyStack)
-			updates = append(updates, fmt.Sprintf("history_stack = $%d", argCounter))
-			args = append(args, historyJson)
-			argCounter++
-		}
-
-		if len(updates) > 0 {
-			query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
-			args = append(args, noPp)
-			_, err := tx.Exec(query, args...)
-			if err != nil {
-				respondWithError(w, http.StatusInternalServerError, "Failed to update dates: "+err.Error())
-				return
-			}
-		}
-	} else {
-		var snapshotDate *time.Time
-		var nextStatus string
-
-		switch payload.Action {
-		case "to_production":
-			nextStatus = "Production"
-			if payload.ProductionDate != nil {
-				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
-					snapshotDate = &t
-				}
-			}
-		case "to_subcontractor":
-			nextStatus = "Subcontractor"
-			// Tanggalnya sama dengan production date
-			if payload.ProductionDate != nil {
-				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
-					snapshotDate = &t
-				}
-			}
-		case "to_fat":
-			nextStatus = "FAT"
-			if payload.FatDate != nil {
-				if t, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
-					snapshotDate = &t
-				}
-			}
-		case "to_done":
-			nextStatus = "Done"
-			if payload.AllDoneDate != nil {
-				if t, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
-					snapshotDate = &t
-				}
-			}
-		}
-
-		snapshot, err := createSnapshot(currentStatus, snapshotDate)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to create snapshot")
-			return
-		}
-		historyStack = append(historyStack, snapshot)
-		historyJson, _ := json.Marshal(historyStack)
-
-		switch payload.Action {
+	switch payload.Action {
 	case "update_dates":
 		// Logika untuk update tanggal (tidak berubah)
 		var updates []string
@@ -5988,6 +5881,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed")
 		return
 	}
+	
 	// Ambil data panel yang paling update, TERMASUK history_stack
 	var updatedPanel PanelDisplayData
 	panelQuery := `
