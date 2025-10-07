@@ -5843,26 +5843,134 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		historyJson, _ := json.Marshal(historyStack)
 
 		switch payload.Action {
+	case "update_dates":
+		// Logika untuk update tanggal (tidak berubah)
+		var updates []string
+		var args []interface{}
+		argCounter := 1
+		if payload.StartDate != nil {
+			if parsedDate, err := time.Parse(time.RFC3339, *payload.StartDate); err == nil {
+				updates = append(updates, fmt.Sprintf("start_date = $%d", argCounter))
+				args = append(args, parsedDate)
+				argCounter++
+			}
+		}
+		historyChanged := false
+		for i, item := range historyStack {
+			status, _ := item["snapshot_status"].(string)
+			switch status {
+			case "VendorWarehouse":
+				if payload.ProductionDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
+						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339); historyChanged = true
+					}
+				}
+			case "Production", "Subcontractor":
+				if payload.FatDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
+						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339); historyChanged = true
+					}
+				}
+			case "FAT":
+				if payload.AllDoneDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
+						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339); historyChanged = true
+					}
+				}
+			}
+		}
+		if historyChanged {
+			historyJson, _ := json.Marshal(historyStack)
+			updates = append(updates, fmt.Sprintf("history_stack = $%d", argCounter));
+			args = append(args, historyJson); argCounter++
+		}
+		if len(updates) > 0 {
+			query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
+			args = append(args, noPp)
+			if _, err := tx.Exec(query, args...); err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to update dates: "+err.Error()); return
+			}
+		}
+
+	case "rollback":
+		// Logika rollback sekarang bisa diakses dengan benar
+		if len(historyStack) == 0 { respondWithError(w, http.StatusBadRequest, "No history to rollback to."); return }
+		lastStateWrapper := historyStack[len(historyStack)-1]
+		historyStack = historyStack[:len(historyStack)-1]
+		historyJson, _ := json.Marshal(historyStack)
+		lastState, _ := lastStateWrapper["state"].(map[string]interface{})
+		
+		// Hapus kunci yang tidak perlu dari state lama sebelum restore
+		delete(lastState, "history_stack")
+		delete(lastState, "snapshot_status")
+		
+		var columns []string
+		var values []interface{}
+		i := 1
+		for col, val := range lastState { columns = append(columns, fmt.Sprintf("%s = $%d", col, i)); values = append(values, val); i++ }
+		columns = append(columns, fmt.Sprintf("history_stack = $%d", i)); values = append(values, historyJson); i++; values = append(values, noPp)
+		
+		updateQuery := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(columns, ", "), i)
+		_, err = tx.Exec(updateQuery, values...)
+		if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to restore panel from history"); return }
+		
+		// Jika panel yang di-rollback sebelumnya ada di slot produksi, kosongkan slot itu
+		if p.ProductionSlot != nil && *p.ProductionSlot != "" {
+			_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *p.ProductionSlot)
+			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot on rollback"); return }
+		}
+
+	default:
+		// Semua aksi transisi lainnya (to_production, to_fat, dll.)
+		var snapshotDate *time.Time
+		var nextStatus string
+
+		switch payload.Action {
+		case "to_production":
+			nextStatus = "Production"
+			if payload.ProductionDate != nil {
+				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil { snapshotDate = &t }
+			}
+		case "to_subcontractor":
+			nextStatus = "Subcontractor"
+			if payload.ProductionDate != nil {
+				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil { snapshotDate = &t }
+			}
+		case "to_fat":
+			nextStatus = "FAT"
+			if payload.FatDate != nil {
+				if t, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil { snapshotDate = &t }
+			}
+		case "to_done":
+			nextStatus = "Done"
+			if payload.AllDoneDate != nil {
+				if t, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil { snapshotDate = &t }
+			}
+		default:
+			// Jika aksinya bukan salah satu di atas, baru kita anggap invalid
+			respondWithError(w, http.StatusBadRequest, "Invalid action specified."); return
+		}
+		
+		snapshot, err := createSnapshot(currentStatus, snapshotDate)
+		if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to create snapshot"); return }
+		historyStack = append(historyStack, snapshot)
+		historyJson, _ := json.Marshal(historyStack)
+
+		// Eksekusi aksi transisi
+		switch payload.Action {
 		case "to_production":
 			dateToUse := time.Now()
-			if snapshotDate != nil {
-				dateToUse = *snapshotDate
-			}
+			if snapshotDate != nil { dateToUse = *snapshotDate }
 			updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = $1, status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
 			_, err = tx.Exec(updateQuery, dateToUse, nextStatus, payload.Slot, historyJson, noPp)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to transfer to production"); return }
 			_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to occupy slot"); return }
-		
 		case "to_subcontractor":
-			if payload.VendorID == nil || *payload.VendorID == "" {
-				respondWithError(w, http.StatusBadRequest, "Vendor ID is required for subcontractor transfer")
-				return
-			}
+			if payload.VendorID == nil || *payload.VendorID == "" { respondWithError(w, http.StatusBadRequest, "Vendor ID is required"); return }
 			updateQuery := `UPDATE panels SET status_penyelesaian = 'Subcontractor', vendor_id = $1, status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = NOW(), history_stack = $2 WHERE no_pp = $3`
 			_, err = tx.Exec(updateQuery, *payload.VendorID, historyJson, noPp)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to transfer to subcontractor"); return }
-
 		case "to_fat":
 			occupiedSlot := p.ProductionSlot
 			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
@@ -5871,38 +5979,11 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
 				if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot"); return }
 			}
-		
 		case "to_done":
 			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to transfer to Done"); return }
-		
-		case "rollback":
-			if len(historyStack) == 0 { respondWithError(w, http.StatusBadRequest, "No history to rollback to."); return }
-			lastStateWrapper := historyStack[len(historyStack)-1]
-			historyStack = historyStack[:len(historyStack)-1]
-			historyJson, _ := json.Marshal(historyStack)
-			lastState, _ := lastStateWrapper["state"].(map[string]interface{})
-			delete(lastState, "history_stack")
-			
-			var columns []string
-			var values []interface{}
-			i := 1
-			for col, val := range lastState { columns = append(columns, fmt.Sprintf("%s = $%d", col, i)); values = append(values, val); i++ }
-			columns = append(columns, fmt.Sprintf("history_stack = $%d", i)); values = append(values, historyJson); i++; values = append(values, noPp)
-			
-			updateQuery := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(columns, ", "), i)
-			_, err = tx.Exec(updateQuery, values...)
-			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to restore panel from history"); return }
-			if p.ProductionSlot != nil && *p.ProductionSlot != "" {
-				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *p.ProductionSlot)
-				if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to free up slot on rollback"); return }
-			}
-		
-		default:
-			if payload.Action != "update_dates" { respondWithError(w, http.StatusBadRequest, "Invalid action specified."); return }
 		}
 	}
-	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed")
 		return
