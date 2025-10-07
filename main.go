@@ -5669,11 +5669,17 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
 
+	// [PERBAIKAN] Tambahkan field tanggal di payload
 	var payload struct {
-		Action string `json:"action"`
-		Slot   string `json:"slot,omitempty"`
-		Actor  string `json:"actor"`
+		Action         string  `json:"action"`
+		Slot           string  `json:"slot,omitempty"`
+		Actor          string  `json:"actor"`
+		StartDate      *string `json:"start_date,omitempty"`
+		ProductionDate *string `json:"production_date,omitempty"`
+		FatDate        *string `json:"fat_date,omitempty"`
+		AllDoneDate    *string `json:"all_done_date,omitempty"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload")
 		return
@@ -5685,12 +5691,11 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-
-	// Ambil state panel saat ini, termasuk kolom history_stack
+	
 	var p struct {
 		StatusPenyelesaian *string
-		ProductionSlot     *string
-		HistoryStack       []byte // Kita baca sebagai raw bytes
+		ProductionSlot      *string
+		HistoryStack       []byte
 	}
 	query := `SELECT status_penyelesaian, production_slot, history_stack FROM panels WHERE no_pp = $1 FOR UPDATE`
 	err = tx.QueryRow(query, noPp).Scan(&p.StatusPenyelesaian, &p.ProductionSlot, &p.HistoryStack)
@@ -5708,8 +5713,8 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		currentStatus = *p.StatusPenyelesaian
 	}
 
-	// Helper BARU: createSnapshot sekarang menyertakan timestamp
-	createSnapshot := func(status string) (map[string]interface{}, error) {
+	// [PERBAIKAN] Fungsi createSnapshot sekarang menerima tanggal kustom
+	createSnapshot := func(status string, customTimestamp *time.Time) (map[string]interface{}, error) {
 		var panelState map[string]interface{}
 		var panelData []byte
 		err := tx.QueryRow("SELECT row_to_json(p) FROM panels p WHERE no_pp = $1", noPp).Scan(&panelData)
@@ -5717,143 +5722,195 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		json.Unmarshal(panelData, &panelState)
+		
+		timestampToUse := time.Now()
+		if customTimestamp != nil && !customTimestamp.IsZero() {
+			timestampToUse = *customTimestamp
+		}
 
-		// BUNGKUS SNAPSHOT DENGAN METADATA
 		snapshotWrapper := map[string]interface{}{
-			"timestamp":       time.Now(), // <-- KUNCI PERUBAHAN
+			"timestamp":       timestampToUse,
 			"snapshot_status": status,
 			"state":           panelState,
 		}
 		return snapshotWrapper, nil
 	}
-
-	// Parse history stack yang ada
+	
 	var historyStack []map[string]interface{}
 	if p.HistoryStack != nil {
 		json.Unmarshal(p.HistoryStack, &historyStack)
 	}
 
-	switch payload.Action {
-	case "to_production", "to_fat", "to_done":
-		// === LOGIKA BARU: Simpan snapshot untuk SEMUA aksi maju ===
-		snapshot, err := createSnapshot(currentStatus)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to create snapshot")
-			return
+	// [PERBAIKAN] Aksi baru untuk hanya update tanggal
+	if payload.Action == "update_dates" {
+		var updates []string
+		var args []interface{}
+		argCounter := 1
+
+		if payload.StartDate != nil {
+			if parsedDate, err := time.Parse(time.RFC3339, *payload.StartDate); err == nil {
+				updates = append(updates, fmt.Sprintf("start_date = $%d", argCounter))
+				args = append(args, parsedDate)
+				argCounter++
+			}
 		}
-		historyStack = append(historyStack, snapshot)
-		historyJson, _ := json.Marshal(historyStack)
 
-		var nextStatus string
-		switch payload.Action {
-		case "to_production":
-			nextStatus = "Production"
-			updateQuery := `
-				UPDATE panels SET
-					status_component = 'Done', status_palet = 'Close', status_corepart = 'Close',
-					percent_progress = 100, is_closed = true, closed_date = NOW(),
-					status_penyelesaian = $1, production_slot = $2, history_stack = $3
-				WHERE no_pp = $4
-			`
-			_, err = tx.Exec(updateQuery, nextStatus, payload.Slot, historyJson, noPp)
-			if err != nil { /* error handling */
-				return
-			}
-			_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
-			if err != nil { /* error handling */
-				return
-			}
-
-		case "to_fat":
-			nextStatus = "FAT"
-			occupiedSlot := p.ProductionSlot
-			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
-			if err != nil { /* error handling */
-				return
-			}
-			if occupiedSlot != nil {
-				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
-				if err != nil { /* error handling */
-					return
+		// Logika untuk mengubah tanggal di history
+		var newHistoryStack []map[string]interface{}
+		historyChanged := false
+		for _, item := range historyStack {
+			status, _ := item["snapshot_status"].(string)
+			switch status {
+			case "VendorWarehouse":
+				if payload.ProductionDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
+						item["timestamp"] = newDate.Format(time.RFC3339)
+						historyChanged = true
+					}
+				}
+			case "Production":
+				if payload.FatDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
+						item["timestamp"] = newDate.Format(time.RFC3339)
+						historyChanged = true
+					}
+				}
+			case "FAT":
+				if payload.AllDoneDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
+						item["timestamp"] = newDate.Format(time.RFC3339)
+						historyChanged = true
+					}
 				}
 			}
-
-		case "to_done":
-			nextStatus = "Done"
-			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
-			if err != nil { /* error handling */
+			newHistoryStack = append(newHistoryStack, item)
+		}
+		
+		if historyChanged {
+			historyJson, _ := json.Marshal(newHistoryStack)
+			updates = append(updates, fmt.Sprintf("history_stack = $%d", argCounter))
+			args = append(args, historyJson)
+			argCounter++
+		}
+		
+		if len(updates) > 0 {
+			query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
+			args = append(args, noPp)
+			_, err := tx.Exec(query, args...)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to update dates: "+err.Error())
 				return
 			}
 		}
 
-	case "rollback":
-		if len(historyStack) == 0 {
-			respondWithError(w, http.StatusBadRequest, "No history to rollback to.")
-			return
-		}
+	} else {
+		switch payload.Action {
+		case "to_production", "to_fat", "to_done":
+			var customDate *time.Time
+			var nextStatus string
 
-		// Ambil snapshot terakhir dari tumpukan
-		lastStateWrapper := historyStack[len(historyStack)-1]
-		historyStack = historyStack[:len(historyStack)-1] // Hapus dari tumpukan
-		historyJson, _ := json.Marshal(historyStack)
-
-		// Ekstrak state panel dari dalam wrapper
-		lastState, ok := lastStateWrapper["state"].(map[string]interface{})
-		if !ok {
-			respondWithError(w, http.StatusInternalServerError, "Invalid history format")
-			return
-		}
-
-		// Hapus kunci yang tidak perlu dari map sebelum melakukan UPDATE
-		delete(lastState, "history_stack")
-		delete(lastState, "snapshot_status")
-
-		var columns []string
-		var values []interface{}
-		i := 1
-		for col, val := range lastState {
-			columns = append(columns, fmt.Sprintf("%s = $%d", col, i))
-			values = append(values, val)
-			i++
-		}
-		// Tambahkan update untuk history_stack itu sendiri
-		columns = append(columns, fmt.Sprintf("history_stack = $%d", i))
-		values = append(values, historyJson)
-		i++
-		values = append(values, noPp) // Untuk klausa WHERE
-
-		// Bangun query UPDATE dinamis
-		updateQuery := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(columns, ", "), i)
-
-		// Eksekusi pemulihan
-		_, err = tx.Exec(updateQuery, values...)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to restore panel from history")
-			return
-		}
-
-		// Jika panel yang di-rollback sedang menempati slot, kosongkan slot itu
-		if p.ProductionSlot != nil && *p.ProductionSlot != "" {
-			_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *p.ProductionSlot)
-			if err != nil { /* error handling */
+			switch payload.Action {
+			case "to_production":
+				nextStatus = "Production"
+				if payload.ProductionDate != nil {
+					if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
+						customDate = &t
+					}
+				}
+			case "to_fat":
+				nextStatus = "FAT"
+				if payload.FatDate != nil {
+					if t, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
+						customDate = &t
+					}
+				}
+			case "to_done":
+				nextStatus = "Done"
+				if payload.AllDoneDate != nil {
+					if t, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
+						customDate = &t
+					}
+				}
+			}
+			
+			// Gunakan tanggal kustom saat membuat snapshot
+			snapshot, err := createSnapshot(currentStatus, customDate)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to create snapshot")
+				return
+			}
+			historyStack = append(historyStack, snapshot)
+			historyJson, _ := json.Marshal(historyStack)
+			
+			// Jalankan query update
+			switch payload.Action {
+			case "to_production":
+				dateToUse := time.Now()
+				if customDate != nil { dateToUse = *customDate }
+				updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = $1, status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
+				_, err = tx.Exec(updateQuery, dateToUse, nextStatus, payload.Slot, historyJson, noPp)
+				if err != nil { /*...*/ return }
+				_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
+				if err != nil { /*...*/ return }
+			case "to_fat":
+				occupiedSlot := p.ProductionSlot
+				_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
+				if err != nil { /*...*/ return }
+				if occupiedSlot != nil {
+					_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
+					if err != nil { /*...*/ return }
+				}
+			case "to_done":
+				_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
+				if err != nil { /*...*/ return }
+			}
+		case "rollback":
+			// Logika rollback tidak berubah
+			if len(historyStack) == 0 {
+				respondWithError(w, http.StatusBadRequest, "No history to rollback to.")
+				return
+			}
+			lastStateWrapper := historyStack[len(historyStack)-1]
+			historyStack = historyStack[:len(historyStack)-1]
+			historyJson, _ := json.Marshal(historyStack)
+			lastState, ok := lastStateWrapper["state"].(map[string]interface{})
+			if !ok {
+				respondWithError(w, http.StatusInternalServerError, "Invalid history format")
+				return
+			}
+			delete(lastState, "history_stack"); delete(lastState, "snapshot_status")
+			
+			var columns []string; var values []interface{}; i := 1
+			for col, val := range lastState {
+				columns = append(columns, fmt.Sprintf("%s = $%d", col, i)); values = append(values, val); i++
+			}
+			columns = append(columns, fmt.Sprintf("history_stack = $%d", i)); values = append(values, historyJson); i++; values = append(values, noPp)
+			
+			updateQuery := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(columns, ", "), i)
+			_, err = tx.Exec(updateQuery, values...)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to restore panel from history")
+				return
+			}
+			if p.ProductionSlot != nil && *p.ProductionSlot != "" {
+				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *p.ProductionSlot)
+				if err != nil { /*...*/ return }
+			}
+		default:
+			if payload.Action != "update_dates" {
+				respondWithError(w, http.StatusBadRequest, "Invalid action specified.")
 				return
 			}
 		}
-
-	default:
-		respondWithError(w, http.StatusBadRequest, "Invalid action specified.")
-		return
 	}
-
+	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed")
 		return
 	}
 
-	// === BAGIAN PENTING: Ambil data terbaru DAN ekstrak tanggal dari histori ===
+	// Logika pengambilan data terbaru dan pengiriman notifikasi tetap sama...
 	var updatedPanel PanelDisplayData
-
-	// TAMBAHKAN history_stack ke query
 	panelQuery := `
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
@@ -5861,14 +5918,13 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
 			p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
-            p.history_stack, -- <-- AMBIL HISTORY
+			p.history_stack,
 			pu.name as panel_vendor_name,
 			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
 			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names
 		FROM public.panels p
 		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
-		WHERE p.no_pp = $1
-	`
+		WHERE p.no_pp = $1`
 	var historyStackJSON []byte
 	err = a.DB.QueryRow(panelQuery, noPp).Scan(
 		&updatedPanel.Panel.NoPp, &updatedPanel.Panel.NoPanel, &updatedPanel.Panel.NoWbs, &updatedPanel.Panel.Project, &updatedPanel.Panel.PercentProgress, &updatedPanel.Panel.StartDate, &updatedPanel.Panel.TargetDelivery,
@@ -5876,17 +5932,15 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		&updatedPanel.Panel.AoBusbarPcc, &updatedPanel.Panel.AoBusbarMcc, &updatedPanel.Panel.CreatedBy, &updatedPanel.Panel.VendorID, &updatedPanel.Panel.IsClosed,
 		&updatedPanel.Panel.ClosedDate, &updatedPanel.Panel.PanelType, &updatedPanel.Panel.Remarks, &updatedPanel.Panel.CloseDateBusbarPcc, &updatedPanel.Panel.CloseDateBusbarMcc,
 		&updatedPanel.Panel.StatusPenyelesaian, &updatedPanel.Panel.ProductionSlot,
-		&historyStackJSON, // <-- SIMPAN HISTORY KE VARIABEL
+		&historyStackJSON,
 		&updatedPanel.PanelVendorName, &updatedPanel.BusbarVendorNames, &updatedPanel.ComponentVendorNames,
 	)
-
 	if err != nil {
 		log.Printf("Warning: could not fetch updated panel data for %s after transfer: %v", noPp, err)
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 		return
 	}
 
-	// EKSTRAK TANGGAL DARI HISTORY
 	var historyStackData []map[string]interface{}
 	var productionDate, fatDate, allDoneDate *time.Time
 
@@ -5897,16 +5951,12 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				if timestampStr, ok := item["timestamp"].(string); ok {
 					ts, err := time.Parse(time.RFC3339, timestampStr)
 					if err == nil {
-						// State "Production" disimpan SETELAH "VendorWarehouse" selesai.
-						// Jadi, timestamp dari "VendorWarehouse" adalah waktu masuk ke "Production".
 						if status == "VendorWarehouse" && productionDate == nil {
 							productionDate = &ts
 						}
-						// Timestamp dari "Production" adalah waktu masuk ke "FAT".
 						if status == "Production" && fatDate == nil {
 							fatDate = &ts
 						}
-						// Timestamp dari "FAT" adalah waktu masuk ke "Done".
 						if status == "FAT" && allDoneDate == nil {
 							allDoneDate = &ts
 						}
@@ -5916,16 +5966,14 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// BUAT RESPONSE JSON FINAL
 	finalResponse := map[string]interface{}{
 		"panel":                  updatedPanel.Panel,
 		"panel_vendor_name":      updatedPanel.PanelVendorName,
 		"busbar_vendor_names":    updatedPanel.BusbarVendorNames,
 		"component_vendor_names": updatedPanel.ComponentVendorNames,
-		// TAMBAHKAN FIELD TANGGAL BARU
-		"production_date": productionDate,
-		"fat_date":        fatDate,
-		"all_done_date":   allDoneDate,
+		"production_date":        productionDate,
+		"fat_date":               fatDate,
+		"all_done_date":          allDoneDate,
 	}
 
 	go func() {
