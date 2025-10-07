@@ -5860,10 +5860,46 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to occupy slot"); return }
 		case "to_subcontractor":
-			if payload.VendorID == nil || *payload.VendorID == "" { respondWithError(w, http.StatusBadRequest, "Vendor ID is required"); return }
+			if payload.VendorID == nil || *payload.VendorID == "" { 
+				respondWithError(w, http.StatusBadRequest, "Vendor ID/Name is required"); 
+				return 
+			}
+			var finalVendorId string
+			vendorInput := *payload.VendorID
+
+			// 1. Cek apakah input adalah ID yang sudah ada di tabel companies
+			err := tx.QueryRow("SELECT id FROM companies WHERE id = $1", vendorInput).Scan(&finalVendorId)
+			if err == nil {
+				// Jika ditemukan, `finalVendorId` sudah benar dan siap digunakan.
+			} else if err == sql.ErrNoRows {
+				// 2. Jika tidak ditemukan, anggap ini adalah NAMA BARU.
+				// Buat ID baru dari nama tersebut.
+				newId := strings.ToLower(strings.ReplaceAll(vendorInput, " ", "_"))
+				// Cek lagi apakah ID hasil generate ini sudah ada.
+				var existingId string
+				errCheck := tx.QueryRow("SELECT id FROM companies WHERE id = $1", newId).Scan(&existingId)
+				if errCheck != nil && errCheck != sql.ErrNoRows {
+					respondWithError(w, http.StatusInternalServerError, "Gagal mengecek ID vendor baru: "+errCheck.Error()); return
+				}
+
+				// Jika ID hasil generate belum ada, buat company baru.
+				// Asumsikan role default adalah 'k3' untuk vendor baru.
+				if errCheck == sql.ErrNoRows {
+					_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", newId, vendorInput, AppRoleK3)
+					if errInsert != nil {
+						respondWithError(w, http.StatusInternalServerError, "Gagal membuat vendor baru: "+errInsert.Error()); return
+					}
+				}
+				finalVendorId = newId
+			} else {
+				// Error database lain saat mencari ID
+				respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi vendor: "+err.Error()); return
+			}
+			
+			// 3. Gunakan `finalVendorId` yang sudah pasti valid untuk mengupdate panel.
 			updateQuery := `UPDATE panels SET status_penyelesaian = 'Subcontractor', vendor_id = $1, status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = NOW(), history_stack = $2 WHERE no_pp = $3`
-			_, err = tx.Exec(updateQuery, *payload.VendorID, historyJson, noPp)
-			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to transfer to subcontractor"); return }
+			_, err = tx.Exec(updateQuery, finalVendorId, historyJson, noPp)
+			if err != nil { respondWithError(w, http.StatusInternalServerError, "Gagal transfer ke subkontraktor"); return }
 		case "to_fat":
 			occupiedSlot := p.ProductionSlot
 			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
