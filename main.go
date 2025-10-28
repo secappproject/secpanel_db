@@ -2437,7 +2437,8 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		result["issues"] = []IssueForExport{}
 		result["comments"] = []CommentForExport{}
 		result["additional_srs"] = []AdditionalSRForExport{}
-	}fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
+	}
+	result["companies"], _ = fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
 	result["companyAccounts"], _ = fetchAllAs(tx, "company_accounts", func() interface{} { return &CompanyAccount{} })
 
 	return result, nil
