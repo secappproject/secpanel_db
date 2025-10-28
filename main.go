@@ -2127,7 +2127,14 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 
 	// Query dasar untuk panel dengan JOIN (tidak berubah)
 	panelQuery := `
-		SELECT DISTINCT p.* FROM public.panels p
+		SELECT DISTINCT 
+			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress,
+			p.start_date, p.target_delivery, p.status_busbar_pcc, p.status_busbar_mcc,
+			p.status_component, p.status_palet, p.status_corepart, p.ao_busbar_pcc,
+			p.ao_busbar_mcc, p.created_by, p.vendor_id, p.is_closed, p.closed_date,
+			p.panel_type, p.remarks, p.close_date_busbar_pcc, p.close_date_busbar_mcc,
+			p.status_penyelesaian, p.production_slot 
+		FROM public.panels p
 		LEFT JOIN public.busbars b ON p.no_pp = b.panel_no_pp
 		LEFT JOIN public.components c ON p.no_pp = c.panel_no_pp
 		LEFT JOIN public.palet pa ON p.no_pp = pa.panel_no_pp
