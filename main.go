@@ -2229,8 +2229,8 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		return query, localArgs
 	}
 
-
-	// -- Menerapkan Semua Filter (Tidak ada perubahan di sini) --
+	log.Printf("DEBUG: Final Query: %s", panelQuery)
+	log.Printf("DEBUG: Final Args: %v", args)
 	var newArgs []interface{}
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.start_date", queryParams.Get("start_date_start"), queryParams.Get("start_date_end"))
 	args = append(args, newArgs...)
