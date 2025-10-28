@@ -115,36 +115,35 @@ type ChatMessage struct {
 	RepliedIssueID *int       `json:"replied_issue_id,omitempty"` // Pointer dan omitempty
 	CreatedAt     time.Time `json:"created_at"`
 }
-
 type IssueForExport struct {
-	PanelNoPp   string
-	PanelNoWbs  sql.NullString
-	PanelNoPanel sql.NullString
-	IssueID     int
-	Title       string
-	Description string
-	Status      string
-	CreatedBy   string
-	CreatedAt   time.Time
+	PanelNoPp    string     `json:"panel_no_pp"`
+	PanelNoWbs   *string    `json:"panel_no_wbs"`  
+	PanelNoPanel *string    `json:"panel_no_panel"` 
+	IssueID      int        `json:"issue_id"`
+	Title        string     `json:"title"`
+	Description  string     `json:"description"`
+	Status       string     `json:"status"`
+	CreatedBy    string     `json:"created_by"`
+	CreatedAt    *time.Time `json:"created_at"` 
 }
 
 type CommentForExport struct {
-	IssueID        int
-	Text           string
-	SenderID       string
-	ReplyToCommentID sql.NullString
+	IssueID          int            `json:"issue_id"`
+	Text             string         `json:"text"`
+	SenderID         string         `json:"sender_id"`
+	ReplyToCommentID sql.NullString `json:"reply_to_comment_id"` 
 }
 
 type AdditionalSRForExport struct {
-	PanelNoPp   string
-	PanelNoWbs  sql.NullString
-	PanelNoPanel sql.NullString
-	PoNumber    string
-	Item        string
-	Quantity    int
-	Supplier    sql.NullString
-	Status      string
-	Remarks     string
+	PanelNoPp    string  `json:"panel_no_pp"`
+	PanelNoWbs   *string `json:"panel_no_wbs"`   
+	PanelNoPanel *string `json:"panel_no_panel"` 
+	PoNumber     string  `json:"po_number"`
+	Item         string  `json:"item"`
+	Quantity     int     `json:"quantity"`
+	Supplier     *string `json:"supplier"` 
+	Status       string  `json:"status"`
+	Remarks      string  `json:"remarks"`
 }
 
 type Issue struct {
@@ -2116,18 +2115,17 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-
 func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{}, error) {
 	queryParams := r.URL.Query()
 	result := make(map[string]interface{})
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // Rollback jika terjadi error
 
-	// [PERBAIKAN] Query dasar sekarang menggunakan JOIN untuk filter vendor
+	// Query dasar untuk panel dengan JOIN (tidak berubah)
 	panelQuery := `
 		SELECT DISTINCT p.* FROM public.panels p
 		LEFT JOIN public.busbars b ON p.no_pp = b.panel_no_pp
@@ -2322,90 +2320,124 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		relevantPanelIds = append(relevantPanelIds, id)
 	}
 	
-	// [BAGIAN PERBAIKAN UTAMA DIMULAI DI SINI]
+	
 	if len(relevantPanelIds) > 0 {
+		log.Printf("DEBUG: Fetching related data for panel IDs: %v", relevantPanelIds)
 		result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
 		result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
 		result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
 		result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
 		
-		// [PERBAIKAN 1] Query untuk Issues
 		issueQuery := `
-			SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.status, i.created_by, i.created_at
-			FROM issues i
-			JOIN chats ch ON i.chat_id = ch.id
-			JOIN panels p ON ch.panel_no_pp = p.no_pp
-			WHERE p.no_pp = ANY($1)
-			ORDER BY p.no_pp, i.created_at`
+            SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.status, i.created_by, i.created_at
+            FROM issues i
+            JOIN chats ch ON i.chat_id = ch.id
+            JOIN panels p ON ch.panel_no_pp = p.no_pp
+            WHERE p.no_pp = ANY($1)
+            ORDER BY p.no_pp, i.created_at`
 		issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Gagal query issues for export: %v", err)
+			// Log error tapi jangan hentikan proses, kembalikan slice kosong
+			log.Printf("Error querying issues for export: %v", err)
+			result["issues"] = []IssueForExport{} // Default ke slice kosong
 		} else {
+			defer issueRows.Close() // Pastikan ditutup
 			var issues []IssueForExport
 			for issueRows.Next() {
 				var issue IssueForExport
-				if err := issueRows.Scan(&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel, &issue.IssueID, &issue.Title, &issue.Description, &issue.Status, &issue.CreatedBy, &issue.CreatedAt); err == nil {
+				// Scan field sesuai urutan SELECT
+				if err := issueRows.Scan(
+					&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel,
+					&issue.IssueID, &issue.Title, &issue.Description, &issue.Status,
+					&issue.CreatedBy, &issue.CreatedAt,
+				); err == nil {
 					issues = append(issues, issue)
+				} else {
+					log.Printf("Warning: Failed to scan issue row: %v", err)
 				}
 			}
+            if err = issueRows.Err(); err != nil { // Cek error setelah loop
+               log.Printf("Error during issue rows iteration: %v", err)
+            }
 			result["issues"] = issues // Simpan hasil ke map
-			issueRows.Close()
+			log.Printf("DEBUG: Found %d issues", len(issues)) // Log jumlah issue
 		}
 
 		// [PERBAIKAN 2] Query untuk Comments
 		commentQuery := `
-			SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
-			FROM issue_comments ic
-			JOIN issues i ON ic.issue_id = i.id
-			JOIN chats ch ON i.chat_id = ch.id
-			WHERE ch.panel_no_pp = ANY($1)
-			ORDER BY ic.issue_id, ic.timestamp`
+            SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
+            FROM issue_comments ic
+            JOIN issues i ON ic.issue_id = i.id
+            JOIN chats ch ON i.chat_id = ch.id
+            WHERE ch.panel_no_pp = ANY($1)
+            ORDER BY ic.issue_id, ic.timestamp` // Asumsi ada kolom timestamp
 		commentRows, err := tx.Query(commentQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Gagal query comments for export: %v", err)
+			log.Printf("Error querying comments for export: %v", err)
+			result["comments"] = []CommentForExport{}
 		} else {
+			defer commentRows.Close()
 			var comments []CommentForExport
 			for commentRows.Next() {
 				var comment CommentForExport
-				if err := commentRows.Scan(&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID); err == nil {
+				// Scan field sesuai urutan SELECT
+				if err := commentRows.Scan(
+					&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID,
+				); err == nil {
 					comments = append(comments, comment)
+				} else {
+					log.Printf("Warning: Failed to scan comment row: %v", err)
 				}
 			}
+            if err = commentRows.Err(); err != nil {
+               log.Printf("Error during comment rows iteration: %v", err)
+            }
 			result["comments"] = comments // Simpan hasil ke map
-			commentRows.Close()
+			log.Printf("DEBUG: Found %d comments", len(comments)) // Log jumlah comment
 		}
-		
-		// [PERBAIKAN 3] Query untuk Additional SRs
+
 		srQuery := `
-			SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks
-			FROM additional_sr asr
-			JOIN panels p ON asr.panel_no_pp = p.no_pp
-			WHERE p.no_pp = ANY($1)
-			ORDER BY p.no_pp, asr.created_at`
+            SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks
+            FROM additional_sr asr
+            JOIN panels p ON asr.panel_no_pp = p.no_pp
+            WHERE p.no_pp = ANY($1)
+            ORDER BY p.no_pp, asr.id` 
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Gagal query srs for export: %v", err)
+			log.Printf("Error querying additional SRs for export: %v", err)
+			result["additional_srs"] = []AdditionalSRForExport{}
 		} else {
+			defer srRows.Close()
 			var srs []AdditionalSRForExport
 			for srRows.Next() {
 				var sr AdditionalSRForExport
-				if err := srRows.Scan(&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks); err == nil {
+				// Scan field sesuai urutan SELECT
+				if err := srRows.Scan(
+					&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel,
+					&sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier,
+					&sr.Status, &sr.Remarks,
+				); err == nil {
 					srs = append(srs, sr)
+				} else {
+					log.Printf("Warning: Failed to scan additional SR row: %v", err)
 				}
 			}
-			result["additional_srs"] = srs // Simpan hasil ke map
-			srRows.Close()
+            if err = srRows.Err(); err != nil {
+               log.Printf("Error during additional SR rows iteration: %v", err)
+            }
+			result["additional_srs"] = srs 
+			log.Printf("DEBUG: Found %d additional SRs", len(srs)) 
 		}
 	} else {
-        // [PERBAIKAN 4] Pastikan keys ada meskipun kosong
-		result["busbars"], result["components"], result["palet"], result["corepart"] = []Busbar{}, []Component{}, []Palet{}, []Corepart{}
+		log.Printf("DEBUG: No relevant panels found, initializing related data to empty slices.")
+		result["busbars"] = []Busbar{} 
+		result["components"] = []Component{} 
+		result["palet"] = []Palet{} 
+		result["corepart"] = []Corepart{} 
 		result["issues"] = []IssueForExport{}
 		result["comments"] = []CommentForExport{}
 		result["additional_srs"] = []AdditionalSRForExport{}
-	}
-	// [AKHIR BAGIAN PERBAIKAN]
-
-	result["companies"], _ = fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
+	}fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
 	result["companyAccounts"], _ = fetchAllAs(tx, "company_accounts", func() interface{} { return &CompanyAccount{} })
 
 	return result, nil
