@@ -6012,7 +6012,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		case "to_production":
 			dateToUse := time.Now()
 			if snapshotDate != nil { dateToUse = *snapshotDate }
-			updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = $1, status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
+			updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, COALESCE(closed_date, $1), status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
 			_, err = tx.Exec(updateQuery, dateToUse, nextStatus, payload.Slot, historyJson, noPp)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to transfer to production"); return }
 			_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
@@ -6055,7 +6055,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			
 			// 3. Gunakan `finalVendorId` yang sudah pasti valid untuk mengupdate panel.
-			updateQuery := `UPDATE panels SET status_penyelesaian = 'Subcontractor', vendor_id = $1, status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = NOW(), history_stack = $2 WHERE no_pp = $3`
+			updateQuery := `UPDATE panels SET status_penyelesaian = 'Subcontractor', vendor_id = $1, status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = COALESCE(closed_date, NOW()), history_stack = $2 WHERE no_pp = $3`
 			_, err = tx.Exec(updateQuery, finalVendorId, historyJson, noPp)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Gagal transfer ke subkontraktor"); return }
 		case "to_fat":
