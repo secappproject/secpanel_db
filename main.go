@@ -6007,16 +6007,20 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		historyStack = append(historyStack, snapshot)
 		historyJson, _ := json.Marshal(historyStack)
 
-		// Eksekusi aksi transisi
 		switch payload.Action {
+		
 		case "to_production":
 			dateToUse := time.Now()
 			if snapshotDate != nil { dateToUse = *snapshotDate }
-			updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, COALESCE(closed_date, $1), status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
+			updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = COALESCE(closed_date, $1), status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
 			_, err = tx.Exec(updateQuery, dateToUse, nextStatus, payload.Slot, historyJson, noPp)
-			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to transfer to production"); return }
+			if err != nil { 
+                respondWithError(w, http.StatusInternalServerError, "Failed to transfer to production: "+err.Error())
+                return
+			}
 			_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
 			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to occupy slot"); return }
+
 		case "to_subcontractor":
 			if payload.VendorID == nil || *payload.VendorID == "" { 
 				respondWithError(w, http.StatusBadRequest, "Vendor ID/Name is required"); 
