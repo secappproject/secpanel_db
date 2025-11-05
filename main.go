@@ -6232,6 +6232,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		&updatedPanel.Panel.StatusPenyelesaian, &updatedPanel.Panel.ProductionSlot,
 		&historyStackJSON,
 		&updatedPanel.PanelVendorName, &updatedPanel.BusbarVendorNames, &updatedPanel.ComponentVendorNames,
+		&updatedPanel.G3VendorNames,
 	)
 	if err != nil {
 		log.Printf("Warning: could not fetch updated panel data for %s after transfer: %v", noPp, err)
