@@ -294,16 +294,16 @@ type Corepart struct {
 }
 
 type AdditionalSR struct {
-	ID        int       `json:"id"`
-	PanelNoPp string    `json:"panel_no_pp"`
-	PoNumber  string    `json:"po_number"`
-	Item      string    `json:"item"`
-	Quantity  int       `json:"quantity"`
-	Supplier  string    `json:"supplier"`
-	Status    string    `json:"status"` 
-	Remarks   string    `json:"remarks"` 
+	ID        int       `json:"id"`
+	PanelNoPp string    `json:"panel_no_pp"`
+	PoNumber  string    `json:"po_number"`
+	Item      string    `json:"item"`
+	Quantity  int       `json:"quantity"`
+	Supplier  string    `json:"supplier"`
+	Status    string    `json:"status"` 
+	Remarks   string    `json:"remarks"` 
 	CreatedAt time.Time `json:"created_at"`
-	CloseDate    *time.Time `json:"close_date,omitempty" db:"close_date"`    
+	CloseDate    *time.Time `json:"close_date,omitempty" db:"close_date"`    
 	ReceivedDate *time.Time `json:"received_date,omitempty" db:"received_date"` 
 }
 
@@ -320,7 +320,7 @@ type PanelDisplayData struct {
 	PaletVendorIds       []string        `json:"palet_vendor_ids"`
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
-	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
+	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
 	IssueCount           int             `json:"issue_count"`
 	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
 }
@@ -336,7 +336,7 @@ type PanelDisplayDataWithTimeline struct {
 	PaletVendorIds       []string        `json:"palet_vendor_ids"`
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
-	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
+	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
 	IssueCount           int             `json:"issue_count"`
 	AdditionalSRCount    int             `json:"additional_sr_count"`
 	ProductionDate       *time.Time      `json:"production_date,omitempty"` 
@@ -3702,9 +3702,9 @@ func initDB(db *sql.DB) {
 	END;
 	$$;
 	`
-    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
-        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
-    }
+    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
+        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
+    }
 
 	createTablesSQLChats:= `
 	CREATE TABLE IF NOT EXISTS chats (
