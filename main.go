@@ -1158,14 +1158,11 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 	respondWithJSON(w, http.StatusOK, companies)
 }
 
-// main.go
-
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
-	// --- Bagian 1: Mendapatkan daftar ID panel yang relevan berdasarkan role user ---
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
 	if userRole == "" {
-		userRole = "admin" // Default
+		userRole = "admin"
 	}
 
 	var relevantPanelIds []string
@@ -1187,6 +1184,12 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			SELECT panel_no_pp FROM public.busbars WHERE vendor = $1
 			UNION
 			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM public.busbars)`
+	case "g3":
+		args = append(args, companyId)
+		panelIdQuery = `
+			SELECT panel_no_pp FROM public.g3_vendors WHERE vendor = $1
+			UNION
+			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM public.g3_vendors)`
 	case "warehouse":
 		args = append(args, companyId)
 		panelIdQuery = `
@@ -1217,7 +1220,6 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// --- Bagian 2: Menghitung jumlah issue dan SR untuk setiap panel ---
 	issueCounts := make(map[string]int)
 	srCounts := make(map[string]int)
 	countQuery := `
@@ -1243,7 +1245,6 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		log.Printf("SQL ERROR (getCounts): %v", err)
 	}
 
-	// --- Bagian 3: Mengambil data utama panel dan mengekstrak tanggal dari history ---
 	panelQuery := `
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
@@ -1252,7 +1253,11 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
 			p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
 			p.history_stack,
-			pu.name as panel_vendor_name
+			pu.name as panel_vendor_name,
+			(SELECT STRING_AGG(c.name, ', ') 
+			 FROM public.companies c 
+			 JOIN public.g3_vendors g3 ON c.id = g3.vendor 
+			 WHERE g3.panel_no_pp = p.no_pp) as g3_vendor_names
 		FROM public.panels p
 		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp = ANY($1)`
@@ -1270,6 +1275,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		var pdd PanelDisplayDataWithTimeline
 		var panel Panel
 		var historyStackJSON []byte
+		var g3VendorNames sql.NullString
 
 		err := panelRows.Scan(
 			&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project, &panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
@@ -1279,6 +1285,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 			&panel.StatusPenyelesaian, &panel.ProductionSlot,
 			&historyStackJSON,
 			&pdd.PanelVendorName,
+			&g3VendorNames,
 		)
 		if err != nil {
 			log.Printf("Error scanning panel row: %v", err)
@@ -1286,7 +1293,10 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		}
 		pdd.Panel = panel
 
-		// Logika Ekstraksi Tanggal dari History
+		if g3VendorNames.Valid {
+			pdd.G3VendorNames = &g3VendorNames.String
+		}
+
 		var historyStackData []map[string]interface{}
 		if historyStackJSON != nil {
 			json.Unmarshal(historyStackJSON, &historyStackData)
@@ -1298,7 +1308,7 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 							if status == "VendorWarehouse" && pdd.ProductionDate == nil {
 								pdd.ProductionDate = &ts
 							}
-							if status == "Production" && pdd.FatDate == nil {
+							if (status == "Production" || status == "Subcontractor") && pdd.FatDate == nil {
 								pdd.FatDate = &ts
 							}
 							if status == "FAT" && pdd.AllDoneDate == nil {
@@ -1332,7 +1342,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 				WHERE r.panel_no_pp = ANY($1)`, tableName)
 		}
 		relationRows, err := a.DB.QueryContext(r.Context(), query, pq.Array(relevantPanelIds))
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		defer relationRows.Close()
 		relationsMap := make(map[string][]relationInfo)
 		for relationRows.Next() {
@@ -1349,11 +1361,9 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	paletsMap, _ := fetchRelations("palet")
 	corepartsMap, _ := fetchRelations("corepart")
 
-	// --- Bagian 5: Menggabungkan semua data menjadi hasil akhir ---
 	var finalResults []PanelDisplayDataWithTimeline
 	for _, panelID := range relevantPanelIds {
 		if pdd, ok := panelMap[panelID]; ok {
-			// Mengisi data Busbar
 			if relations, found := busbarsMap[panelID]; found {
 				var names, ids []string
 				var remarks []map[string]interface{}
@@ -1371,34 +1381,39 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 				pdd.BusbarRemarks = jsonRemarks
 			}
 
-			// Mengisi data Component
 			if relations, found := componentsMap[panelID]; found {
 				var names, ids []string
-				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				for _, r := range relations {
+					names = append(names, r.VendorName)
+					ids = append(ids, r.VendorID)
+				}
 				componentNamesStr := strings.Join(names, ", ")
 				pdd.ComponentVendorNames = &componentNamesStr
 				pdd.ComponentVendorIds = ids
 			}
-			
-			// Mengisi data Palet
+
 			if relations, found := paletsMap[panelID]; found {
 				var names, ids []string
-				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				for _, r := range relations {
+					names = append(names, r.VendorName)
+					ids = append(ids, r.VendorID)
+				}
 				paletNamesStr := strings.Join(names, ", ")
 				pdd.PaletVendorNames = &paletNamesStr
 				pdd.PaletVendorIds = ids
 			}
 
-			// Mengisi data Corepart
 			if relations, found := corepartsMap[panelID]; found {
 				var names, ids []string
-				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
+				for _, r := range relations {
+					names = append(names, r.VendorName)
+					ids = append(ids, r.VendorID)
+				}
 				corepartNamesStr := strings.Join(names, ", ")
 				pdd.CorepartVendorNames = &corepartNamesStr
 				pdd.CorepartVendorIds = ids
 			}
 
-			// Mengisi jumlah Issue dan SR
 			pdd.IssueCount = issueCounts[panelID]
 			pdd.AdditionalSRCount = srCounts[panelID]
 
