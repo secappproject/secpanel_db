@@ -3684,10 +3684,10 @@ func initDB(db *sql.DB) {
 	DO $$
 	BEGIN
 		IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'received_date')
-		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'close_date')
+		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'close_date')
 		THEN
 			ALTER TABLE additional_sr RENAME COLUMN received_date TO close_date;
-			log.Println("Migrasi: additional_sr.received_date -> additional_sr.close_date");
+			RAISE NOTICE 'Migrasi: additional_sr.received_date -> additional_sr.close_date';
 		END IF;
 
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'close_date')
@@ -3702,9 +3702,9 @@ func initDB(db *sql.DB) {
 	END;
 	$$;
 	`
-    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
-        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
-    }
+    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
+        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
+    }
 
 	createTablesSQLChats:= `
 	CREATE TABLE IF NOT EXISTS chats (
