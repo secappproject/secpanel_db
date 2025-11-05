@@ -294,16 +294,17 @@ type Corepart struct {
 }
 
 type AdditionalSR struct {
-	ID        int       `json:"id"`
-	PanelNoPp string    `json:"panel_no_pp"`
-	PoNumber  string    `json:"po_number"`
-	Item      string    `json:"item"`
-	Quantity  int       `json:"quantity"`
-	Supplier  string    `json:"supplier"`
-	Status    string    `json:"status"` 
-	Remarks   string    `json:"remarks"` 
+	ID        int       `json:"id"`
+	PanelNoPp string    `json:"panel_no_pp"`
+	PoNumber  string    `json:"po_number"`
+	Item      string    `json:"item"`
+	Quantity  int       `json:"quantity"`
+	Supplier  string    `json:"supplier"`
+	Status    string    `json:"status"` 
+	Remarks   string    `json:"remarks"` 
 	CreatedAt time.Time `json:"created_at"`
-	ReceivedDate *time.Time `json:"received_date,omitempty" db:"received_date"`
+	CloseDate    *time.Time `json:"close_date,omitempty" db:"close_date"`    
+	ReceivedDate *time.Time `json:"received_date,omitempty" db:"received_date"` 
 }
 
 type PanelDisplayData struct {
@@ -3680,12 +3681,30 @@ func initDB(db *sql.DB) {
     }
 
 	alterTableAdditionalSRSQL := `
-    ALTER TABLE additional_sr
-    ADD COLUMN IF NOT EXISTS received_date TIMESTAMPTZ NULL;
-    `
-    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
-        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
-    }
+	DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'received_date')
+		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'close_date')
+		THEN
+			ALTER TABLE additional_sr RENAME COLUMN received_date TO close_date;
+			log.Println("Migrasi: additional_sr.received_date -> additional_sr.close_date");
+		END IF;
+
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'close_date')
+		THEN
+			ALTER TABLE additional_sr ADD COLUMN close_date TIMESTAMPTZ NULL;
+		END IF;
+
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'received_date')
+		THEN
+			ALTER TABLE additional_sr ADD COLUMN received_date TIMESTAMPTZ NULL;
+		END IF;
+	END;
+	$$;
+	`
+    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
+        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
+    }
 
 	createTablesSQLChats:= `
 	CREATE TABLE IF NOT EXISTS chats (
@@ -5642,7 +5661,7 @@ func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	query := `
-		SELECT id, panel_no_pp, po_number, item, quantity, supplier, status, remarks, created_at, received_date
+		SELECT id, panel_no_pp, po_number, item, quantity, supplier, status, remarks, created_at, close_date, received_date
 		FROM additional_sr
 		WHERE panel_no_pp = $1
 		ORDER BY created_at DESC`
@@ -5685,15 +5704,15 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	payload.PanelNoPp = panelNoPp
 
-	// Query INSERT ke database
 	query := `
-		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, supplier, status, remarks, received_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, supplier, status, remarks, close_date, received_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at`
 	err := a.DB.QueryRow(
 		query,
-		payload.PanelNoPp, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.ReceivedDate,
+		payload.PanelNoPp, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.CloseDate, payload.ReceivedDate,
 	).Scan(&payload.ID, &payload.CreatedAt)
+
 
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
@@ -5758,21 +5777,16 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Lakukan update ke database
 	query := `
-		UPDATE additional_sr SET
-			po_number = $1, item = $2, quantity = $3, supplier = $4,
-			status = $5, remarks = $6, received_date = $7
-		WHERE id = $8`
-	res, err := a.DB.Exec(query, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.ReceivedDate, id)
-
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to update Additional SR: "+err.Error())
-		return
-	}
-	count, _ := res.RowsAffected()
-	if count == 0 {
-		respondWithError(w, http.StatusNotFound, "Additional SR not found during update")
-		return
-	}
+			UPDATE additional_sr SET
+				po_number = $1, item = $2, quantity = $3, supplier = $4,
+				status = $5, remarks = $6, close_date = $7, received_date = $8
+			WHERE id = $9`
+		res, err := a.DB.Exec(query, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.CloseDate, payload.ReceivedDate, id)
+		count, _ := res.RowsAffected()
+		if count == 0 {
+			respondWithError(w, http.StatusNotFound, "Additional SR not found during update")
+			return
+		}
 
 	// --- Logika Notifikasi ---
 	go func() {
