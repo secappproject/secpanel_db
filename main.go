@@ -3623,6 +3623,12 @@ func initDB(db *sql.DB) {
 	CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	CREATE TABLE IF NOT EXISTS corepart ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
+	CREATE TABLE IF NOT EXISTS g3_vendors ( 
+		id SERIAL PRIMARY KEY, 
+		panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, 
+		vendor TEXT NOT NULL, 
+		UNIQUE(panel_no_pp, vendor) 
+	);
 	`
 	if _, err := db.Exec(createTablesSQL); err != nil {
 		log.Fatalf("Gagal membuat tabel awal: %v", err)
@@ -5821,8 +5827,7 @@ func (a *App) getSuppliersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, suppliers)
-}
-func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
+}func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
 
@@ -6061,20 +6066,18 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			var finalVendorId string
+			var roleToUse string
 			vendorInput := *payload.VendorID
-			roleToUse := "g3"
-			if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
-				roleToUse = *payload.NewVendorRole
-			}
 
-			err := tx.QueryRow("SELECT id FROM companies WHERE id = $1", vendorInput).Scan(&finalVendorId)
+			err := tx.QueryRow("SELECT id, role FROM companies WHERE id = $1", vendorInput).Scan(&finalVendorId, &roleToUse)
 			if err == nil {
-
+				// Ditemukan berdasarkan ID
 			} else if err == sql.ErrNoRows {
-				errName := tx.QueryRow("SELECT id FROM companies WHERE name = $1", vendorInput).Scan(&finalVendorId)
+				errName := tx.QueryRow("SELECT id, role FROM companies WHERE name = $1", vendorInput).Scan(&finalVendorId, &roleToUse)
 				if errName == nil {
-
+					// Ditemukan berdasarkan NAMA
 				} else if errName == sql.ErrNoRows {
+					// Vendor baru
 					newId := strings.ToLower(strings.ReplaceAll(vendorInput, " ", "_"))
 
 					var existingId string
@@ -6085,6 +6088,12 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 					}
 
 					if errCheck == sql.ErrNoRows {
+						if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
+							roleToUse = *payload.NewVendorRole
+						} else {
+							roleToUse = "g3" // Default
+						}
+
 						_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", newId, vendorInput, roleToUse)
 						if errInsert != nil {
 							respondWithError(w, http.StatusInternalServerError, "Gagal membuat vendor baru: "+errInsert.Error())
@@ -6101,44 +6110,45 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if roleToUse == "g3" {
-				queryG3 := `INSERT INTO g3_vendors (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-				_, errG3 := tx.Exec(queryG3, noPp, finalVendorId)
-				if errG3 != nil {
-					respondWithError(w, http.StatusInternalServerError, "Gagal assign G3 vendor: "+errG3.Error())
-					return
-				}
+			// --- [PERBAIKAN LOGIKA UTAMA] ---
+			// Alur ini HANYA untuk G3. K3 dan K5 diatur di tempat lain.
+			// Kita TIDAK mengubah panels.vendor_id (K3)
+			// Kita TIDAK mengubah busbars (K5)
 
-				updateQuery := `UPDATE panels SET 
-                                  status_penyelesaian = 'Subcontractor', 
-                                  status_component = 'Done', 
-                                  status_palet = 'Close', 
-                                  status_corepart = 'Close', 
-                                  percent_progress = 100, 
-                                  is_closed = true, 
-                                  closed_date = COALESCE(closed_date, NOW()), 
-                                  history_stack = $1 
-                                WHERE no_pp = $2`
-				_, err = tx.Exec(updateQuery, historyJson, noPp)
-
-			} else {
-				updateQuery := `UPDATE panels SET 
-                                  status_penyelesaian = 'Subcontractor', 
-                                  vendor_id = $1, 
-                                  status_component = 'Done', 
-                                  status_palet = 'Close', 
-                                  status_corepart = 'Close', 
-                                  percent_progress = 100, 
-                                  is_closed = true, 
-                                  closed_date = COALESCE(closed_date, NOW()), 
-                                  history_stack = $2 
-                                WHERE no_pp = $3`
-				_, err = tx.Exec(updateQuery, finalVendorId, historyJson, noPp)
+			// 1. Hapus entri G3 lama (jika ada) untuk diganti baru
+			_, errDelG3 := tx.Exec(`DELETE FROM g3_vendors WHERE panel_no_pp = $1`, noPp)
+			if errDelG3 != nil {
+				respondWithError(w, http.StatusInternalServerError, "Gagal clear G3 vendor lama: "+errDelG3.Error())
+				return
 			}
+
+			// 2. Masukkan vendor G3 yang baru.
+			queryG3 := `INSERT INTO g3_vendors (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+			_, errG3 := tx.Exec(queryG3, noPp, finalVendorId)
+			if errG3 != nil {
+				respondWithError(w, http.StatusInternalServerError, "Gagal assign G3 vendor: "+errG3.Error())
+				return
+			}
+
+			// 3. Update status panel.
+			// Perhatikan 'vendor_id' TIDAK ADA di query ini.
+			updateQuery := `UPDATE panels SET 
+                              status_penyelesaian = 'Subcontractor', 
+                              status_component = 'Done', 
+                              status_palet = 'Close', 
+                              status_corepart = 'Close', 
+                              percent_progress = 100, 
+                              is_closed = true, 
+                              closed_date = COALESCE(closed_date, NOW()), 
+                              history_stack = $1 
+                            WHERE no_pp = $2`
+			_, err = tx.Exec(updateQuery, historyJson, noPp)
+
 			if err != nil {
 				respondWithError(w, http.StatusInternalServerError, "Gagal transfer ke subkontraktor: "+err.Error())
 				return
 			}
+
 		case "to_fat":
 			occupiedSlot := p.ProductionSlot
 			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
