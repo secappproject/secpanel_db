@@ -10,1199 +10,1199 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/rl"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"githb.com/google/id"
+	"github.com/google/uuid"
 	"firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
 
-	"githb.com/google/generative-ai-go/genai"
-	"githb.com/gorilla/handlers"
-	"githb.com/gorilla/mx"
-	"githb.com/lib/pq"
-	"githb.com/xri/excelize/v2"
+	"github.com/google/generative-ai-go/genai"
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
+	"github.com/lib/pq"
+	"github.com/xuri/excelize/v2"
 	"google.golang.org/api/option"
 	"gopkg.in/gomail.v2"
 )
 
 // =============================================================================
-// MODELS (Strcts for JSON and DB)
+// MODELS (Structs for JSON and DB)
 // =============================================================================
 const (
-	ppRoledmin     = "admin"
-	ppRoleViewer    = "viewer"
-	ppRoleWarehose = "warehose"
-	ppRoleK3        = "k3"
-	ppRoleK5        = "k5"
+	AppRoleAdmin     = "admin"
+	AppRoleViewer    = "viewer"
+	AppRoleWarehouse = "warehouse"
+	AppRoleK3        = "k3"
+	AppRoleK5        = "k5"
 )
 
 const (
 	CONFIG_SMTP_HOST     = "smtp.gmail.com"
 	CONFIG_SMTP_PORT     = 587
-	CONFIG_SENDER_EMIL  = "tristorpro@gmail.com"
-	CONFIG_UTH_PSSWORD = "bbcsxqtxmxbzveod"
+	CONFIG_SENDER_EMAIL  = "trisutorpro@gmail.com"
+	CONFIG_AUTH_PASSWORD = "bbcsxqtxmxbzveod"
 )
 
-type LogEntry strct {
-	ction    string    `json:"action"`    // e.g., "membat isse", "menandai solved"
-	User      string    `json:"ser"`      // The sername who performed the action
+type LogEntry struct {
+	Action    string    `json:"action"`    // e.g., "membuat issue", "menandai solved"
+	User      string    `json:"user"`      // The username who performed the action
 	Timestamp time.Time `json:"timestamp"` // When the action was performed
 }
 
 type Logs []LogEntry
 
-fnc (l Logs) Vale() (driver.Vale, error) {
-	if len(l) ==  {
-		retrn json.Marshal([]LogEntry{}) 
+func (l Logs) Value() (driver.Value, error) {
+	if len(l) == 0 {
+		return json.Marshal([]LogEntry{}) 
 	}
-	retrn json.Marshal(l)
+	return json.Marshal(l)
 }
 
-fnc (l *Logs) Scan(vale interface{}) error {
-	b, ok := vale.([]byte)
+func (l *Logs) Scan(value interface{}) error {
+	b, ok := value.([]byte)
 	if !ok {
-		retrn errors.New("type assertion to []byte failed")
+		return errors.New("type assertion to []byte failed")
 	}
-	if b == nil || string(b) == "nll" {
+	if b == nil || string(b) == "null" {
 		*l = []LogEntry{}
-		retrn nil
+		return nil
 	}
-	retrn json.Unmarshal(b, &l)
+	return json.Unmarshal(b, &l)
 }
-type User strct {
+type User struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
-type CreateCommentPayload strct {
+type CreateCommentPayload struct {
 	SenderID         string   `json:"sender_id"`
 	Text             string   `json:"text"`
 	ReplyToCommentID *string  `json:"reply_to_comment_id,omitempty"`
-	ReplyToUserID    *string  `json:"reply_to_ser_id,omitempty"`
+	ReplyToUserID    *string  `json:"reply_to_user_id,omitempty"`
 	Images           []string `json:"images"`
 }
-type IsseTitle strct {
+type IssueTitle struct {
 	ID    int    `json:"id"`
 	Title string `json:"title"`
 }
-type IsseComment strct {
+type IssueComment struct {
 	ID               string    `json:"id"`
-	IsseID          int       `json:"isse_id"`
+	IssueID          int       `json:"issue_id"`
 	Sender           User      `json:"sender"`
 	Text             string    `json:"text"`
 	Timestamp        time.Time `json:"timestamp"`
 	ReplyTo          *User     `json:"reply_to,omitempty"`
 	ReplyToCommentID *string   `json:"reply_to_comment_id,omitempty"`
 	IsEdited         bool      `json:"is_edited"`
-	ImageUrls        []string  `json:"image_rls"`
+	ImageUrls        []string  `json:"image_urls"`
 }
 
-type Chat strct {
+type Chat struct {
 	ID        int       `json:"chat_id"`
 	PanelNoPp string    `json:"panel_no_pp"`
-	Createdt time.Time `json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 }
-type ChatMessage strct {
+type ChatMessage struct {
 	ID            int        `json:"id"`
 	ChatID        int        `json:"chat_id"`
-	SenderUsername string    `json:"sender_sername"`
-	Text          *string    `json:"text"` // Pointer agar bisa nll
+	SenderUsername string    `json:"sender_username"`
+	Text          *string    `json:"text"` // Pointer agar bisa null
 	ImageData     *string    `json:"image_data,omitempty"` // Pointer dan omitempty
-	RepliedIsseID *int       `json:"replied_isse_id,omitempty"` // Pointer dan omitempty
-	Createdt     time.Time `json:"created_at"`
+	RepliedIssueID *int       `json:"replied_issue_id,omitempty"` // Pointer dan omitempty
+	CreatedAt     time.Time `json:"created_at"`
 }
-type IsseForExport strct {
+type IssueForExport struct {
 	PanelNoPp    string     `json:"panel_no_pp"`
 	PanelNoWbs   *string    `json:"panel_no_wbs"`  
 	PanelNoPanel *string    `json:"panel_no_panel"` 
-	IsseID      int        `json:"isse_id"`
+	IssueID      int        `json:"issue_id"`
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
-	Stats       string     `json:"stats"`
+	Status       string     `json:"status"`
 	CreatedBy    string     `json:"created_by"`
-	Createdt    *time.Time `json:"created_at"` 
+	CreatedAt    *time.Time `json:"created_at"` 
 }
 
-type CommentForExport strct {
-	IsseID          int            `json:"isse_id"`
+type CommentForExport struct {
+	IssueID          int            `json:"issue_id"`
 	Text             string         `json:"text"`
 	SenderID         string         `json:"sender_id"`
-	ReplyToCommentID sql.NllString `json:"reply_to_comment_id"` 
+	ReplyToCommentID sql.NullString `json:"reply_to_comment_id"` 
 }
 
-type dditionalSRForExport strct {
+type AdditionalSRForExport struct {
 	PanelNoPp    string  `json:"panel_no_pp"`
 	PanelNoWbs   *string `json:"panel_no_wbs"`   
 	PanelNoPanel *string `json:"panel_no_panel"` 
-	PoNmber     string  `json:"po_nmber"`
+	PoNumber     string  `json:"po_number"`
 	Item         string  `json:"item"`
-	Qantity     int     `json:"qantity"`
-	Spplier     *string `json:"spplier"` 
-	Stats       string  `json:"stats"`
+	Quantity     int     `json:"quantity"`
+	Supplier     *string `json:"supplier"` 
+	Status       string  `json:"status"`
 	Remarks      string  `json:"remarks"`
 }
 
-type Isse strct {
-	ID          int       `json:"isse_id"`
+type Issue struct {
+	ID          int       `json:"issue_id"`
 	ChatID      int       `json:"chat_id"`
-	Title       string    `json:"isse_title"` 
-	Description string    `json:"isse_description"`
-	Type      string    `json:"isse_type,omitempty"`
-	Stats    string    `json:"isse_stats"`
+	Title       string    `json:"issue_title"` 
+	Description string    `json:"issue_description"`
+	Type      string    `json:"issue_type,omitempty"`
+	Status    string    `json:"issue_status"`
 	Logs      Logs      `json:"logs"`
 	CreatedBy string    `json:"created_by"`
-	Createdt time.Time `json:"created_at"`
-	Updatedt time.Time `json:"pdated_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	NotifyEmail *string   `json:"notify_email,omitempty"`
 
 }
 
-type Photo strct {
+type Photo struct {
 	ID        int    `json:"photo_id"`
-	IsseID   int    `json:"isse_id"`
+	IssueID   int    `json:"issue_id"`
 	PhotoData string `json:"photo"` 
 }
 
-type IsseWithPhotos strct {
-	Isse
+type IssueWithPhotos struct {
+	Issue
 	Photos []Photo `json:"photos"`
 }
 
-type cstomTime strct {
+type customTime struct {
 	time.Time
 }
-type PanelKeyInfo strct {
+type PanelKeyInfo struct {
 	NoPp    string `json:"no_pp"`
 	NoPanel string `json:"no_panel"`
 	Project string `json:"project"`
 	NoWbs   string `json:"no_wbs"`
 }
-const ctLayot = "26-1-2T15:4:5.999999"
+const ctLayout = "2006-01-02T15:04:05.999999"
 
-fnc (ct *cstomTime) UnmarshalJSON(b []byte) (err error) {
+func (ct *customTime) UnmarshalJSON(b []byte) (err error) {
 	s := strings.Trim(string(b), "\"")
-	if s == "nll" || s == "" {
+	if s == "null" || s == "" {
 		ct.Time = time.Time{}
-		retrn
+		return
 	}
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		t, err = time.Parse(ctLayot, s)
+		t, err = time.Parse(ctLayout, s)
 	}
 	if err == nil {
 		ct.Time = t
 	}
-	retrn
+	return
 }
 
-fnc (ct *cstomTime) MarshalJSON() ([]byte, error) {
+func (ct *customTime) MarshalJSON() ([]byte, error) {
 	if ct.Time.IsZero() {
-		retrn []byte("nll"), nil
+		return []byte("null"), nil
 	}
-	retrn []byte(fmt.Sprintf("\"%s\"", ct.Time.Format(time.RFC3339))), nil
+	return []byte(fmt.Sprintf("\"%s\"", ct.Time.Format(time.RFC3339))), nil
 }
 
-fnc (ct *cstomTime) Scan(vale interface{}) error {
-	if vale == nil {
+func (ct *customTime) Scan(value interface{}) error {
+	if value == nil {
 		ct.Time = time.Time{}
-		retrn nil
+		return nil
 	}
-	t, ok := vale.(time.Time)
+	t, ok := value.(time.Time)
 	if !ok {
-		retrn fmt.Errorf("cold not scan type %T into cstomTime", vale)
+		return fmt.Errorf("could not scan type %T into customTime", value)
 	}
 	ct.Time = t
-	retrn nil
+	return nil
 }
 
-fnc (ct cstomTime) Vale() (driver.Vale, error) {
+func (ct customTime) Value() (driver.Value, error) {
 	if ct.Time.IsZero() {
-		retrn nil, nil
+		return nil, nil
 	}
-	retrn ct.Time, nil
+	return ct.Time, nil
 }
 
-type Company strct {
+type Company struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Role string `json:"role"`
 }
-type Companyccont strct {
-	Username  string `json:"sername"`
+type CompanyAccount struct {
+	Username  string `json:"username"`
 	Password  string `json:"password"`
 	CompanyID string `json:"company_id"`
 }
-type Panel strct {
+type Panel struct {
 	NoPp            string      `json:"no_pp"`
 	NoPanel         *string     `json:"no_panel"`
 	NoWbs           *string     `json:"no_wbs"`
 	Project         *string     `json:"project"`
 	PercentProgress *float64    `json:"percent_progress"`
-	StartDate       *cstomTime `json:"start_date"`
-	TargetDelivery  *cstomTime `json:"target_delivery"`
-	StatsBsbarPcc *string     `json:"stats_bsbar_pcc"`
-	StatsBsbarMcc *string     `json:"stats_bsbar_mcc"`
-	StatsComponent *string     `json:"stats_component"`
-	StatsPalet     *string     `json:"stats_palet"`
-	StatsCorepart  *string     `json:"stats_corepart"`
-	oBsbarPcc     *cstomTime `json:"ao_bsbar_pcc"`
-	oBsbarMcc     *cstomTime `json:"ao_bsbar_mcc"`
+	StartDate       *customTime `json:"start_date"`
+	TargetDelivery  *customTime `json:"target_delivery"`
+	StatusBusbarPcc *string     `json:"status_busbar_pcc"`
+	StatusBusbarMcc *string     `json:"status_busbar_mcc"`
+	StatusComponent *string     `json:"status_component"`
+	StatusPalet     *string     `json:"status_palet"`
+	StatusCorepart  *string     `json:"status_corepart"`
+	AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
+	AoBusbarMcc     *customTime `json:"ao_busbar_mcc"`
 	CreatedBy       *string     `json:"created_by"`
 	VendorID        *string     `json:"vendor_id"`
 	IsClosed        bool        `json:"is_closed"`
-	ClosedDate      *cstomTime `json:"closed_date"`
+	ClosedDate      *customTime `json:"closed_date"`
 	PanelType       *string     `json:"panel_type,omitempty"`
 	Remarks         *string     `json:"remarks,omitempty"`
-	CloseDateBsbarPcc *cstomTime `json:"close_date_bsbar_pcc,omitempty"`
-	CloseDateBsbarMcc *cstomTime `json:"close_date_bsbar_mcc,omitempty"`
+	CloseDateBusbarPcc *customTime `json:"close_date_busbar_pcc,omitempty"`
+	CloseDateBusbarMcc *customTime `json:"close_date_busbar_mcc,omitempty"`
 	
-    StatsPenyelesaian *string `json:"stats_penyelesaian,omitempty"`
-    ProdctionSlot     *string `json:"prodction_slot,omitempty"`
+    StatusPenyelesaian *string `json:"status_penyelesaian,omitempty"`
+    ProductionSlot     *string `json:"production_slot,omitempty"`
 }
 
-type ProdctionSlot strct {
+type ProductionSlot struct {
 	PositionCode string  `json:"position_code"`
-	IsOccpied   bool    `json:"is_occpied"`
+	IsOccupied   bool    `json:"is_occupied"`
 	PanelNoPp    *string `json:"panel_no_pp,omitempty"`
 	PanelNoPanel *string `json:"panel_no_panel,omitempty"`
 }
 
-type Bsbar strct {
+type Busbar struct {
 	ID        int     `json:"id"`
 	PanelNoPp string  `json:"panel_no_pp"`
 	Vendor    string  `json:"vendor"`
 	Remarks   *string `json:"remarks"`
 }
-type Component strct {
+type Component struct {
 	ID        int    `json:"id"`
 	PanelNoPp string `json:"panel_no_pp"`
 	Vendor    string `json:"vendor"`
 }
-type Palet strct {
+type Palet struct {
 	ID        int    `json:"id"`
 	PanelNoPp string `json:"panel_no_pp"`
 	Vendor    string `json:"vendor"`
 }
-type Corepart strct {
+type Corepart struct {
 	ID        int    `json:"id"`
 	PanelNoPp string `json:"panel_no_pp"`
 	Vendor    string `json:"vendor"`
 }
 
-type dditionalSR strct {
+type AdditionalSR struct {
 	ID        int       `json:"id"`
 	PanelNoPp string    `json:"panel_no_pp"`
-	PoNmber  string    `json:"po_nmber"`
+	PoNumber  string    `json:"po_number"`
 	Item      string    `json:"item"`
-	Qantity  int       `json:"qantity"`
-	Spplier  string    `json:"spplier"`
-	Stats    string    `json:"stats"` 
+	Quantity  int       `json:"quantity"`
+	Supplier  string    `json:"supplier"`
+	Status    string    `json:"status"` 
 	Remarks   string    `json:"remarks"` 
-	Createdt time.Time `json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 	ReceivedDate *time.Time `json:"received_date,omitempty" db:"received_date"`
 }
 
-type PanelDisplayData strct {
+type PanelDisplayData struct {
 	Panel                Panel           `json:"panel"`
 	PanelVendorName      *string         `json:"panel_vendor_name"`
 	PanelRemarks         *string         `json:"panel_remarks"`
-	BsbarVendorNames    *string         `json:"bsbar_vendor_names"`
-	BsbarVendorIds      []string        `json:"bsbar_vendor_ids"`
-	BsbarRemarks        json.RawMessage `json:"bsbar_remarks"` 
+	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
+	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
+	BusbarRemarks        json.RawMessage `json:"busbar_remarks"` 
 	ComponentVendorNames *string         `json:"component_vendor_names"`
 	ComponentVendorIds   []string        `json:"component_vendor_ids"`
 	PaletVendorNames     *string         `json:"palet_vendor_names"`
 	PaletVendorIds       []string        `json:"palet_vendor_ids"`
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
-	IsseCont           int             `json:"isse_cont"`
-	dditionalSRCont 	 int 			 `json:"additional_sr_cont"` 
+	IssueCount           int             `json:"issue_count"`
+	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
 }
-type PanelDisplayDataWithTimeline strct {
+type PanelDisplayDataWithTimeline struct {
 	Panel                Panel           `json:"panel"`
 	PanelVendorName      *string         `json:"panel_vendor_name"`
-	BsbarVendorNames    *string         `json:"bsbar_vendor_names"`
-	BsbarVendorIds      []string        `json:"bsbar_vendor_ids"`
-	BsbarRemarks        json.RawMessage `json:"bsbar_remarks"`
+	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
+	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
+	BusbarRemarks        json.RawMessage `json:"busbar_remarks"`
 	ComponentVendorNames *string         `json:"component_vendor_names"`
 	ComponentVendorIds   []string        `json:"component_vendor_ids"`
 	PaletVendorNames     *string         `json:"palet_vendor_names"`
 	PaletVendorIds       []string        `json:"palet_vendor_ids"`
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
-	IsseCont           int             `json:"isse_cont"`
-	dditionalSRCont    int             `json:"additional_sr_cont"`
-	ProdctionDate       *time.Time      `json:"prodction_date,omitempty"` 
+	IssueCount           int             `json:"issue_count"`
+	AdditionalSRCount    int             `json:"additional_sr_count"`
+	ProductionDate       *time.Time      `json:"production_date,omitempty"` 
 	FatDate              *time.Time      `json:"fat_date,omitempty"`      
-	llDoneDate          *time.Time      `json:"all_done_date,omitempty"`  
+	AllDoneDate          *time.Time      `json:"all_done_date,omitempty"`  
 }
 
 // =============================================================================
-// DB INTERFCE
+// DB INTERFACE
 // =============================================================================
 type DBTX interface {
-	Exec(qery string, args ...interface{}) (sql.Reslt, error)
-	Qery(qery string, args ...interface{}) (*sql.Rows, error)
-	QeryRow(qery string, args ...interface{}) *sql.Row
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
 // =============================================================================
-// PP & MIN
+// APP & MAIN
 // =============================================================================
-type pp strct {
-	Roter *mx.Roter
+type App struct {
+	Router *mux.Router
 	DB     *sql.DB
 	FCMClient *messaging.Client
 }
 
-fnc (a *pp) Initialize(dbUser, dbPassword, dbName, dbHost string) {
+func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	dbSslMode := os.Getenv("DB_SSLMODE")
 	if dbSslMode == "" {
-		dbSslMode = "reqire"
+		dbSslMode = "require"
 	}
 	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
 
 	var err error
 	a.DB, err = sql.Open("postgres", connectionString)
 	if err != nil {
-		log.Fatalf("Gagal membka koneksi DB: %v", err)
+		log.Fatalf("Gagal membuka koneksi DB: %v", err)
 	}
 
 	a.DB.SetMaxOpenConns(25)
 	a.DB.SetMaxIdleConns(25)
-	a.DB.SetConnMaxLifetime(5 * time.Minte)
+	a.DB.SetConnMaxLifetime(5 * time.Minute)
 
 	err = a.DB.Ping()
 	if err != nil {
-		log.Fatalf("Tidak dapat terhbng ke database: %v", err)
+		log.Fatalf("Tidak dapat terhubung ke database: %v", err)
 	}
-	log.Println("Berhasil terhbng ke database!")
+	log.Println("Berhasil terhubung ke database!")
 
 	initDB(a.DB)
-	a.Roter = mx.NewRoter().StrictSlash(tre)
-	a.initializeRotes()
+	a.Router = mux.NewRouter().StrictSlash(true)
+	a.initializeRoutes()
 }
 
-fnc (a *pp) Rn(addr string) {
-	// [FIX] Bngks roter nda dengan middleware CORS di sini
+func (a *App) Run(addr string) {
+	// [FIX] Bungkus router Anda dengan middleware CORS di sini
 	
-	// Tentkan domain yang diizinkan. Tanda '*' berarti mengizinkan sema domain.
-	// Untk keamanan prodksi, ganti '*' dengan domain web Fltter nda (misal: "http://localhost:port", "https://nama-web-anda.com")
-	allowedOrigins := handlers.llowedOrigins([]string{"*"})
+	// Tentukan domain yang diizinkan. Tanda '*' berarti mengizinkan semua domain.
+	// Untuk keamanan produksi, ganti '*' dengan domain web Flutter Anda (misal: "http://localhost:port", "https://nama-web-anda.com")
+	allowedOrigins := handlers.AllowedOrigins([]string{"*"})
 	
-	// Tentkan metode HTTP yang diizinkan
-	allowedMethods := handlers.llowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
+	// Tentukan metode HTTP yang diizinkan
+	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
 	
-	// Tentkan header yang diizinkan
-	allowedHeaders := handlers.llowedHeaders([]string{"Content-Type", "thorization"})
+	// Tentukan header yang diizinkan
+	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization"})
 
 	log.Printf("Server berjalan di %s", addr)
-	// Gnakan handler CORS yang sdah dikonfigrasi ntk menjalankan server
-	log.Fatal(http.ListenndServe(addr, handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(a.Roter)))
+	// Gunakan handler CORS yang sudah dikonfigurasi untuk menjalankan server
+	log.Fatal(http.ListenAndServe(addr, handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(a.Router)))
 }
-fnc main() {
+func main() {
 	dbUser := os.Getenv("DB_USER")
-	dbPassword := os.Getenv("DB_PSSWORD")
-	dbName := os.Getenv("DB_NME")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
 	dbHost := os.Getenv("DB_HOST")
 
 	if dbUser == "" || dbPassword == "" || dbName == "" || dbHost == "" {
-		log.Fatal("Variabel environment DB_USER, DB_PSSWORD, DB_NME, dan DB_HOST hars di-set!")
+		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
 	}
 
-	ctx := context.Backgrond()
+	ctx := context.Background()
 
-	firebasepp, err := firebase.Newpp(ctx, nil) 
+	firebaseApp, err := firebase.NewApp(ctx, nil) 
 	if err != nil {
 		log.Fatalf("error initializing Firebase app: %v\n", err)
 	}
 
-	fcmClient, err := firebasepp.Messaging(ctx)
+	fcmClient, err := firebaseApp.Messaging(ctx)
 	if err != nil {
 		log.Fatalf("error getting FCM client: %v\n", err)
 	}
 
-	app := pp{}
+	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
 	app.FCMClient = fcmClient
 
-	go app.startNotificationSchedler()
+	go app.startNotificationScheduler()
 
-	app.Rn(":88")
+	app.Run(":8080")
 }
 // =============================================================================
 // ROUTES
 // =============================================================================
-fnc (a *pp) initializeRotes() {
-	// th & User Management
-	a.Roter.HandleFnc("/login", a.loginHandler).Methods("POST")
-	a.Roter.HandleFnc("/ser/register-device", a.registerDeviceHandler).Methods("POST")
-	a.Roter.HandleFnc("/company-by-sername/{sername}", a.getCompanyByUsernameHandler).Methods("GET")
-	a.Roter.HandleFnc("/ser/{sername}/password", a.pdatePasswordHandler).Methods("PUT")
-	a.Roter.HandleFnc("/company-with-accont", a.insertCompanyWithccontHandler).Methods("POST")
-	a.Roter.HandleFnc("/company-with-accont/{sername}", a.pdateCompanyndccontHandler).Methods("PUT")
-	a.Roter.HandleFnc("/accont/{sername}", a.deleteCompanyccontHandler).Methods("DELETE")
-	a.Roter.HandleFnc("/acconts", a.getllCompanyccontsHandler).Methods("GET")
-	a.Roter.HandleFnc("/accont/exists/{sername}", a.isUsernameTakenHandler).Methods("GET")
-	a.Roter.HandleFnc("/sers/display", a.getllUserccontsForDisplayHandler).Methods("GET")
-	a.Roter.HandleFnc("/sers/colleages/display", a.getColleageccontsForDisplayHandler).Methods("GET")
-	a.Roter.HandleFnc("/acconts/search", a.searchUsernamesHandler).Methods("GET")
+func (a *App) initializeRoutes() {
+	// Auth & User Management
+	a.Router.HandleFunc("/login", a.loginHandler).Methods("POST")
+	a.Router.HandleFunc("/user/register-device", a.registerDeviceHandler).Methods("POST")
+	a.Router.HandleFunc("/company-by-username/{username}", a.getCompanyByUsernameHandler).Methods("GET")
+	a.Router.HandleFunc("/user/{username}/password", a.updatePasswordHandler).Methods("PUT")
+	a.Router.HandleFunc("/company-with-account", a.insertCompanyWithAccountHandler).Methods("POST")
+	a.Router.HandleFunc("/company-with-account/{username}", a.updateCompanyAndAccountHandler).Methods("PUT")
+	a.Router.HandleFunc("/account/{username}", a.deleteCompanyAccountHandler).Methods("DELETE")
+	a.Router.HandleFunc("/accounts", a.getAllCompanyAccountsHandler).Methods("GET")
+	a.Router.HandleFunc("/account/exists/{username}", a.isUsernameTakenHandler).Methods("GET")
+	a.Router.HandleFunc("/users/display", a.getAllUserAccountsForDisplayHandler).Methods("GET")
+	a.Router.HandleFunc("/users/colleagues/display", a.getColleagueAccountsForDisplayHandler).Methods("GET")
+	a.Router.HandleFunc("/accounts/search", a.searchUsernamesHandler).Methods("GET")
 
 
 	// Company Management
-	a.Roter.HandleFnc("/company", a.insertCompanyHandler).Methods("POST")
-	a.Roter.HandleFnc("/company/{id}", a.getCompanyByIdHandler).Methods("GET")
-	a.Roter.HandleFnc("/company/{id}", a.pdateCompanyHandler).Methods("PUT")
-	a.Roter.HandleFnc("/companies", a.getllCompaniesHandler).Methods("GET")
-	a.Roter.HandleFnc("/company-by-name/{name}", a.getCompanyByNameHandler).Methods("GET")
-	a.Roter.HandleFnc("/vendors", a.getCompaniesByRoleHandler).Methods("GET")
-	a.Roter.HandleFnc("/companies/form-data", a.getUniqeCompanyDataForFormHandler).Methods("GET")
+	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST")
+	a.Router.HandleFunc("/company/{id}", a.getCompanyByIdHandler).Methods("GET")
+	a.Router.HandleFunc("/company/{id}", a.updateCompanyHandler).Methods("PUT")
+	a.Router.HandleFunc("/companies", a.getAllCompaniesHandler).Methods("GET")
+	a.Router.HandleFunc("/company-by-name/{name}", a.getCompanyByNameHandler).Methods("GET")
+	a.Router.HandleFunc("/vendors", a.getCompaniesByRoleHandler).Methods("GET")
+	a.Router.HandleFunc("/companies/form-data", a.getUniqueCompanyDataForFormHandler).Methods("GET")
 
 
 	// Panel Management
-	a.Roter.HandleFnc("/panels", a.getllPanelsForDisplayHandler).Methods("GET")
-	a.Roter.HandleFnc("/panels", a.psertPanelHandler).Methods("POST")
-	a.Roter.HandleFnc("/panel/stats-ao-k5", a.psertStatsOK5).Methods("POST")
-	a.Roter.HandleFnc("/panel/stats-whs", a.psertStatsWHS).Methods("POST")
+	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
+	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
+	a.Router.HandleFunc("/panel/status-ao-k5", a.upsertStatusAOK5).Methods("POST")
+	a.Router.HandleFunc("/panel/status-whs", a.upsertStatusWHS).Methods("POST")
 
-	a.Roter.HandleFnc("/panels/blk-delete", a.deletePanelsHandler).Methods("DELETE")
-	a.Roter.HandleFnc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
-	a.Roter.HandleFnc("/panels/all", a.getllPanelsHandler).Methods("GET")
-	a.Roter.HandleFnc("/panels/keys", a.getPanelKeysHandler).Methods("GET")
-	a.Roter.HandleFnc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
-	a.Roter.HandleFnc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
-	a.Roter.HandleFnc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT")
-	a.Roter.HandleFnc("/panel/remark-vendor", a.psertPanelRemarkHandler).Methods("POST")
+	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE")
+	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
+	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/keys", a.getPanelKeysHandler).Methods("GET")
+	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
+	a.Router.HandleFunc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT")
+	a.Router.HandleFunc("/panel/remark-vendor", a.upsertPanelRemarkHandler).Methods("POST")
 
-	// Rte isPanelNmberUniqeHandler tidak lagi diperlkan karena no_panel tidak nik
-	// a.Roter.HandleFnc("/panel/exists/no-panel/{no_panel}", a.isPanelNmberUniqeHandler).Methods("GET")
+	// Rute isPanelNumberUniqueHandler tidak lagi diperlukan karena no_panel tidak unik
+	// a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
 
-	// Sb-Panel Parts Management
+	// Sub-Panel Parts Management
 	
-	a.Roter.HandleFnc("/bsbar", a.psertGenericHandler("bsbars", &Bsbar{})).Methods("POST")
-	a.Roter.HandleFnc("/component", a.psertGenericHandler("components", &Component{})).Methods("POST")
-	a.Roter.HandleFnc("/palet", a.psertGenericHandler("palet", &Palet{})).Methods("POST")
-	a.Roter.HandleFnc("/corepart", a.psertGenericHandler("corepart", &Corepart{})).Methods("POST")
+	a.Router.HandleFunc("/busbar", a.upsertGenericHandler("busbars", &Busbar{})).Methods("POST")
+	a.Router.HandleFunc("/component", a.upsertGenericHandler("components", &Component{})).Methods("POST")
+	a.Router.HandleFunc("/palet", a.upsertGenericHandler("palet", &Palet{})).Methods("POST")
+	a.Router.HandleFunc("/corepart", a.upsertGenericHandler("corepart", &Corepart{})).Methods("POST")
 
-	// Gnakan handler generik ntk sema operasi DELETE
-	a.Roter.HandleFnc("/bsbar", a.deleteGenericRelationHandler("bsbars")).Methods("DELETE")
-	a.Roter.HandleFnc("/palet", a.deleteGenericRelationHandler("palet")).Methods("DELETE")
-	a.Roter.HandleFnc("/corepart", a.deleteGenericRelationHandler("corepart")).Methods("DELETE")
+	// Gunakan handler generik untuk semua operasi DELETE
+	a.Router.HandleFunc("/busbar", a.deleteGenericRelationHandler("busbars")).Methods("DELETE")
+	a.Router.HandleFunc("/palet", a.deleteGenericRelationHandler("palet")).Methods("DELETE")
+	a.Router.HandleFunc("/corepart", a.deleteGenericRelationHandler("corepart")).Methods("DELETE")
 	
-	a.Roter.HandleFnc("/bsbar/remark-vendor", a.psertBsbarRemarkandVendorHandler).Methods("POST")
-	a.Roter.HandleFnc("/bsbars", a.getllGenericHandler("bsbars", fnc() interface{} { retrn &Bsbar{} })).Methods("GET")
-	a.Roter.HandleFnc("/components", a.getllGenericHandler("components", fnc() interface{} { retrn &Component{} })).Methods("GET")
-	a.Roter.HandleFnc("/palets", a.getllGenericHandler("palet", fnc() interface{} { retrn &Palet{} })).Methods("GET")
-	a.Roter.HandleFnc("/coreparts", a.getllGenericHandler("corepart", fnc() interface{} { retrn &Corepart{} })).Methods("GET")
+	a.Router.HandleFunc("/busbar/remark-vendor", a.upsertBusbarRemarkandVendorHandler).Methods("POST")
+	a.Router.HandleFunc("/busbars", a.getAllGenericHandler("busbars", func() interface{} { return &Busbar{} })).Methods("GET")
+	a.Router.HandleFunc("/components", a.getAllGenericHandler("components", func() interface{} { return &Component{} })).Methods("GET")
+	a.Router.HandleFunc("/palets", a.getAllGenericHandler("palet", func() interface{} { return &Palet{} })).Methods("GET")
+	a.Router.HandleFunc("/coreparts", a.getAllGenericHandler("corepart", func() interface{} { return &Corepart{} })).Methods("GET")
 
 	// Export & Import
-	a.Roter.HandleFnc("/export/filtered-data", a.getFilteredDataForExportHandler).Methods("GET")
-	a.Roter.HandleFnc("/export/cstom", a.generateCstomExportJsonHandler).Methods("GET")
-	a.Roter.HandleFnc("/export/database", a.generateFilteredDatabaseJsonHandler).Methods("GET")
-	a.Roter.HandleFnc("/import/database", a.importDataHandler).Methods("POST")
-	a.Roter.HandleFnc("/import/template", a.generateImportTemplateHandler).Methods("GET")
-	a.Roter.HandleFnc("/import/cstom", a.importFromCstomTemplateHandler).Methods("POST")
+	a.Router.HandleFunc("/export/filtered-data", a.getFilteredDataForExportHandler).Methods("GET")
+	a.Router.HandleFunc("/export/custom", a.generateCustomExportJsonHandler).Methods("GET")
+	a.Router.HandleFunc("/export/database", a.generateFilteredDatabaseJsonHandler).Methods("GET")
+	a.Router.HandleFunc("/import/database", a.importDataHandler).Methods("POST")
+	a.Router.HandleFunc("/import/template", a.generateImportTemplateHandler).Methods("GET")
+	a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST")
 
-	// Isse Management Rotes
-	a.Roter.HandleFnc("/isses/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
-	a.Roter.HandleFnc("/panels/{no_pp}/isses", a.getIssesByPanelHandler).Methods("GET")
-	a.Roter.HandleFnc("/panels/{no_pp}/isses", a.createIsseForPanelHandler).Methods("POST")
-	a.Roter.HandleFnc("/isses/{id}", a.getIsseByIDHandler).Methods("GET")
-	a.Roter.HandleFnc("/isses/{id}", a.pdateIsseHandler).Methods("PUT")
-	a.Roter.HandleFnc("/isses/{id}", a.deleteIsseHandler).Methods("DELETE")
-	a.Roter.HandleFnc("/isse-titles", a.getllIsseTitlesHandler).Methods("GET")
-	a.Roter.HandleFnc("/isse-titles", a.createIsseTitleHandler).Methods("POST")
-	a.Roter.HandleFnc("/isse-titles/{id}", a.pdateIsseTitleHandler).Methods("PUT")
-	a.Roter.HandleFnc("/isse-titles/{id}", a.deleteIsseTitleHandler).Methods("DELETE")
+	// Issue Management Routes
+	a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/{no_pp}/issues", a.getIssuesByPanelHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/{no_pp}/issues", a.createIssueForPanelHandler).Methods("POST")
+	a.Router.HandleFunc("/issues/{id}", a.getIssueByIDHandler).Methods("GET")
+	a.Router.HandleFunc("/issues/{id}", a.updateIssueHandler).Methods("PUT")
+	a.Router.HandleFunc("/issues/{id}", a.deleteIssueHandler).Methods("DELETE")
+	a.Router.HandleFunc("/issue-titles", a.getAllIssueTitlesHandler).Methods("GET")
+	a.Router.HandleFunc("/issue-titles", a.createIssueTitleHandler).Methods("POST")
+	a.Router.HandleFunc("/issue-titles/{id}", a.updateIssueTitleHandler).Methods("PUT")
+	a.Router.HandleFunc("/issue-titles/{id}", a.deleteIssueTitleHandler).Methods("DELETE")
 
-	// Photo Management Rotes
-	a.Roter.HandleFnc("/isses/{isse_id}/photos", a.addPhotoToIsseHandler).Methods("POST")
-	a.Roter.HandleFnc("/photos/{id}", a.deletePhotoHandler).Methods("DELETE")
+	// Photo Management Routes
+	a.Router.HandleFunc("/issues/{issue_id}/photos", a.addPhotoToIssueHandler).Methods("POST")
+	a.Router.HandleFunc("/photos/{id}", a.deletePhotoHandler).Methods("DELETE")
 
-	// Chat Message Rotes
-	a.Roter.HandleFnc("/chats/{chat_id}/messages", a.getMessagesByChatIDHandler).Methods("GET")
-	a.Roter.HandleFnc("/chats/{chat_id}/messages", a.createMessageHandler).Methods("POST")
+	// Chat Message Routes
+	a.Router.HandleFunc("/chats/{chat_id}/messages", a.getMessagesByChatIDHandler).Methods("GET")
+	a.Router.HandleFunc("/chats/{chat_id}/messages", a.createMessageHandler).Methods("POST")
 
-	// Isse Comment Rotes
-	a.Roter.HandleFnc("/isses/{isse_id}/comments", a.getCommentsByIsseHandler).Methods("GET")
-	a.Roter.HandleFnc("/isses/{isse_id}/comments", a.createCommentHandler).Methods("POST")
-	a.Roter.HandleFnc("/isses/{isse_id}/ask-gemini", a.askGeminiHandler).Methods("POST")
-	a.Roter.HandleFnc("/panels/{no_pp}/ask-gemini", a.askGeminibotPanelHandler).Methods("POST") 
+	// Issue Comment Routes
+	a.Router.HandleFunc("/issues/{issue_id}/comments", a.getCommentsByIssueHandler).Methods("GET")
+	a.Router.HandleFunc("/issues/{issue_id}/comments", a.createCommentHandler).Methods("POST")
+	a.Router.HandleFunc("/issues/{issue_id}/ask-gemini", a.askGeminiHandler).Methods("POST")
+	a.Router.HandleFunc("/panels/{no_pp}/ask-gemini", a.askGeminiAboutPanelHandler).Methods("POST") 
 
 
-	a.Roter.HandleFnc("/comments/{id}", a.pdateCommentHandler).Methods("PUT")
-	a.Roter.HandleFnc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE")
-	fs := http.FileServer(http.Dir("./ploads/"))
-	a.Roter.PathPrefix("/ploads/").Handler(http.StripPrefix("/ploads/", fs))
+	a.Router.HandleFunc("/comments/{id}", a.updateCommentHandler).Methods("PUT")
+	a.Router.HandleFunc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE")
+	fs := http.FileServer(http.Dir("./uploads/"))
+	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 
-	// dditional SR
-	a.Roter.HandleFnc("/panel/{no_pp}/additional-sr", a.getdditionalSRsByPanelHandler).Methods("GET")
-	a.Roter.HandleFnc("/panel/{no_pp}/additional-sr", a.createdditionalSRHandler).Methods("POST")
-	a.Roter.HandleFnc("/additional-sr/{id}", a.pdatedditionalSRHandler).Methods("PUT")
-	a.Roter.HandleFnc("/additional-sr/{id}", a.deletedditionalSRHandler).Methods("DELETE")
-	a.Roter.HandleFnc("/sppliers", a.getSppliersHandler).Methods("GET")
+	// Additional SR
+	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.getAdditionalSRsByPanelHandler).Methods("GET")
+	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
+	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT")
+	a.Router.HandleFunc("/additional-sr/{id}", a.deleteAdditionalSRHandler).Methods("DELETE")
+	a.Router.HandleFunc("/suppliers", a.getSuppliersHandler).Methods("GET")
 
 
 	 // Workflow Transfer
-    a.Roter.HandleFnc("/prodction-slots", a.getProdctionSlotsHandler).Methods("GET")
-    a.Roter.HandleFnc("/panels/{no_pp}/transfer", a.transferPanelHandler).Methods("POST")
+    a.Router.HandleFunc("/production-slots", a.getProductionSlotsHandler).Methods("GET")
+    a.Router.HandleFunc("/panels/{no_pp}/transfer", a.transferPanelHandler).Methods("POST")
 }
 
 // =============================================================================
-// HNDLERS
+// HANDLERS
 // =============================================================================
 
-fnc (a *pp) insertCompanyHandler(w http.ResponseWriter, r *http.Reqest) {
+func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	var c Company
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
-	qery := `
-		INSERT INTO companies (id, name, role) VLUES ($1, $2, $3)
-		ON CONFLICT (id) DO UPDTE SET
+	query := `
+		INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			role = EXCLUDED.role`
 
-	_, err := a.DB.Exec(qery, c.ID, c.Name, c.Role)
+	_, err := a.DB.Exec(query, c.ID, c.Name, c.Role)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "2355" && strings.Contains(pqErr.Constraint, "companies_name_key") {
-			respondWithError(w, http.StatsConflict, fmt.Sprintf("Nama persahaan '%s' sdah ada.", c.Name))
-			retrn
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" && strings.Contains(pqErr.Constraint, "companies_name_key") {
+			respondWithError(w, http.StatusConflict, fmt.Sprintf("Nama perusahaan '%s' sudah ada.", c.Name))
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, "Gagal memaskkan persahaan: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memasukkan perusahaan: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsCreated, c)
+	respondWithJSON(w, http.StatusCreated, c)
 }
-fnc (a *pp) psertPanelHandler(w http.ResponseWriter, r *http.Reqest) {
+func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var p Panel
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	var isNewPanel bool
 	var exists bool
-	err := a.DB.QeryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", p.NoPp).Scan(&exists)
+	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", p.NoPp).Scan(&exists)
 	isNewPanel = (err == nil && !exists)
 
-	qery := `
-		INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, stats_bsbar_pcc, stats_bsbar_mcc, stats_component, stats_palet, stats_corepart, ao_bsbar_pcc, ao_bsbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
-		VLUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $1, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-		ON CONFLICT (no_pp) DO UPDTE SET
-		no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, stats_bsbar_pcc = EXCLUDED.stats_bsbar_pcc, stats_bsbar_mcc = EXCLUDED.stats_bsbar_mcc, stats_component = EXCLUDED.stats_component, stats_palet = EXCLUDED.stats_palet, stats_corepart = EXCLUDED.stats_corepart, ao_bsbar_pcc = EXCLUDED.ao_bsbar_pcc, ao_bsbar_mcc = EXCLUDED.ao_bsbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
+	query := `
+		INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		ON CONFLICT (no_pp) DO UPDATE SET
+		no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
 
 
-	_, err = a.DB.Exec(qery, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatsBsbarPcc, p.StatsBsbarMcc, p.StatsComponent, p.StatsPalet, p.StatsCorepart, p.oBsbarPcc, p.oBsbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
+	_, err = a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "2355" {
-			respondWithError(w, http.StatsConflict, "Gagal menyimpan: Terdapat dplikasi pada No Panel.")
-			retrn
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			respondWithError(w, http.StatusConflict, "Gagal menyimpan: Terdapat duplikasi pada No Panel.")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	go fnc() {
+	go func() {
 		stakeholders, err := a.getPanelStakeholders(p.NoPp)
 		if err != nil {
 			log.Printf("Error getting stakeholders for panel %s: %v", p.NoPp, err)
-			retrn
+			return
 		}
 
-		actor := "seseorang" // Defalt actor
+		actor := "seseorang" // Default actor
 		if p.CreatedBy != nil {
 			actor = *p.CreatedBy
 		}
 
 		finalRecipients := []string{}
-		for _, ser := range stakeholders {
+		for _, user := range stakeholders {
 			// Filter agar tidak mengirim notifikasi ke diri sendiri
-			if ser != actor {
-				finalRecipients = append(finalRecipients, ser)
+			if user != actor {
+				finalRecipients = append(finalRecipients, user)
 			}
 		}
 
-		if len(finalRecipients) >  {
+		if len(finalRecipients) > 0 {
 			if isNewPanel {
-				title := "Panel Bar Ditambahkan"
-				body := fmt.Sprintf("%s menambahkan panel bar: %s", actor, p.NoPp)
-				// Cek jika panel bar tidak pnya vendor
+				title := "Panel Baru Ditambahkan"
+				body := fmt.Sprintf("%s menambahkan panel baru: %s", actor, p.NoPp)
+				// Cek jika panel baru tidak punya vendor
 				if p.VendorID == nil || *p.VendorID == "" {
-					body = fmt.Sprintf("%s menambahkan panel bar TNP VENDOR: %s", actor, p.NoPp)
+					body = fmt.Sprintf("%s menambahkan panel baru TANPA VENDOR: %s", actor, p.NoPp)
 				}
 				a.sendNotificationToUsers(finalRecipients, title, body)
 			} else {
 				title := fmt.Sprintf("Panel Diedit: %s", p.NoPp)
-				body := fmt.Sprintf("Detail ntk panel %s bar saja diperbari oleh %s.", p.NoPp, actor)
+				body := fmt.Sprintf("Detail untuk panel %s baru saja diperbarui oleh %s.", p.NoPp, actor)
 				a.sendNotificationToUsers(finalRecipients, title, body)
 			}
 		}
 	}()
 
-	respondWithJSON(w, http.StatsCreated, p)
+	respondWithJSON(w, http.StatusCreated, p)
 }
 
-fnc (a *pp) pdateStatsOHandler(w http.ResponseWriter, r *http.Reqest) {
-	// 1. mbil no_pp dari URL, contoh: /panel/PP-123/stats-ao
-	vars := mx.Vars(r)
+func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Ambil no_pp dari URL, contoh: /panel/PP-123/status-ao
+	vars := mux.Vars(r)
 	noPp, ok := vars["no_pp"]
 	if !ok {
-		respondWithError(w, http.StatsBadReqest, "No. PP tidak ditemkan di URL")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "No. PP tidak ditemukan di URL")
+		return
 	}
 
-	// 2. Siapkan strct ntk menampng data dari body JSON reqest
-	var payload strct {
-		StatsBsbarPcc *string     `json:"stats_bsbar_pcc"`
-		StatsBsbarMcc *string     `json:"stats_bsbar_mcc"`
-		StatsComponent *string     `json:"stats_component"`
-		oBsbarPcc     *cstomTime `json:"ao_bsbar_pcc"`
-		oBsbarMcc     *cstomTime `json:"ao_bsbar_mcc"`
+	// 2. Siapkan struct untuk menampung data dari body JSON request
+	var payload struct {
+		StatusBusbarPcc *string     `json:"status_busbar_pcc"`
+		StatusBusbarMcc *string     `json:"status_busbar_mcc"`
+		StatusComponent *string     `json:"status_component"`
+		AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
+		AoBusbarMcc     *customTime `json:"ao_busbar_mcc"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Payload tidak valid: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+		return
 	}
 
-	// 3. Bangn qery UPDTE secara dinamis agar hanya field yang dikirim yang dipdate
-	var pdates []string
+	// 3. Bangun query UPDATE secara dinamis agar hanya field yang dikirim yang diupdate
+	var updates []string
 	var args []interface{}
-	argConter := 1
+	argCounter := 1
 
-	if payload.StatsBsbarPcc != nil {
-		pdates = append(pdates, fmt.Sprintf("stats_bsbar_pcc = $%d", argConter))
-		args = append(args, *payload.StatsBsbarPcc)
-		argConter++
+	if payload.StatusBusbarPcc != nil {
+		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
+		args = append(args, *payload.StatusBusbarPcc)
+		argCounter++
 	}
-	if payload.StatsBsbarMcc != nil {
-		pdates = append(pdates, fmt.Sprintf("stats_bsbar_mcc = $%d", argConter))
-		args = append(args, *payload.StatsBsbarMcc)
-		argConter++
+	if payload.StatusBusbarMcc != nil {
+		updates = append(updates, fmt.Sprintf("status_busbar_mcc = $%d", argCounter))
+		args = append(args, *payload.StatusBusbarMcc)
+		argCounter++
 	}
-	if payload.StatsComponent != nil {
-		pdates = append(pdates, fmt.Sprintf("stats_component = $%d", argConter))
-		args = append(args, *payload.StatsComponent)
-		argConter++
+	if payload.StatusComponent != nil {
+		updates = append(updates, fmt.Sprintf("status_component = $%d", argCounter))
+		args = append(args, *payload.StatusComponent)
+		argCounter++
 	}
-	if payload.oBsbarPcc != nil {
-		pdates = append(pdates, fmt.Sprintf("ao_bsbar_pcc = $%d", argConter))
-		args = append(args, payload.oBsbarPcc)
-		argConter++
+	if payload.AoBusbarPcc != nil {
+		updates = append(updates, fmt.Sprintf("ao_busbar_pcc = $%d", argCounter))
+		args = append(args, payload.AoBusbarPcc)
+		argCounter++
 	}
-	if payload.oBsbarMcc != nil {
-		pdates = append(pdates, fmt.Sprintf("ao_bsbar_mcc = $%d", argConter))
-		args = append(args, payload.oBsbarMcc)
-		argConter++
-	}
-
-	// Jika tidak ada data yang perl dipdate, hentikan proses
-	if len(pdates) ==  {
-		respondWithJSON(w, http.StatsOK, map[string]string{"message": "Tidak ada field yang dipdate"})
-		retrn
+	if payload.AoBusbarMcc != nil {
+		updates = append(updates, fmt.Sprintf("ao_busbar_mcc = $%d", argCounter))
+		args = append(args, payload.AoBusbarMcc)
+		argCounter++
 	}
 
-	// 4. Finalisasi qery dengan menambahkan klasa WHERE
-	qery := fmt.Sprintf("UPDTE panels SET %s WHERE no_pp = $%d", strings.Join(pdates, ", "), argConter)
+	// Jika tidak ada data yang perlu diupdate, hentikan proses
+	if len(updates) == 0 {
+		respondWithJSON(w, http.StatusOK, map[string]string{"message": "Tidak ada field yang diupdate"})
+		return
+	}
+
+	// 4. Finalisasi query dengan menambahkan klausa WHERE
+	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 	args = append(args, noPp)
 
-	// 5. Ekseksi qery
-	reslt, err := a.DB.Exec(qery, args...)
+	// 5. Eksekusi query
+	result, err := a.DB.Exec(query, args...)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal mengpdate stats: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengupdate status: "+err.Error())
+		return
 	}
 
-	// 6. Cek apakah ada baris yang terpengarh
-	rowsffected, _ := reslt.Rowsffected()
-	if rowsffected ==  {
-		respondWithError(w, http.StatsNotFond, "Panel dengan No. PP tersebt tidak ditemkan")
-		retrn
+	// 6. Cek apakah ada baris yang terpengaruh
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		respondWithError(w, http.StatusNotFound, "Panel dengan No. PP tersebut tidak ditemukan")
+		return
 	}
 
-	// 7. Kirim respon skses
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
-}// Ganti fngsi getCompanyByUsernameHandler
-fnc (a *pp) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Reqest) {
-    sername := mx.Vars(r)["sername"]
+	// 7. Kirim respon sukses
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}// Ganti fungsi getCompanyByUsernameHandler
+func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
+    username := mux.Vars(r)["username"]
     
-    if sername == "" {
-        respondWithError(w, http.StatsBadReqest, "Username is reqired")
-        retrn
+    if username == "" {
+        respondWithError(w, http.StatusBadRequest, "Username is required")
+        return
     }
 
     var company Company
 
-    // [PERBIKN] Tambahkan "pblic." di depan nama tabel
-    qery := `
+    // [PERBAIKAN] Tambahkan "public." di depan nama tabel
+    query := `
         SELECT c.id, c.name, c.role
-        FROM pblic.companies c
-        JOIN pblic.company_acconts ca ON c.id = ca.company_id
-        WHERE ca.sername = $1
+        FROM public.companies c
+        JOIN public.company_accounts ca ON c.id = ca.company_id
+        WHERE ca.username = $1
     `
 
-    err := a.DB.QeryRowContext(r.Context(), qery, sername).
+    err := a.DB.QueryRowContext(r.Context(), query, username).
         Scan(&company.ID, &company.Name, &company.Role)
 
     if err != nil {
         if errors.Is(err, sql.ErrNoRows) {
-            log.Printf("No company fond for sername: %s", sername)
-            respondWithError(w, http.StatsNotFond, "User not fond")
-            retrn
+            log.Printf("No company found for username: %s", username)
+            respondWithError(w, http.StatusNotFound, "User not found")
+            return
         }
-        log.Printf("Database error in getCompanyByUsername for %s: %v", sername, err)
-        respondWithError(w, http.StatsInternalServerError, "Database error")
-        retrn
+        log.Printf("Database error in getCompanyByUsername for %s: %v", username, err)
+        respondWithError(w, http.StatusInternalServerError, "Database error")
+        return
     }
 
-    log.Printf("Sccessflly fond company for sername %s: %s", sername, company.Name)
-    respondWithJSON(w, http.StatsOK, company)
+    log.Printf("Successfully found company for username %s: %s", username, company.Name)
+    respondWithJSON(w, http.StatusOK, company)
 }
 
 
-// Ganti jga fngsi loginHandler
-fnc (a *pp) loginHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct{ Username, Password string }
+// Ganti juga fungsi loginHandler
+func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct{ Username, Password string }
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
-	var accont Companyccont
+	var account CompanyAccount
     
-    // [PERBIKN] Tambahkan "pblic."
-	err := a.DB.QeryRow("SELECT password, company_id FROM pblic.company_acconts WHERE sername = $1", payload.Username).Scan(&accont.Password, &accont.CompanyID)
+    // [PERBAIKAN] Tambahkan "public."
+	err := a.DB.QueryRow("SELECT password, company_id FROM public.company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
 	if err != nil {
-		respondWithError(w, http.StatsUnathorized, "Username ata password salah")
-		retrn
+		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
+		return
 	}
-	if accont.Password == payload.Password {
+	if account.Password == payload.Password {
 		var company Company
-        // [PERBIKN] Tambahkan "pblic."
-		err := a.DB.QeryRow("SELECT id, name, role FROM pblic.companies WHERE id = $1", accont.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
+        // [PERBAIKAN] Tambahkan "public."
+		err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Company not fond for ser")
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
+			return
 		}
-		respondWithJSON(w, http.StatsOK, company)
+		respondWithJSON(w, http.StatusOK, company)
 	} else {
-		respondWithError(w, http.StatsUnathorized, "Username ata password salah")
+		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
 	}
 }
-fnc (a *pp) pdatePasswordHandler(w http.ResponseWriter, r *http.Reqest) {
-	sername := mx.Vars(r)["sername"]
-	var payload strct{ Password string `json:"password"` }
+func (a *App) updatePasswordHandler(w http.ResponseWriter, r *http.Request) {
+	username := mux.Vars(r)["username"]
+	var payload struct{ Password string `json:"password"` }
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
-	res, err := a.DB.Exec("UPDTE company_acconts SET password = $1 WHERE sername = $2", payload.Password, sername)
+	res, err := a.DB.Exec("UPDATE company_accounts SET password = $1 WHERE username = $2", payload.Password, username)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	cont, _ := res.Rowsffected()
-	if cont ==  {
-		respondWithError(w, http.StatsNotFond, "User not fond")
-		retrn
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "User not found")
+		return
 	}
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-fnc (a *pp) insertCompanyWithccontHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
+func (a *App) insertCompanyWithAccountHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
 		Company Company        `json:"company"`
-		ccont Companyccont `json:"accont"`
+		Account CompanyAccount `json:"account"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
-	if payload.ccont.Username == "" {
-		respondWithError(w, http.StatsBadReqest, "Username tidak boleh kosong.")
-		retrn
+	if payload.Account.Username == "" {
+		respondWithError(w, http.StatusBadRequest, "Username tidak boleh kosong.")
+		return
 	}
-	if payload.ccont.Password == "" {
-		respondWithError(w, http.StatsBadReqest, "Password tidak boleh kosong.")
-		retrn
+	if payload.Account.Password == "" {
+		respondWithError(w, http.StatusBadRequest, "Password tidak boleh kosong.")
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	_, err = tx.Exec("INSERT INTO companies (id, name, role) VLUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING", payload.Company.ID, payload.Company.Name, payload.Company.Role)
+	_, err = tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING", payload.Company.ID, payload.Company.Name, payload.Company.Role)
 	if err != nil {
 		tx.Rollback()
-		respondWithError(w, http.StatsInternalServerError, "Failed to insert company: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to insert company: "+err.Error())
+		return
 	}
-	_, err = tx.Exec("INSERT INTO company_acconts (sername, password, company_id) VLUES ($1, $2, $3) ON CONFLICT (sername) DO UPDTE SET password = EXCLUDED.password, company_id = EXCLUDED.company_id", payload.ccont.Username, payload.ccont.Password, payload.ccont.CompanyID)
+	_, err = tx.Exec("INSERT INTO company_accounts (username, password, company_id) VALUES ($1, $2, $3) ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, company_id = EXCLUDED.company_id", payload.Account.Username, payload.Account.Password, payload.Account.CompanyID)
 	if err != nil {
 		tx.Rollback()
-		respondWithError(w, http.StatsInternalServerError, "Failed to insert accont: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to insert account: "+err.Error())
+		return
 	}
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Transaction commit failed: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsCreated, payload)
+	respondWithJSON(w, http.StatusCreated, payload)
 }
-fnc (a *pp) pdateCompanyndccontHandler(w http.ResponseWriter, r *http.Reqest) {
-	sername := mx.Vars(r)["sername"]
-	var payload strct {
+func (a *App) updateCompanyAndAccountHandler(w http.ResponseWriter, r *http.Request) {
+	username := mux.Vars(r)["username"]
+	var payload struct {
 		Company     Company `json:"company"`
 		NewPassword *string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer tx.Rollback()
 
 	var targetCompanyId string
-	err = tx.QeryRow("SELECT id FROM pblic.companies WHERE name = $1", payload.Company.Name).Scan(&targetCompanyId)
+	err = tx.QueryRow("SELECT id FROM public.companies WHERE name = $1", payload.Company.Name).Scan(&targetCompanyId)
 	if err == sql.ErrNoRows {
-		targetCompanyId = strings.ToLower(strings.Replacell(payload.Company.Name, " ", "_"))
-		_, err = tx.Exec("INSERT INTO companies (id, name, role) VLUES ($1, $2, $3)", targetCompanyId, payload.Company.Name, payload.Company.Role)
+		targetCompanyId = strings.ToLower(strings.ReplaceAll(payload.Company.Name, " ", "_"))
+		_, err = tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", targetCompanyId, payload.Company.Name, payload.Company.Role)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to create new company: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Failed to create new company: "+err.Error())
+			return
 		}
 	} else if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to find company: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to find company: "+err.Error())
+		return
 	}
 
 	if payload.NewPassword != nil && *payload.NewPassword != "" {
-		_, err = tx.Exec("UPDTE company_acconts SET company_id = $1, password = $2 WHERE sername = $3", targetCompanyId, *payload.NewPassword, sername)
+		_, err = tx.Exec("UPDATE company_accounts SET company_id = $1, password = $2 WHERE username = $3", targetCompanyId, *payload.NewPassword, username)
 	} else {
-		_, err = tx.Exec("UPDTE company_acconts SET company_id = $1 WHERE sername = $2", targetCompanyId, sername)
+		_, err = tx.Exec("UPDATE company_accounts SET company_id = $1 WHERE username = $2", targetCompanyId, username)
 	}
 
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to pdate accont: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to update account: "+err.Error())
+		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Transaction commit failed: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-fnc (a *pp) deleteCompanyccontHandler(w http.ResponseWriter, r *http.Reqest) {
-	sername := mx.Vars(r)["sername"]
-	res, err := a.DB.Exec("DELETE FROM pblic.company_acconts WHERE sername = $1", sername)
+func (a *App) deleteCompanyAccountHandler(w http.ResponseWriter, r *http.Request) {
+	username := mux.Vars(r)["username"]
+	res, err := a.DB.Exec("DELETE FROM public.company_accounts WHERE username = $1", username)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	cont, _ := res.Rowsffected()
-	if cont ==  {
-		respondWithError(w, http.StatsNotFond, "User not fond")
-		retrn
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "User not found")
+		return
 	}
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-fnc (a *pp) getllCompanyccontsHandler(w http.ResponseWriter, r *http.Reqest) {
-	rows, err := a.DB.Qery("SELECT sername, password, company_id FROM pblic.company_acconts")
+func (a *App) getAllCompanyAccountsHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.DB.Query("SELECT username, password, company_id FROM public.company_accounts")
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
-	var acconts []Companyccont
+	var accounts []CompanyAccount
 	for rows.Next() {
-		var acc Companyccont
+		var acc CompanyAccount
 		if err := rows.Scan(&acc.Username, &acc.Password, &acc.CompanyID); err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
-		acconts = append(acconts, acc)
+		accounts = append(accounts, acc)
 	}
-	respondWithJSON(w, http.StatsOK, acconts)
+	respondWithJSON(w, http.StatusOK, accounts)
 }
-fnc (a *pp) isUsernameTakenHandler(w http.ResponseWriter, r *http.Reqest) {
-	sername := mx.Vars(r)["sername"]
+func (a *App) isUsernameTakenHandler(w http.ResponseWriter, r *http.Request) {
+	username := mux.Vars(r)["username"]
 	var exists bool
-	err := a.DB.QeryRow("SELECT EXISTS(SELECT 1 FROM pblic.company_acconts WHERE sername = $1)", sername).Scan(&exists)
+	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM public.company_accounts WHERE username = $1)", username).Scan(&exists)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	// ---> PERUBHN DI SINI <---
-	// Jangan kirim 44. Selal kirim 2 OK dengan jawaban JSON.
-	// Fltter akan tah dari nilai boolean 'exists'.
-	respondWithJSON(w, http.StatsOK, map[string]bool{"exists": exists})
+	// ---> PERUBAHAN DI SINI <---
+	// Jangan kirim 404. Selalu kirim 200 OK dengan jawaban JSON.
+	// Flutter akan tahu dari nilai boolean 'exists'.
+	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
-fnc (a *pp) getllUserccontsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) {
-	qery := `
-		SELECT ca.sername, ca.company_id, c.name S company_name, c.role
-		FROM pblic.company_acconts ca
-		JOIN pblic.companies c ON ca.company_id = c.id
-		WHERE ca.sername != 'admin'
-		ORDER BY c.name, ca.sername`
-	rows, err := a.DB.Qery(qery)
+func (a *App) getAllUserAccountsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
+	query := `
+		SELECT ca.username, ca.company_id, c.name AS company_name, c.role
+		FROM public.company_accounts ca
+		JOIN public.companies c ON ca.company_id = c.id
+		WHERE ca.username != 'admin'
+		ORDER BY c.name, ca.username`
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var reslts []map[string]interface{}
+	var results []map[string]interface{}
 	for rows.Next() {
-		var sername, companyId, companyName, role string
-		if err := rows.Scan(&sername, &companyId, &companyName, &role); err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+		var username, companyId, companyName, role string
+		if err := rows.Scan(&username, &companyId, &companyName, &role); err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
-		reslts = append(reslts, map[string]interface{}{
-			"sername":     sername,
+		results = append(results, map[string]interface{}{
+			"username":     username,
 			"company_id":   companyId,
 			"company_name": companyName,
 			"role":         role,
 		})
 	}
-	respondWithJSON(w, http.StatsOK, reslts)
+	respondWithJSON(w, http.StatusOK, results)
 }
-fnc (a *pp) getColleageccontsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) {
-	companyName := r.URL.Qery().Get("company_name")
-	crrentUsername := r.URL.Qery().Get("crrent_sername")
+func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
+	companyName := r.URL.Query().Get("company_name")
+	currentUsername := r.URL.Query().Get("current_username")
 
-	qery := `
-		SELECT ca.sername, ca.company_id, c.name S company_name, c.role
-		FROM pblic.company_acconts ca
-		JOIN pblic.companies c ON ca.company_id = c.id
-		WHERE c.name = $1 ND ca.sername != $2
-		ORDER BY ca.sername`
+	query := `
+		SELECT ca.username, ca.company_id, c.name AS company_name, c.role
+		FROM public.company_accounts ca
+		JOIN public.companies c ON ca.company_id = c.id
+		WHERE c.name = $1 AND ca.username != $2
+		ORDER BY ca.username`
 
-	// [PERIKS BRIS INI DENGN TELITI]
-	// Pastikan kam mengirim DU argmen: companyName DN crrentUsername
-	rows, err := a.DB.Qery(qery, companyName, crrentUsername) // <-- Pastikan ada 2 variabel di sini
+	// [PERIKSA BARIS INI DENGAN TELITI]
+	// Pastikan kamu mengirim DUA argumen: companyName DAN currentUsername
+	rows, err := a.DB.Query(query, companyName, currentUsername) // <-- Pastikan ada 2 variabel di sini
     
 	if err != nil {
-		// Jika ada error di sini, Fltter akan menampilkan pesan kesalahan
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		// Jika ada error di sini, Flutter akan menampilkan pesan kesalahan
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var reslts []map[string]interface{}
+	var results []map[string]interface{}
 	for rows.Next() {
-		var sername, companyId, companyNameRes, role string
-		if err := rows.Scan(&sername, &companyId, &companyNameRes, &role); err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+		var username, companyId, companyNameRes, role string
+		if err := rows.Scan(&username, &companyId, &companyNameRes, &role); err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
-		reslts = append(reslts, map[string]interface{}{
-			"sername":     sername,
+		results = append(results, map[string]interface{}{
+			"username":     username,
 			"company_id":   companyId,
 			"company_name": companyNameRes,
 			"role":         role,
 		})
 	}
-	respondWithJSON(w, http.StatsOK, reslts)
+	respondWithJSON(w, http.StatusOK, results)
 }
 
-fnc (a *pp) searchUsernamesHandler(w http.ResponseWriter, r *http.Reqest) {
-	// 1. mbil qery pencarian dari URL (?q=...)
-	qery := r.URL.Qery().Get("q")
-	if qery == "" {
-		// Jika qery kosong, kembalikan list kosong agar tidak membebani server
-		respondWithJSON(w, http.StatsOK, []string{})
-		retrn
+func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Ambil query pencarian dari URL (?q=...)
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		// Jika query kosong, kembalikan list kosong agar tidak membebani server
+		respondWithJSON(w, http.StatusOK, []string{})
+		return
 	}
 
-	// 2. Siapkan SQL qery ntk mencari sername yang cocok (case-insensitive)
+	// 2. Siapkan SQL query untuk mencari username yang cocok (case-insensitive)
 	//    'LIKE' dengan '%' berarti "diawali dengan"
-	sqlQery := "SELECT sername FROM pblic.company_acconts WHERE sername ILIKE $1 LIMIT 1"
+	sqlQuery := "SELECT username FROM public.company_accounts WHERE username ILIKE $1 LIMIT 10"
 
-	// 3. Ekseksi qery ke database
-	rows, err := a.DB.Qery(sqlQery, qery+"%")
+	// 3. Eksekusi query ke database
+	rows, err := a.DB.Query(sqlQuery, query+"%")
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
-	// 4. Kmplkan hasil pencarian ke dalam sebah slice
-	var sernames []string
+	// 4. Kumpulkan hasil pencarian ke dalam sebuah slice
+	var usernames []string
 	for rows.Next() {
-		var sername string
-		if err := rows.Scan(&sername); err != nil {
-			// Jika ada error saat scan, log dan lanjtkan ke baris beriktnya
-			log.Printf("Error scanning sername: %v", err)
-			contine
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			// Jika ada error saat scan, log dan lanjutkan ke baris berikutnya
+			log.Printf("Error scanning username: %v", err)
+			continue
 		}
-		sernames = append(sernames, sername)
+		usernames = append(usernames, username)
 	}
 
 	// 5. Kirim hasilnya sebagai JSON
-	respondWithJSON(w, http.StatsOK, sernames)
+	respondWithJSON(w, http.StatusOK, usernames)
 }
-fnc (a *pp) getUniqeCompanyDataForFormHandler(w http.ResponseWriter, r *http.Reqest) {
-	qery := `
-		SELECT id, name, role FROM pblic.companies
+func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.Request) {
+	query := `
+		SELECT id, name, role FROM public.companies
 		WHERE role != 'admin'
-		GROUP BY id, name, role ORDER BY name SC`
+		GROUP BY id, name, role ORDER BY name ASC`
 
-	rows, err := a.DB.Qery(qery)
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var reslts []map[string]string
+	var results []map[string]string
 	for rows.Next() {
 		var id, name, role string
 		if err := rows.Scan(&id, &name, &role); err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
-		reslts = append(reslts, map[string]string{"id": id, "name": name, "role": role})
+		results = append(results, map[string]string{"id": id, "name": name, "role": role})
 	}
-	respondWithJSON(w, http.StatsOK, reslts)
+	respondWithJSON(w, http.StatusOK, results)
 }
-fnc (a *pp) getCompanyByIdHandler(w http.ResponseWriter, r *http.Reqest) {
-	id := mx.Vars(r)["id"]
+func (a *App) getCompanyByIdHandler(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
 	var c Company
-	err := a.DB.QeryRow("SELECT id, name, role FROM pblic.companies WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.Role)
+	err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.Role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "Company not fond")
-			retrn
+			respondWithError(w, http.StatusNotFound, "Company not found")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsOK, c)
+	respondWithJSON(w, http.StatusOK, c)
 }
-fnc (a *pp) getllCompaniesHandler(w http.ResponseWriter, r *http.Reqest) {
-	rows, err := a.DB.Qery("SELECT id, name, role FROM pblic.companies ORDER BY name")
+func (a *App) getAllCompaniesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.DB.Query("SELECT id, name, role FROM public.companies ORDER BY name")
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 	var companies []Company
 	for rows.Next() {
 		var c Company
 		if err := rows.Scan(&c.ID, &c.Name, &c.Role); err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 		companies = append(companies, c)
 	}
-	respondWithJSON(w, http.StatsOK, companies)
+	respondWithJSON(w, http.StatusOK, companies)
 }
-fnc (a *pp) getCompanyByNameHandler(w http.ResponseWriter, r *http.Reqest) {
-	encodedName := mx.Vars(r)["name"]
-	name, err := rl.PathUnescape(encodedName)
+func (a *App) getCompanyByNameHandler(w http.ResponseWriter, r *http.Request) {
+	encodedName := mux.Vars(r)["name"]
+	name, err := url.PathUnescape(encodedName)
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid name encoding")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid name encoding")
+		return
 	}
 
 	var c Company
-	err = a.DB.QeryRow("SELECT id, name, role FROM pblic.companies WHERE name = $1", name).Scan(&c.ID, &c.Name, &c.Role)
+	err = a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE name = $1", name).Scan(&c.ID, &c.Name, &c.Role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// [FIX] Jangan kirim error 44.
-			// Kirim stats 2 OK dengan body nll/kosong.
-			// Ini menandakan pencarian skses, tapi data tidak ada.
-			respondWithJSON(w, http.StatsOK, nil)
-			retrn
+			// [FIX] Jangan kirim error 404.
+			// Kirim status 200 OK dengan body null/kosong.
+			// Ini menandakan pencarian sukses, tapi data tidak ada.
+			respondWithJSON(w, http.StatusOK, nil)
+			return
 		}
-		// Ini ntk error database yang sesngghnya.
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		// Ini untuk error database yang sesungguhnya.
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	// Jika persahaan ditemkan, kirim datanya seperti biasa.
-	respondWithJSON(w, http.StatsOK, c)
+	// Jika perusahaan ditemukan, kirim datanya seperti biasa.
+	respondWithJSON(w, http.StatusOK, c)
 }
-fnc (a *pp) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Reqest) {
-	role := r.URL.Qery().Get("role")
-	rows, err := a.DB.Qery("SELECT id, name, role FROM pblic.companies WHERE role = $1 ORDER BY name", role)
+func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) {
+	role := r.URL.Query().Get("role")
+	rows, err := a.DB.Query("SELECT id, name, role FROM public.companies WHERE role = $1 ORDER BY name", role)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 	var companies []Company
 	for rows.Next() {
 		var c Company
 		if err := rows.Scan(&c.ID, &c.Name, &c.Role); err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 		companies = append(companies, c)
 	}
-	respondWithJSON(w, http.StatsOK, companies)
+	respondWithJSON(w, http.StatusOK, companies)
 }
 
 // main.go
 
-fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) {
-	// --- Bagian 1: Mendapatkan daftar ID panel yang relevan berdasarkan role ser ---
-	serRole := r.URL.Qery().Get("role")
-	companyId := r.URL.Qery().Get("company_id")
-	if serRole == "" {
-		serRole = "admin" // Defalt
+func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
+	// --- Bagian 1: Mendapatkan daftar ID panel yang relevan berdasarkan role user ---
+	userRole := r.URL.Query().Get("role")
+	companyId := r.URL.Query().Get("company_id")
+	if userRole == "" {
+		userRole = "admin" // Default
 	}
 
 	var relevantPanelIds []string
-	var panelIdQery string
+	var panelIdQuery string
 	var args []interface{}
 
-	switch serRole {
+	switch userRole {
 	case "admin", "viewer":
-		panelIdQery = "SELECT no_pp FROM pblic.panels"
+		panelIdQuery = "SELECT no_pp FROM public.panels"
 	case "k3":
 		args = append(args, companyId, companyId, companyId)
-		panelIdQery = `
-			SELECT no_pp FROM pblic.panels WHERE vendor_id = $1 OR vendor_id IS NULL
-			UNION SELECT panel_no_pp FROM pblic.palet WHERE vendor = $2
-			UNION SELECT panel_no_pp FROM pblic.corepart WHERE vendor = $3`
+		panelIdQuery = `
+			SELECT no_pp FROM public.panels WHERE vendor_id = $1 OR vendor_id IS NULL
+			UNION SELECT panel_no_pp FROM public.palet WHERE vendor = $2
+			UNION SELECT panel_no_pp FROM public.corepart WHERE vendor = $3`
 	case "k5":
 		args = append(args, companyId)
-		panelIdQery = `
-			SELECT panel_no_pp FROM pblic.bsbars WHERE vendor = $1
+		panelIdQuery = `
+			SELECT panel_no_pp FROM public.busbars WHERE vendor = $1
 			UNION
-			SELECT no_pp FROM pblic.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM pblic.bsbars)`
-	case "warehose":
+			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM public.busbars)`
+	case "warehouse":
 		args = append(args, companyId)
-		panelIdQery = `
-			SELECT panel_no_pp FROM pblic.components WHERE vendor = $1
+		panelIdQuery = `
+			SELECT panel_no_pp FROM public.components WHERE vendor = $1
 			UNION
-			SELECT no_pp FROM pblic.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM pblic.components)`
-	defalt:
-		respondWithJSON(w, http.StatsOK, []PanelDisplayDataWithTimeline{})
-		retrn
+			SELECT no_pp FROM public.panels WHERE no_pp NOT IN (SELECT DISTINCT panel_no_pp FROM public.components)`
+	default:
+		respondWithJSON(w, http.StatusOK, []PanelDisplayDataWithTimeline{})
+		return
 	}
 
-	rows, err := a.DB.QeryContext(r.Context(), panelIdQery, args...)
+	rows, err := a.DB.QueryContext(r.Context(), panelIdQuery, args...)
 	if err != nil {
 		log.Printf("SQL ERROR (getPanelIds): %v", err)
-		respondWithError(w, http.StatsInternalServerError, "Failed to get panel IDs: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to get panel IDs: "+err.Error())
+		return
 	}
 	for rows.Next() {
 		var id string
@@ -1212,56 +1212,56 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 	}
 	rows.Close()
 
-	if len(relevantPanelIds) ==  {
-		respondWithJSON(w, http.StatsOK, []PanelDisplayDataWithTimeline{})
-		retrn
+	if len(relevantPanelIds) == 0 {
+		respondWithJSON(w, http.StatusOK, []PanelDisplayDataWithTimeline{})
+		return
 	}
 
-	// --- Bagian 2: Menghitng jmlah isse dan SR ntk setiap panel ---
-	isseConts := make(map[string]int)
-	srConts := make(map[string]int)
-	contQery := `
-		SELECT p.no_pp, COUNT(DISTINCT i.id) as isse_cont, COUNT(DISTINCT asr.id) as sr_cont
-		FROM pblic.panels p
-		LEFT JOIN pblic.chats ch ON p.no_pp = ch.panel_no_pp
-		LEFT JOIN pblic.isses i ON ch.id = i.chat_id
-		LEFT JOIN pblic.additional_sr asr ON p.no_pp = asr.panel_no_pp
-		WHERE p.no_pp = NY($1) GROUP BY p.no_pp`
+	// --- Bagian 2: Menghitung jumlah issue dan SR untuk setiap panel ---
+	issueCounts := make(map[string]int)
+	srCounts := make(map[string]int)
+	countQuery := `
+		SELECT p.no_pp, COUNT(DISTINCT i.id) as issue_count, COUNT(DISTINCT asr.id) as sr_count
+		FROM public.panels p
+		LEFT JOIN public.chats ch ON p.no_pp = ch.panel_no_pp
+		LEFT JOIN public.issues i ON ch.id = i.chat_id
+		LEFT JOIN public.additional_sr asr ON p.no_pp = asr.panel_no_pp
+		WHERE p.no_pp = ANY($1) GROUP BY p.no_pp`
 
-	contRows, err := a.DB.QeryContext(r.Context(), contQery, pq.rray(relevantPanelIds))
+	countRows, err := a.DB.QueryContext(r.Context(), countQuery, pq.Array(relevantPanelIds))
 	if err == nil {
-		for contRows.Next() {
+		for countRows.Next() {
 			var panelNoPp string
-			var iCont, sCont int
-			if err := contRows.Scan(&panelNoPp, &iCont, &sCont); err == nil {
-				isseConts[panelNoPp] = iCont
-				srConts[panelNoPp] = sCont
+			var iCount, sCount int
+			if err := countRows.Scan(&panelNoPp, &iCount, &sCount); err == nil {
+				issueCounts[panelNoPp] = iCount
+				srCounts[panelNoPp] = sCount
 			}
 		}
-		contRows.Close()
+		countRows.Close()
 	} else {
-		log.Printf("SQL ERROR (getConts): %v", err)
+		log.Printf("SQL ERROR (getCounts): %v", err)
 	}
 
-	// --- Bagian 3: Mengambil data tama panel dan mengekstrak tanggal dari history ---
-	panelQery := `
+	// --- Bagian 3: Mengambil data utama panel dan mengekstrak tanggal dari history ---
+	panelQuery := `
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
-			p.stats_bsbar_pcc, p.stats_bsbar_mcc, p.stats_component, p.stats_palet,
-			p.stats_corepart, p.ao_bsbar_pcc, p.ao_bsbar_mcc, p.created_by, p.vendor_id,
+			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
+			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
-			p.close_date_bsbar_pcc, p.close_date_bsbar_mcc, p.stats_penyelesaian, p.prodction_slot,
+			p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
 			p.history_stack,
-			p.name as panel_vendor_name
-		FROM pblic.panels p
-		LEFT JOIN pblic.companies p ON p.vendor_id = p.id
-		WHERE p.no_pp = NY($1)`
+			pu.name as panel_vendor_name
+		FROM public.panels p
+		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
+		WHERE p.no_pp = ANY($1)`
 
-	panelRows, err := a.DB.QeryContext(r.Context(), panelQery, pq.rray(relevantPanelIds))
+	panelRows, err := a.DB.QueryContext(r.Context(), panelQuery, pq.Array(relevantPanelIds))
 	if err != nil {
 		log.Printf("SQL ERROR (getPanels): %v", err)
-		respondWithError(w, http.StatsInternalServerError, "Failed to get panel details: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to get panel details: "+err.Error())
+		return
 	}
 	defer panelRows.Close()
 
@@ -1273,16 +1273,16 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 
 		err := panelRows.Scan(
 			&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project, &panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
-			&panel.StatsBsbarPcc, &panel.StatsBsbarMcc, &panel.StatsComponent, &panel.StatsPalet, &panel.StatsCorepart,
-			&panel.oBsbarPcc, &panel.oBsbarMcc, &panel.CreatedBy, &panel.VendorID, &panel.IsClosed, &panel.ClosedDate,
-			&panel.PanelType, &panel.Remarks, &panel.CloseDateBsbarPcc, &panel.CloseDateBsbarMcc,
-			&panel.StatsPenyelesaian, &panel.ProdctionSlot,
+			&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart,
+			&panel.AoBusbarPcc, &panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID, &panel.IsClosed, &panel.ClosedDate,
+			&panel.PanelType, &panel.Remarks, &panel.CloseDateBusbarPcc, &panel.CloseDateBusbarMcc,
+			&panel.StatusPenyelesaian, &panel.ProductionSlot,
 			&historyStackJSON,
 			&pdd.PanelVendorName,
 		)
 		if err != nil {
 			log.Printf("Error scanning panel row: %v", err)
-			contine
+			continue
 		}
 		pdd.Panel = panel
 
@@ -1291,18 +1291,18 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 		if historyStackJSON != nil {
 			json.Unmarshal(historyStackJSON, &historyStackData)
 			for _, item := range historyStackData {
-				if stats, ok := item["snapshot_stats"].(string); ok {
+				if status, ok := item["snapshot_status"].(string); ok {
 					if timestampStr, ok := item["timestamp"].(string); ok {
 						ts, err := time.Parse(time.RFC3339, timestampStr)
 						if err == nil {
-							if stats == "VendorWarehose" && pdd.ProdctionDate == nil {
-								pdd.ProdctionDate = &ts
+							if status == "VendorWarehouse" && pdd.ProductionDate == nil {
+								pdd.ProductionDate = &ts
 							}
-							if stats == "Prodction" && pdd.FatDate == nil {
+							if status == "Production" && pdd.FatDate == nil {
 								pdd.FatDate = &ts
 							}
-							if stats == "FT" && pdd.llDoneDate == nil {
-								pdd.llDoneDate = &ts
+							if status == "FAT" && pdd.AllDoneDate == nil {
+								pdd.AllDoneDate = &ts
 							}
 						}
 					}
@@ -1312,27 +1312,27 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 		panelMap[panel.NoPp] = &pdd
 	}
 
-	type relationInfo strct {
+	type relationInfo struct {
 		PanelNoPp  string
 		VendorID   string
 		VendorName string
-		Remarks    sql.NllString
+		Remarks    sql.NullString
 	}
-	fetchRelations := fnc(tableName string) (map[string][]relationInfo, error) {
-		qery := fmt.Sprintf(`
+	fetchRelations := func(tableName string) (map[string][]relationInfo, error) {
+		query := fmt.Sprintf(`
 			SELECT r.panel_no_pp, r.vendor, c.name, r.remarks
-			FROM pblic.%s r
-			JOIN pblic.companies c ON r.vendor = c.id
-			WHERE r.panel_no_pp = NY($1)`, tableName)
+			FROM public.%s r
+			JOIN public.companies c ON r.vendor = c.id
+			WHERE r.panel_no_pp = ANY($1)`, tableName)
 		if tableName == "components" || tableName == "palet" || tableName == "corepart" {
-			qery = fmt.Sprintf(`
+			query = fmt.Sprintf(`
 				SELECT r.panel_no_pp, r.vendor, c.name, NULL as remarks
-				FROM pblic.%s r
-				JOIN pblic.companies c ON r.vendor = c.id
-				WHERE r.panel_no_pp = NY($1)`, tableName)
+				FROM public.%s r
+				JOIN public.companies c ON r.vendor = c.id
+				WHERE r.panel_no_pp = ANY($1)`, tableName)
 		}
-		relationRows, err := a.DB.QeryContext(r.Context(), qery, pq.rray(relevantPanelIds))
-		if err != nil { retrn nil, err }
+		relationRows, err := a.DB.QueryContext(r.Context(), query, pq.Array(relevantPanelIds))
+		if err != nil { return nil, err }
 		defer relationRows.Close()
 		relationsMap := make(map[string][]relationInfo)
 		for relationRows.Next() {
@@ -1341,20 +1341,20 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 				relationsMap[info.PanelNoPp] = append(relationsMap[info.PanelNoPp], info)
 			}
 		}
-		retrn relationsMap, nil
+		return relationsMap, nil
 	}
 
-	bsbarsMap, _ := fetchRelations("bsbars")
+	busbarsMap, _ := fetchRelations("busbars")
 	componentsMap, _ := fetchRelations("components")
 	paletsMap, _ := fetchRelations("palet")
 	corepartsMap, _ := fetchRelations("corepart")
 
-	// --- Bagian 5: Menggabngkan sema data menjadi hasil akhir ---
-	var finalReslts []PanelDisplayDataWithTimeline
+	// --- Bagian 5: Menggabungkan semua data menjadi hasil akhir ---
+	var finalResults []PanelDisplayDataWithTimeline
 	for _, panelID := range relevantPanelIds {
 		if pdd, ok := panelMap[panelID]; ok {
-			// Mengisi data Bsbar
-			if relations, fond := bsbarsMap[panelID]; fond {
+			// Mengisi data Busbar
+			if relations, found := busbarsMap[panelID]; found {
 				var names, ids []string
 				var remarks []map[string]interface{}
 				for _, r := range relations {
@@ -1364,15 +1364,15 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 						remarks = append(remarks, map[string]interface{}{"vendor_name": r.VendorName, "remark": r.Remarks.String, "vendor_id": r.VendorID})
 					}
 				}
-				bsbarNamesStr := strings.Join(names, ", ")
-				pdd.BsbarVendorNames = &bsbarNamesStr
-				pdd.BsbarVendorIds = ids
+				busbarNamesStr := strings.Join(names, ", ")
+				pdd.BusbarVendorNames = &busbarNamesStr
+				pdd.BusbarVendorIds = ids
 				jsonRemarks, _ := json.Marshal(remarks)
-				pdd.BsbarRemarks = jsonRemarks
+				pdd.BusbarRemarks = jsonRemarks
 			}
 
 			// Mengisi data Component
-			if relations, fond := componentsMap[panelID]; fond {
+			if relations, found := componentsMap[panelID]; found {
 				var names, ids []string
 				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
 				componentNamesStr := strings.Join(names, ", ")
@@ -1381,7 +1381,7 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 			}
 			
 			// Mengisi data Palet
-			if relations, fond := paletsMap[panelID]; fond {
+			if relations, found := paletsMap[panelID]; found {
 				var names, ids []string
 				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
 				paletNamesStr := strings.Join(names, ", ")
@@ -1390,7 +1390,7 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 			}
 
 			// Mengisi data Corepart
-			if relations, fond := corepartsMap[panelID]; fond {
+			if relations, found := corepartsMap[panelID]; found {
 				var names, ids []string
 				for _, r := range relations { names = append(names, r.VendorName); ids = append(ids, r.VendorID) }
 				corepartNamesStr := strings.Join(names, ", ")
@@ -1398,22 +1398,22 @@ fnc (a *pp) getllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reqest) 
 				pdd.CorepartVendorIds = ids
 			}
 
-			// Mengisi jmlah Isse dan SR
-			pdd.IsseCont = isseConts[panelID]
-			pdd.dditionalSRCont = srConts[panelID]
+			// Mengisi jumlah Issue dan SR
+			pdd.IssueCount = issueCounts[panelID]
+			pdd.AdditionalSRCount = srCounts[panelID]
 
-			finalReslts = append(finalReslts, *pdd)
+			finalResults = append(finalResults, *pdd)
 		}
 	}
 
-	respondWithJSON(w, http.StatsOK, finalReslts)
+	respondWithJSON(w, http.StatusOK, finalResults)
 }
-fnc (a *pp) getPanelKeysHandler(w http.ResponseWriter, r *http.Reqest) {
-	qery := `SELECT no_pp, COLESCE(no_panel, ''), COLESCE(project, ''), COLESCE(no_wbs, '') FROM pblic.panels`
-	rows, err := a.DB.Qery(qery)
+func (a *App) getPanelKeysHandler(w http.ResponseWriter, r *http.Request) {
+	query := `SELECT no_pp, COALESCE(no_panel, ''), COALESCE(project, ''), COALESCE(no_wbs, '') FROM public.panels`
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
@@ -1421,40 +1421,40 @@ fnc (a *pp) getPanelKeysHandler(w http.ResponseWriter, r *http.Reqest) {
 	for rows.Next() {
 		var key PanelKeyInfo
 		if err := rows.Scan(&key.NoPp, &key.NoPanel, &key.Project, &key.NoWbs); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Gagal scan panel keys: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Gagal scan panel keys: "+err.Error())
+			return
 		}
 		keys = append(keys, key)
 	}
-	respondWithJSON(w, http.StatsOK, keys)
+	respondWithJSON(w, http.StatusOK, keys)
 }
-fnc (a *pp) deletePanelsHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
+func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
 		NoPps []string `json:"no_pps"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
-	if len(payload.NoPps) ==  {
-		respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess", "message": "Tidak ada panel yang dipilih ntk dihaps"})
-		retrn
+	if len(payload.NoPps) == 0 {
+		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Tidak ada panel yang dipilih untuk dihapus"})
+		return
 	}
 
-	// 1. Mlai transaksi
+	// 1. Mulai transaksi
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal memlai transaksi: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+		return
 	}
 	defer tx.Rollback()
 
-	// 2. Cari sema slot yang ditempati oleh panel-panel yang akan dihaps
-	qerySlots := "SELECT prodction_slot FROM panels WHERE no_pp = NY($1) ND prodction_slot IS NOT NULL"
-	rows, err := tx.Qery(qerySlots, pq.rray(payload.NoPps))
+	// 2. Cari semua slot yang ditempati oleh panel-panel yang akan dihapus
+	querySlots := "SELECT production_slot FROM panels WHERE no_pp = ANY($1) AND production_slot IS NOT NULL"
+	rows, err := tx.Query(querySlots, pq.Array(payload.NoPps))
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal mencari slot yang ditempati: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mencari slot yang ditempati: "+err.Error())
+		return
 	}
 	
 	var slotsToFree []string
@@ -1464,232 +1464,232 @@ fnc (a *pp) deletePanelsHandler(w http.ResponseWriter, r *http.Reqest) {
 			slotsToFree = append(slotsToFree, slot)
 		}
 	}
-	rows.Close() // Selal ttp rows setelah selesai
+	rows.Close() // Selalu tutup rows setelah selesai
 
-	// 3. Haps panel-panelnya
-	qeryDelete := "DELETE FROM pblic.panels WHERE no_pp = NY($1)"
-	reslt, err := tx.Exec(qeryDelete, pq.rray(payload.NoPps))
+	// 3. Hapus panel-panelnya
+	queryDelete := "DELETE FROM public.panels WHERE no_pp = ANY($1)"
+	result, err := tx.Exec(queryDelete, pq.Array(payload.NoPps))
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal menghaps panel: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
+		return
 	}
 
-	// 4. Jika ada slot yang perl dikosongkan, lakkan pdate
-	if len(slotsToFree) >  {
-		qeryFreeSlots := "UPDTE prodction_slots SET is_occpied = false WHERE position_code = NY($1)"
-		_, err = tx.Exec(qeryFreeSlots, pq.rray(slotsToFree))
+	// 4. Jika ada slot yang perlu dikosongkan, lakukan update
+	if len(slotsToFree) > 0 {
+		queryFreeSlots := "UPDATE production_slots SET is_occupied = false WHERE position_code = ANY($1)"
+		_, err = tx.Exec(queryFreeSlots, pq.Array(slotsToFree))
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Gagal mengosongkan slot prodksi: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengosongkan slot produksi: "+err.Error())
+			return
 		}
 	}
 
-	// 5. Commit transaksi jika sema OK
+	// 5. Commit transaksi jika semua OK
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
+		return
 	}
 
-	rowsffected, _ := reslt.Rowsffected()
-	message := fmt.Sprintf("%d panel berhasil dihaps dan slot terkait telah dikosongkan.", rowsffected)
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess", "message": message})
+	rowsAffected, _ := result.RowsAffected()
+	message := fmt.Sprintf("%d panel berhasil dihapus dan slot terkait telah dikosongkan.", rowsAffected)
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": message})
 }
-fnc (a *pp) deletePanelHandler(w http.ResponseWriter, r *http.Reqest) {
-	noPp := mx.Vars(r)["no_pp"]
+func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
+	noPp := mux.Vars(r)["no_pp"]
 
-	// 1. Mlai transaksi database
+	// 1. Mulai transaksi database
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal memlai transaksi: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+		return
 	}
 	defer tx.Rollback() // Otomatis batalkan jika ada error
 
-	// 2. Cari tah slot mana yang sedang ditempati panel ini (jika ada)
-	var occpiedSlot sql.NllString
-	err = tx.QeryRow("SELECT prodction_slot FROM panels WHERE no_pp = $1", noPp).Scan(&occpiedSlot)
+	// 2. Cari tahu slot mana yang sedang ditempati panel ini (jika ada)
+	var occupiedSlot sql.NullString
+	err = tx.QueryRow("SELECT production_slot FROM panels WHERE no_pp = $1", noPp).Scan(&occupiedSlot)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "Panel tidak ditemkan")
-			retrn
+			respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, "Gagal mencari data panel: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mencari data panel: "+err.Error())
+		return
 	}
 
-	// 3. Haps panelnya
-	reslt, err := tx.Exec("DELETE FROM pblic.panels WHERE no_pp = $1", noPp)
+	// 3. Hapus panelnya
+	result, err := tx.Exec("DELETE FROM public.panels WHERE no_pp = $1", noPp)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal menghaps panel: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
+		return
 	}
-	rowsffected, _ := reslt.Rowsffected()
-	if rowsffected ==  {
-		// Seharsnya tidak terjadi karena sdah dicek di atas, tapi ntk keamanan
-		respondWithError(w, http.StatsNotFond, "Panel tidak ditemkan saat proses haps")
-		retrn
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Seharusnya tidak terjadi karena sudah dicek di atas, tapi untuk keamanan
+		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan saat proses hapus")
+		return
 	}
 
 	// 4. Jika panel tadi menempati slot, kosongkan slotnya
-	if occpiedSlot.Valid && occpiedSlot.String != "" {
-		_, err = tx.Exec("UPDTE prodction_slots SET is_occpied = false WHERE position_code = $1", occpiedSlot.String)
+	if occupiedSlot.Valid && occupiedSlot.String != "" {
+		_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", occupiedSlot.String)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Gagal mengosongkan slot prodksi: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengosongkan slot produksi: "+err.Error())
+			return
 		}
 	}
 
-	// 5. Jika sema berhasil, simpan perbahan
+	// 5. Jika semua berhasil, simpan perubahan
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess", "message": "Panel berhasil dihaps dan slot prodksi telah dikosongkan."})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Panel berhasil dihapus dan slot produksi telah dikosongkan."})
 }
 
-fnc (a *pp) getllPanelsHandler(w http.ResponseWriter, r *http.Reqest) {
-	qery := `
+func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
+	query := `
 		SELECT
-			CSE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END S no_pp,
+			CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
 			no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
-			stats_bsbar_pcc, stats_bsbar_mcc, stats_component, stats_palet,
-			stats_corepart, ao_bsbar_pcc, ao_bsbar_mcc, created_by, vendor_id,
+			status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
+			status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
 			is_closed, closed_date, panel_type
-		FROM pblic.panels`
+		FROM public.panels`
 
-	rows, err := a.DB.Qery(qery)
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 	var panels []Panel
 	for rows.Next() {
 		var p Panel
-		if err := rows.Scan(&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatsBsbarPcc, &p.StatsBsbarMcc, &p.StatsComponent, &p.StatsPalet, &p.StatsCorepart, &p.oBsbarPcc, &p.oBsbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType); err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+		if err := rows.Scan(&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType); err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 		panels = append(panels, p)
 	}
-	respondWithJSON(w, http.StatsOK, panels)
+	respondWithJSON(w, http.StatusOK, panels)
 }
 
-fnc (a *pp) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Reqest) {
-	noPp := mx.Vars(r)["no_pp"]
+func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
+	noPp := mux.Vars(r)["no_pp"]
 	var p Panel
 
-	qery := `
+	query := `
 		SELECT
-			CSE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END S no_pp,
+			CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
 			no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
-			stats_bsbar_pcc, stats_bsbar_mcc, stats_component, stats_palet,
-			stats_corepart, ao_bsbar_pcc, ao_bsbar_mcc, created_by, vendor_id,
+			status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
+			status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
 			is_closed, closed_date, panel_type
-		FROM pblic.panels WHERE no_pp = $1`
+		FROM public.panels WHERE no_pp = $1`
 
-	err := a.DB.QeryRow(qery, noPp).Scan(
-		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatsBsbarPcc, &p.StatsBsbarMcc, &p.StatsComponent, &p.StatsPalet, &p.StatsCorepart, &p.oBsbarPcc, &p.oBsbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType)
+	err := a.DB.QueryRow(query, noPp).Scan(
+		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "Panel tidak ditemkan")
-			retrn
+			respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsOK, p)
+	respondWithJSON(w, http.StatusOK, p)
 }
-fnc (a *pp) isNoPpTakenHandler(w http.ResponseWriter, r *http.Reqest) {
-	noPp := mx.Vars(r)["no_pp"]
+func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
+	noPp := mux.Vars(r)["no_pp"]
 	var exists bool
-	err := a.DB.QeryRow("SELECT EXISTS(SELECT 1 FROM pblic.panels WHERE no_pp = $1)", noPp).Scan(&exists)
+	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM public.panels WHERE no_pp = $1)", noPp).Scan(&exists)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	// [FIX] lways respond with 2 OK and a clear JSON body.
+	// [FIX] Always respond with 200 OK and a clear JSON body.
 	// This single line handles both cases (exists or not).
-	respondWithJSON(w, http.StatsOK, map[string]bool{"exists": exists})
+	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
 
-fnc (a *pp) changePanelNoPpHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	oldNoPp, ok := vars["old_no_pp"]
 	if !ok {
-		respondWithError(w, http.StatsBadReqest, "No. PP lama tidak ditemkan di URL")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "No. PP lama tidak ditemukan di URL")
+		return
 	}
 
 	var payloadData Panel
 	if err := json.NewDecoder(r.Body).Decode(&payloadData); err != nil {
 		if err.Error() == "EOF" {
-			respondWithError(w, http.StatsBadReqest, "Payload tidak valid: Body reqest kosong.")
+			respondWithError(w, http.StatusBadRequest, "Payload tidak valid: Body request kosong.")
 		} else {
-			respondWithError(w, http.StatsBadReqest, "Payload tidak valid: "+err.Error())
+			respondWithError(w, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
 		}
-		retrn
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal memlai transaksi: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
+		return
 	}
 	defer tx.Rollback()
 
-	// 1. mbil data panel yang ada sekarang dari DB
+	// 1. Ambil data panel yang ada sekarang dari DB
 	var existingPanel Panel
-	qerySelect := `
+	querySelect := `
 		SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
-		stats_bsbar_pcc, stats_bsbar_mcc, stats_component, stats_palet, stats_corepart,
-		ao_bsbar_pcc, ao_bsbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks,
-		close_date_bsbar_pcc, close_date_bsbar_mcc
-		FROM pblic.panels WHERE no_pp = $1`
-	err = tx.QeryRow(qerySelect, oldNoPp).Scan(
+		status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart,
+		ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type, remarks,
+		close_date_busbar_pcc, close_date_busbar_mcc
+		FROM public.panels WHERE no_pp = $1`
+	err = tx.QueryRow(querySelect, oldNoPp).Scan(
 		&existingPanel.NoPp, &existingPanel.NoPanel, &existingPanel.NoWbs, &existingPanel.Project,
 		&existingPanel.PercentProgress, &existingPanel.StartDate, &existingPanel.TargetDelivery,
-		&existingPanel.StatsBsbarPcc, &existingPanel.StatsBsbarMcc, &existingPanel.StatsComponent,
-		&existingPanel.StatsPalet, &existingPanel.StatsCorepart, &existingPanel.oBsbarPcc,
-		&existingPanel.oBsbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
+		&existingPanel.StatusBusbarPcc, &existingPanel.StatusBusbarMcc, &existingPanel.StatusComponent,
+		&existingPanel.StatusPalet, &existingPanel.StatusCorepart, &existingPanel.AoBusbarPcc,
+		&existingPanel.AoBusbarMcc, &existingPanel.CreatedBy, &existingPanel.VendorID,
 		&existingPanel.IsClosed, &existingPanel.ClosedDate, &existingPanel.PanelType, &existingPanel.Remarks,
-		&existingPanel.CloseDateBsbarPcc, &existingPanel.CloseDateBsbarMcc,
+		&existingPanel.CloseDateBusbarPcc, &existingPanel.CloseDateBusbarMcc,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "Panel dengan No. PP lama tidak ditemkan")
-			retrn
+			respondWithError(w, http.StatusNotFound, "Panel dengan No. PP lama tidak ditemukan")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, "Gagal mengambil data panel: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data panel: "+err.Error())
+		return
 	}
 
-	// 2. Timpa data lama dengan perbahan dari payload (jika ada)
+	// 2. Timpa data lama dengan perubahan dari payload (jika ada)
 	if payloadData.NoPanel != nil { existingPanel.NoPanel = payloadData.NoPanel }
 	if payloadData.NoWbs != nil { existingPanel.NoWbs = payloadData.NoWbs }
 	if payloadData.Project != nil { existingPanel.Project = payloadData.Project }
 	if payloadData.PercentProgress != nil { existingPanel.PercentProgress = payloadData.PercentProgress }
 	if payloadData.StartDate != nil { existingPanel.StartDate = payloadData.StartDate }
 	if payloadData.TargetDelivery != nil { existingPanel.TargetDelivery = payloadData.TargetDelivery }
-	if payloadData.StatsBsbarPcc != nil { existingPanel.StatsBsbarPcc = payloadData.StatsBsbarPcc }
-	if payloadData.StatsBsbarMcc != nil { existingPanel.StatsBsbarMcc = payloadData.StatsBsbarMcc }
-	if payloadData.StatsComponent != nil { existingPanel.StatsComponent = payloadData.StatsComponent }
-	if payloadData.StatsPalet != nil { existingPanel.StatsPalet = payloadData.StatsPalet }
-	if payloadData.StatsCorepart != nil { existingPanel.StatsCorepart = payloadData.StatsCorepart }
-	if payloadData.oBsbarPcc != nil { existingPanel.oBsbarPcc = payloadData.oBsbarPcc }
-	if payloadData.oBsbarMcc != nil { existingPanel.oBsbarMcc = payloadData.oBsbarMcc }
+	if payloadData.StatusBusbarPcc != nil { existingPanel.StatusBusbarPcc = payloadData.StatusBusbarPcc }
+	if payloadData.StatusBusbarMcc != nil { existingPanel.StatusBusbarMcc = payloadData.StatusBusbarMcc }
+	if payloadData.StatusComponent != nil { existingPanel.StatusComponent = payloadData.StatusComponent }
+	if payloadData.StatusPalet != nil { existingPanel.StatusPalet = payloadData.StatusPalet }
+	if payloadData.StatusCorepart != nil { existingPanel.StatusCorepart = payloadData.StatusCorepart }
+	if payloadData.AoBusbarPcc != nil { existingPanel.AoBusbarPcc = payloadData.AoBusbarPcc }
+	if payloadData.AoBusbarMcc != nil { existingPanel.AoBusbarMcc = payloadData.AoBusbarMcc }
 	if payloadData.VendorID != nil { existingPanel.VendorID = payloadData.VendorID }
 	if payloadData.PanelType != nil { existingPanel.PanelType = payloadData.PanelType }
 	if payloadData.Remarks != nil { existingPanel.Remarks = payloadData.Remarks } 
-	existingPanel.CloseDateBsbarPcc = payloadData.CloseDateBsbarPcc
-	existingPanel.CloseDateBsbarMcc = payloadData.CloseDateBsbarMcc
+	existingPanel.CloseDateBusbarPcc = payloadData.CloseDateBusbarPcc
+	existingPanel.CloseDateBusbarMcc = payloadData.CloseDateBusbarMcc
 	existingPanel.IsClosed = payloadData.IsClosed
 	existingPanel.ClosedDate = payloadData.ClosedDate
 	existingPanel.NoPp = payloadData.NoPp
 
-	// 3. Logika ntk mengbah Primary Key
+	// 3. Logika untuk mengubah Primary Key
 	newNoPp := existingPanel.NoPp
 	pkToUpdateWith := oldNoPp 
 
@@ -1697,148 +1697,148 @@ fnc (a *pp) changePanelNoPpHandler(w http.ResponseWriter, r *http.Reqest) {
 		if newNoPp == "" && !strings.HasPrefix(oldNoPp, "TEMP_PP_") {
 			timestamp := time.Now().UnixNano() / int64(time.Millisecond)
 			generatedTempNoPp := fmt.Sprintf("TEMP_PP_%d", timestamp)
-			_, err = tx.Exec("UPDTE panels SET no_pp = $1 WHERE no_pp = $2", generatedTempNoPp, oldNoPp)
+			_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", generatedTempNoPp, oldNoPp)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Gagal demote PK ke TEMP: "+err.Error())
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Gagal demote PK ke TEMP: "+err.Error())
+				return
 			}
 			pkToUpdateWith = generatedTempNoPp
 		} else if newNoPp != "" {
-			_, err = tx.Exec("UPDTE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
+			_, err = tx.Exec("UPDATE panels SET no_pp = $1 WHERE no_pp = $2", newNoPp, oldNoPp)
 			if err != nil {
-				if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "2355" {
-					respondWithError(w, http.StatsConflict, fmt.Sprintf("No. PP '%s' sdah dignakan.", newNoPp))
-					retrn
+				if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+					respondWithError(w, http.StatusConflict, fmt.Sprintf("No. PP '%s' sudah digunakan.", newNoPp))
+					return
 				}
-				respondWithError(w, http.StatsInternalServerError, "Gagal pdate PK ke permanen: "+err.Error())
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Gagal update PK ke permanen: "+err.Error())
+				return
 			}
 			pkToUpdateWith = newNoPp
 		}
 	}
 
-	// 4. Lakkan sat kali UPDTE final dengan data yang sdah lengkap
-	pdateQery := `
-		UPDTE panels SET
+	// 4. Lakukan satu kali UPDATE final dengan data yang sudah lengkap
+	updateQuery := `
+		UPDATE panels SET
 			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
-			start_date = $5, target_delivery = $6, stats_bsbar_pcc = $7,
-			stats_bsbar_mcc = $8, stats_component = $9, stats_palet = $1,
-			stats_corepart = $11, ao_bsbar_pcc = $12, ao_bsbar_mcc = $13,
+			start_date = $5, target_delivery = $6, status_busbar_pcc = $7,
+			status_busbar_mcc = $8, status_component = $9, status_palet = $10,
+			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
 			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18,
-			close_date_bsbar_pcc = $19, close_date_bsbar_mcc = $2
+			close_date_busbar_pcc = $19, close_date_busbar_mcc = $20
 	WHERE no_pp = $21`
 
-	_, err = tx.Exec(pdateQery,
+	_, err = tx.Exec(updateQuery,
 		existingPanel.NoPanel, existingPanel.NoWbs, existingPanel.Project, existingPanel.PercentProgress,
-		existingPanel.StartDate, existingPanel.TargetDelivery, existingPanel.StatsBsbarPcc,
-		existingPanel.StatsBsbarMcc, existingPanel.StatsComponent, existingPanel.StatsPalet,
-		existingPanel.StatsCorepart, existingPanel.oBsbarPcc, existingPanel.oBsbarMcc,
+		existingPanel.StartDate, existingPanel.TargetDelivery, existingPanel.StatusBusbarPcc,
+		existingPanel.StatusBusbarMcc, existingPanel.StatusComponent, existingPanel.StatusPalet,
+		existingPanel.StatusCorepart, existingPanel.AoBusbarPcc, existingPanel.AoBusbarMcc,
 		existingPanel.VendorID, existingPanel.IsClosed, existingPanel.ClosedDate, existingPanel.PanelType,
 		existingPanel.Remarks, 
-		existingPanel.CloseDateBsbarPcc, existingPanel.CloseDateBsbarMcc,
+		existingPanel.CloseDateBusbarPcc, existingPanel.CloseDateBusbarMcc,
 		pkToUpdateWith,
 	)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal pdate detail panel: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal update detail panel: "+err.Error())
+		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal commit transaksi: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
+		return
 	}
 	
 	existingPanel.NoPp = pkToUpdateWith
-	respondWithJSON(w, http.StatsOK, existingPanel)
+	respondWithJSON(w, http.StatusOK, existingPanel)
 }
 
-fnc (a *pp) psertPanelRemarkHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
+func (a *App) upsertPanelRemarkHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
 		PanelNoPp string `json:"panel_no_pp"`
 		Remarks   string `json:"remarks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
-	qery := `UPDTE panels SET remarks = $1 WHERE no_pp = $2`
-	_, err := a.DB.Exec(qery, payload.Remarks, payload.PanelNoPp)
+	query := `UPDATE panels SET remarks = $1 WHERE no_pp = $2`
+	_, err := a.DB.Exec(query, payload.Remarks, payload.PanelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsCreated, payload)
+	respondWithJSON(w, http.StatusCreated, payload)
 }
 
-fnc (a *pp) isPanelNmberUniqeHandler(w http.ResponseWriter, r *http.Reqest) {
-	noPanel := mx.Vars(r)["no_panel"]
-	crrentNoPp := r.URL.Qery().Get("crrent_no_pp")
-	var qery string
+func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request) {
+	noPanel := mux.Vars(r)["no_panel"]
+	currentNoPp := r.URL.Query().Get("current_no_pp")
+	var query string
 	var args []interface{}
-	if crrentNoPp != "" {
-		qery = "SELECT EXISTS(SELECT 1 FROM pblic.panels WHERE no_panel = $1 ND no_pp != $2)"
-		args = append(args, noPanel, crrentNoPp)
+	if currentNoPp != "" {
+		query = "SELECT EXISTS(SELECT 1 FROM public.panels WHERE no_panel = $1 AND no_pp != $2)"
+		args = append(args, noPanel, currentNoPp)
 	} else {
-		qery = "SELECT EXISTS(SELECT 1 FROM pblic.panels WHERE no_panel = $1)"
+		query = "SELECT EXISTS(SELECT 1 FROM public.panels WHERE no_panel = $1)"
 		args = append(args, noPanel)
 	}
 	var exists bool
-	err := a.DB.QeryRow(qery, args...).Scan(&exists)
+	err := a.DB.QueryRow(query, args...).Scan(&exists)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	if exists {
-		respondWithJSON(w, http.StatsOK, map[string]bool{"is_niqe": false})
+		respondWithJSON(w, http.StatusOK, map[string]bool{"is_unique": false})
 	} else {
-		w.WriteHeader(http.StatsNotFond)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }// main.go
 
-// Fngsi generik ntk menghaps relasi panel-vendor
-fnc (a *pp) deleteGenericRelationHandler(tableName string) http.HandlerFnc {
-	retrn fnc(w http.ResponseWriter, r *http.Reqest) {
-		var payload strct {
+// Fungsi generik untuk menghapus relasi panel-vendor
+func (a *App) deleteGenericRelationHandler(tableName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
 			PanelNoPp string `json:"panel_no_pp"`
 			Vendor    string `json:"vendor"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+			return
 		}
 
 		if payload.PanelNoPp == "" || payload.Vendor == "" {
-			respondWithError(w, http.StatsBadReqest, "panel_no_pp dan vendor wajib diisi")
-			retrn
+			respondWithError(w, http.StatusBadRequest, "panel_no_pp dan vendor wajib diisi")
+			return
 		}
 
-		// Qery dibangn secara dinamis berdasarkan nama tabel
-		qery := fmt.Sprintf("DELETE FROM %s WHERE panel_no_pp = $1 ND vendor = $2", tableName)
-		reslt, err := a.DB.Exec(qery, payload.PanelNoPp, payload.Vendor)
+		// Query dibangun secara dinamis berdasarkan nama tabel
+		query := fmt.Sprintf("DELETE FROM %s WHERE panel_no_pp = $1 AND vendor = $2", tableName)
+		result, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, fmt.Sprintf("Gagal menghaps relasi %s: %v", tableName, err))
-			retrn
+			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Gagal menghapus relasi %s: %v", tableName, err))
+			return
 		}
 
-		rowsffected, _ := reslt.Rowsffected()
-		if rowsffected ==  {
-			respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess", "message": "Tidak ada relasi yang cocok ntk dihaps"})
-			retrn
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Tidak ada relasi yang cocok untuk dihapus"})
+			return
 		}
 
-		respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 	}
 }
 
-fnc (a *pp) psertGenericHandler(tableName string, model interface{}) http.HandlerFnc {
-	retrn fnc(w http.ResponseWriter, r *http.Reqest) {
+func (a *App) upsertGenericHandler(tableName string, model interface{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(model); err != nil {
-			respondWithError(w, http.StatsBadReqest, "Invalid payload")
-			retrn
+			respondWithError(w, http.StatusBadRequest, "Invalid payload")
+			return
 		}
 		var panelNoPp, vendor string
 		switch v := model.(type) {
-		case *Bsbar:
+		case *Busbar:
 			panelNoPp = v.PanelNoPp
 			vendor = v.Vendor
 		case *Component:
@@ -1850,455 +1850,455 @@ fnc (a *pp) psertGenericHandler(tableName string, model interface{}) http.Handle
 		case *Corepart:
 			panelNoPp = v.PanelNoPp
 			vendor = v.Vendor
-		defalt:
-			respondWithError(w, http.StatsInternalServerError, "Unspported model type")
-			retrn
+		default:
+			respondWithError(w, http.StatusInternalServerError, "Unsupported model type")
+			return
 		}
-		qery := "INSERT INTO " + tableName + " (panel_no_pp, vendor) VLUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING"
-		_, err := a.DB.Exec(qery, panelNoPp, vendor)
+		query := "INSERT INTO " + tableName + " (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING"
+		_, err := a.DB.Exec(query, panelNoPp, vendor)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
-		respondWithJSON(w, http.StatsCreated, model)
+		respondWithJSON(w, http.StatusCreated, model)
 	}
 }
-fnc (a *pp) deleteBsbarHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
+func (a *App) deleteBusbarHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
 		PanelNoPp string `json:"panel_no_pp"`
 		Vendor    string `json:"vendor"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	if payload.PanelNoPp == "" || payload.Vendor == "" {
-		respondWithError(w, http.StatsBadReqest, "panel_no_pp and vendor are reqired")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "panel_no_pp and vendor are required")
+		return
 	}
 
-	qery := "DELETE FROM pblic.bsbars WHERE panel_no_pp = $1 ND vendor = $2"
-	reslt, err := a.DB.Exec(qery, payload.PanelNoPp, payload.Vendor)
+	query := "DELETE FROM public.busbars WHERE panel_no_pp = $1 AND vendor = $2"
+	result, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal menghaps relasi bsbar: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus relasi busbar: "+err.Error())
+		return
 	}
 
-	rowsffected, _ := reslt.Rowsffected()
-	if rowsffected ==  {
-		// Ini bkan error, mngkin data sdah terhaps sebelmnya, jadi kembalikan skses
-		respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess", "message": "No matching bsbar relation fond to delete"})
-		retrn
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Ini bukan error, mungkin data sudah terhapus sebelumnya, jadi kembalikan sukses
+		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "No matching busbar relation found to delete"})
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
-fnc (a *pp) psertBsbarRemarkandVendorHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
+func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
 		PanelNoPp string `json:"panel_no_pp"`
 		Vendor    string `json:"vendor"`
 		Remarks   string `json:"remarks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
-	qery := `
-		INSERT INTO bsbars (panel_no_pp, vendor, remarks) VLUES ($1, $2, $3)
-		ON CONFLICT (panel_no_pp, vendor) DO UPDTE SET remarks = EXCLUDED.remarks`
-	_, err := a.DB.Exec(qery, payload.PanelNoPp, payload.Vendor, payload.Remarks)
+	query := `
+		INSERT INTO busbars (panel_no_pp, vendor, remarks) VALUES ($1, $2, $3)
+		ON CONFLICT (panel_no_pp, vendor) DO UPDATE SET remarks = EXCLUDED.remarks`
+	_, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor, payload.Remarks)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsCreated, payload)
+	respondWithJSON(w, http.StatusCreated, payload)
 }
-fnc (a *pp) psertStatsOK5(w http.ResponseWriter, r *http.Reqest) {
-	// Definisikan strct ntk payload JSON yang dikirim oleh klien (role K5)
-	var payload strct {
+func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
+	// Definisikan struct untuk payload JSON yang dikirim oleh klien (role K5)
+	var payload struct {
 		PanelNoPp       string      `json:"panel_no_pp"`
-		VendorID        string      `json:"vendor"` // Field ini ada di payload tapi tidak dignakan ntk pdate DB
-		oBsbarPcc     *cstomTime `json:"ao_bsbar_pcc"`
-		oBsbarMcc     *cstomTime `json:"ao_bsbar_mcc"`
-		StatsBsbarPcc *string     `json:"stats_bsbar_pcc"`
-		StatsBsbarMcc *string     `json:"stats_bsbar_mcc"`
+		VendorID        string      `json:"vendor"` // Field ini ada di payload tapi tidak digunakan untuk update DB
+		AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
+		AoBusbarMcc     *customTime `json:"ao_busbar_mcc"`
+		StatusBusbarPcc *string     `json:"status_busbar_pcc"`
+		StatusBusbarMcc *string     `json:"status_busbar_mcc"`
 	}
 
-	// Decode body reqest ke dalam strct payload
+	// Decode body request ke dalam struct payload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
-	// Validasi dasar bahwa No. PP hars ada
+	// Validasi dasar bahwa No. PP harus ada
 	if payload.PanelNoPp == "" {
-		respondWithError(w, http.StatsBadReqest, "panel_no_pp is reqired")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
+		return
 	}
 
-	// Siapkan ntk membangn qery UPDTE secara dinamis
-	var pdates []string
+	// Siapkan untuk membangun query UPDATE secara dinamis
+	var updates []string
 	var args []interface{}
-	argConter := 1
+	argCounter := 1
 
-	// Tambahkan field ke qery hanya jika nilainya tidak nil di payload
+	// Tambahkan field ke query hanya jika nilainya tidak nil di payload
 	
 	// if payload.VendorID != "" {
-	// 	pdates = append(pdates, fmt.Sprintf("vendor_id = $%d", argConter))
+	// 	updates = append(updates, fmt.Sprintf("vendor_id = $%d", argCounter))
 	// 	args = append(args, payload.VendorID)
-	// 	argConter++	
+	// 	argCounter++	
 	// }
-	if payload.StatsBsbarPcc != nil {
-		pdates = append(pdates, fmt.Sprintf("stats_bsbar_pcc = $%d", argConter))
-		args = append(args, *payload.StatsBsbarPcc)
-		argConter++
+	if payload.StatusBusbarPcc != nil {
+		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
+		args = append(args, *payload.StatusBusbarPcc)
+		argCounter++
 	}
-	if payload.StatsBsbarMcc != nil {
-		pdates = append(pdates, fmt.Sprintf("stats_bsbar_mcc = $%d", argConter))
-		args = append(args, *payload.StatsBsbarMcc)
-		argConter++
+	if payload.StatusBusbarMcc != nil {
+		updates = append(updates, fmt.Sprintf("status_busbar_mcc = $%d", argCounter))
+		args = append(args, *payload.StatusBusbarMcc)
+		argCounter++
 	}
-	if payload.oBsbarPcc != nil {
-		pdates = append(pdates, fmt.Sprintf("ao_bsbar_pcc = $%d", argConter))
-		args = append(args, payload.oBsbarPcc)
-		argConter++
+	if payload.AoBusbarPcc != nil {
+		updates = append(updates, fmt.Sprintf("ao_busbar_pcc = $%d", argCounter))
+		args = append(args, payload.AoBusbarPcc)
+		argCounter++
 	}
-	if payload.oBsbarMcc != nil {
-		pdates = append(pdates, fmt.Sprintf("ao_bsbar_mcc = $%d", argConter))
-		args = append(args, payload.oBsbarMcc)
-		argConter++
-	}
-
-	// Jika tidak ada field yang perl dipdate, kirim respon skses
-	if len(pdates) ==  {
-		respondWithJSON(w, http.StatsOK, map[string]string{"message": "No fields to pdate."})
-		retrn
+	if payload.AoBusbarMcc != nil {
+		updates = append(updates, fmt.Sprintf("ao_busbar_mcc = $%d", argCounter))
+		args = append(args, payload.AoBusbarMcc)
+		argCounter++
 	}
 
-	// Finalisasi qery dengan klasa WHERE dan ekseksi
-	qery := fmt.Sprintf("UPDTE panels SET %s WHERE no_pp = $%d", strings.Join(pdates, ", "), argConter)
+	// Jika tidak ada field yang perlu diupdate, kirim respon sukses
+	if len(updates) == 0 {
+		respondWithJSON(w, http.StatusOK, map[string]string{"message": "No fields to update."})
+		return
+	}
+
+	// Finalisasi query dengan klausa WHERE dan eksekusi
+	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 	args = append(args, payload.PanelNoPp)
 
-	reslt, err := a.DB.Exec(qery, args...)
+	result, err := a.DB.Exec(query, args...)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to pdate panel stats for K5: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to update panel status for K5: "+err.Error())
+		return
 	}
 
-	// Cek apakah ada baris yang berhasil dipdate
-	rowsffected, _ := reslt.Rowsffected()
-	if rowsffected ==  {
-		respondWithError(w, http.StatsNotFond, "Panel with the given no_pp not fond.")
-		retrn
+	// Cek apakah ada baris yang berhasil diupdate
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
-fnc (a *pp) psertStatsWHS(w http.ResponseWriter, r *http.Reqest) {
-	// Definisikan strct ntk payload JSON yang dikirim oleh klien (role Warehose)
-	var payload strct {
+func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
+	// Definisikan struct untuk payload JSON yang dikirim oleh klien (role Warehouse)
+	var payload struct {
 		PanelNoPp       string  `json:"panel_no_pp"`
-		VendorID        string  `json:"vendor"` // Field ini ada di payload tapi tidak dignakan ntk pdate DB
-		StatsComponent *string `json:"stats_component"`
+		VendorID        string  `json:"vendor"` // Field ini ada di payload tapi tidak digunakan untuk update DB
+		StatusComponent *string `json:"status_component"`
 	}
 
-	// Decode body reqest ke dalam strct payload
+	// Decode body request ke dalam struct payload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	// Validasi dasar
 	if payload.PanelNoPp == "" {
-		respondWithError(w, http.StatsBadReqest, "panel_no_pp is reqired")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
+		return
 	}
-	if payload.StatsComponent == nil {
-		respondWithError(w, http.StatsBadReqest, "stats_component is reqired")
-		retrn
+	if payload.StatusComponent == nil {
+		respondWithError(w, http.StatusBadRequest, "status_component is required")
+		return
 	}
 
-	// Qery UPDTE yang sederhana dan langsng
-	qery := `UPDTE panels SET stats_component = $1 WHERE no_pp = $2`
+	// Query UPDATE yang sederhana dan langsung
+	query := `UPDATE panels SET status_component = $1 WHERE no_pp = $2`
 
-	reslt, err := a.DB.Exec(qery, *payload.StatsComponent, payload.PanelNoPp)
+	result, err := a.DB.Exec(query, *payload.StatusComponent, payload.PanelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to pdate panel component stats: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to update panel component status: "+err.Error())
+		return
 	}
 
-	// Cek apakah ada baris yang berhasil dipdate
-	rowsffected, _ := reslt.Rowsffected()
-	if rowsffected ==  {
-		respondWithError(w, http.StatsNotFond, "Panel with the given no_pp not fond.")
-		retrn
+	// Cek apakah ada baris yang berhasil diupdate
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-fnc (a *pp) getllGenericHandler(tableName string, modelFactory fnc() interface{}) http.HandlerFnc {
-	retrn fnc(w http.ResponseWriter, r *http.Reqest) {
-		var qery string
-		if tableName == "bsbars" {
-			qery = "SELECT id, panel_no_pp, vendor, remarks FROM pblic." + tableName
+func (a *App) getAllGenericHandler(tableName string, modelFactory func() interface{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var query string
+		if tableName == "busbars" {
+			query = "SELECT id, panel_no_pp, vendor, remarks FROM public." + tableName
 		} else {
-			qery = "SELECT id, panel_no_pp, vendor FROM pblic." + tableName
+			query = "SELECT id, panel_no_pp, vendor FROM public." + tableName
 		}
 
-		rows, err := a.DB.Qery(qery)
+		rows, err := a.DB.Query(query)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 		defer rows.Close()
 
-		var reslts []interface{}
+		var results []interface{}
 		for rows.Next() {
 			model := modelFactory()
 			switch m := model.(type) {
-			case *Bsbar:
+			case *Busbar:
 				if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor, &m.Remarks); err != nil {
 					log.Println(err)
-					contine
+					continue
 				}
 			case *Component:
 				if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
 					log.Println(err)
-					contine
+					continue
 				}
 			case *Palet:
 				if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
 					log.Println(err)
-					contine
+					continue
 				}
 			case *Corepart:
 				if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
 					log.Println(err)
-					contine
+					continue
 				}
 			}
-			reslts = append(reslts, model)
+			results = append(results, model)
 		}
-		respondWithJSON(w, http.StatsOK, reslts)
+		respondWithJSON(w, http.StatusOK, results)
 	}
 }
-fnc (a *pp) pdateCompanyHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var payload strct {
+	var payload struct {
 		Name string `json:"name"`
 		Role string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 	if payload.Name == "" {
-		respondWithError(w, http.StatsBadReqest, "Nama persahaan tidak boleh kosong")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Nama perusahaan tidak boleh kosong")
+		return
 	}
 
-	qery := `UPDTE companies SET name = $1, role = $2 WHERE id = $3`
-	_, err := a.DB.Exec(qery, payload.Name, payload.Role, id)
+	query := `UPDATE companies SET name = $1, role = $2 WHERE id = $3`
+	_, err := a.DB.Exec(query, payload.Name, payload.Role, id)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "2355" { // niqe_violation
-			respondWithError(w, http.StatsConflict, "Nama persahaan '"+payload.Name+"' sdah dignakan.")
-			retrn
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" { // unique_violation
+			respondWithError(w, http.StatusConflict, "Nama perusahaan '"+payload.Name+"' sudah digunakan.")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, "Gagal memperbari persahaan: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memperbarui perusahaan: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-fnc (a *pp) getFilteredDataForExport(r *http.Reqest) (map[string]interface{}, error) {
-	qeryParams := r.URL.Qery()
-	reslt := make(map[string]interface{})
+func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{}, error) {
+	queryParams := r.URL.Query()
+	result := make(map[string]interface{})
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		retrn nil, fmt.Errorf("failed to begin transaction: %w", err)
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback() // Rollback jika terjadi error
 
-	// Qery dasar ntk panel dengan JOIN (tidak berbah)
-	panelQery := `
+	// Query dasar untuk panel dengan JOIN (tidak berubah)
+	panelQuery := `
 		SELECT DISTINCT 
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress,
-			p.start_date, p.target_delivery, p.stats_bsbar_pcc, p.stats_bsbar_mcc,
-			p.stats_component, p.stats_palet, p.stats_corepart, p.ao_bsbar_pcc,
-			p.ao_bsbar_mcc, p.created_by, p.vendor_id, p.is_closed, p.closed_date,
-			p.panel_type, p.remarks, p.close_date_bsbar_pcc, p.close_date_bsbar_mcc,
-			p.stats_penyelesaian, p.prodction_slot 
-		FROM pblic.panels p
-		LEFT JOIN pblic.bsbars b ON p.no_pp = b.panel_no_pp
-		LEFT JOIN pblic.components c ON p.no_pp = c.panel_no_pp
-		LEFT JOIN pblic.palet pa ON p.no_pp = pa.panel_no_pp
-		LEFT JOIN pblic.corepart cp ON p.no_pp = cp.panel_no_pp
+			p.start_date, p.target_delivery, p.status_busbar_pcc, p.status_busbar_mcc,
+			p.status_component, p.status_palet, p.status_corepart, p.ao_busbar_pcc,
+			p.ao_busbar_mcc, p.created_by, p.vendor_id, p.is_closed, p.closed_date,
+			p.panel_type, p.remarks, p.close_date_busbar_pcc, p.close_date_busbar_mcc,
+			p.status_penyelesaian, p.production_slot 
+		FROM public.panels p
+		LEFT JOIN public.busbars b ON p.no_pp = b.panel_no_pp
+		LEFT JOIN public.components c ON p.no_pp = c.panel_no_pp
+		LEFT JOIN public.palet pa ON p.no_pp = pa.panel_no_pp
+		LEFT JOIN public.corepart cp ON p.no_pp = cp.panel_no_pp
 		WHERE 1=1
 	`
 	args := []interface{}{}
-	argConter := 1
+	argCounter := 1
 
-	// -- Helper Fnctions (Tidak ada perbahan di sini) --
-	addDateFilter := fnc(qery, col, start, end string) (string, []interface{}) {
-		localrgs := []interface{}{}
+	// -- Helper Functions (Tidak ada perubahan di sini) --
+	addDateFilter := func(query, col, start, end string) (string, []interface{}) {
+		localArgs := []interface{}{}
 		if start != "" {
-			qery += fmt.Sprintf(" ND %s >= $%d", col, argConter)
-			localrgs = append(localrgs, start)
-			argConter++
+			query += fmt.Sprintf(" AND %s >= $%d", col, argCounter)
+			localArgs = append(localArgs, start)
+			argCounter++
 		}
 		if end != "" {
 			endTime, err := time.Parse(time.RFC3339, end)
 			if err == nil {
-				end = endTime.dd(24 * time.Hor).Format(time.RFC3339)
-				qery += fmt.Sprintf(" ND %s < $%d", col, argConter)
-				localrgs = append(localrgs, end)
-				argConter++
+				end = endTime.Add(24 * time.Hour).Format(time.RFC3339)
+				query += fmt.Sprintf(" AND %s < $%d", col, argCounter)
+				localArgs = append(localArgs, end)
+				argCounter++
 			}
 		}
-		retrn qery, localrgs
+		return query, localArgs
 	}
 
-	addListFilter := fnc(qery, col, vales string) (string, []interface{}) {
-		localrgs := []interface{}{}
-		if vales != "" {
-			list := strings.Split(vales, ",")
-			if len(list) >  {
-				if len(list) == 1 && list[] == "Belm Diatr" {
-					qery += fmt.Sprintf(" ND (%s IS NULL OR %s = '')", col, col)
+	addListFilter := func(query, col, values string) (string, []interface{}) {
+		localArgs := []interface{}{}
+		if values != "" {
+			list := strings.Split(values, ",")
+			if len(list) > 0 {
+				if len(list) == 1 && list[0] == "Belum Diatur" {
+					query += fmt.Sprintf(" AND (%s IS NULL OR %s = '')", col, col)
 				} else {
-					hasBelmDiatr := false
+					hasBelumDiatur := false
 					var filteredList []string
 					for _, item := range list {
-						if item == "Belm Diatr" {
-							hasBelmDiatr = tre
+						if item == "Belum Diatur" {
+							hasBelumDiatur = true
 						} else {
 							filteredList = append(filteredList, item)
 						}
 					}
 					
 					var condition string
-					if len(filteredList) >  {
-						condition = fmt.Sprintf("%s = NY($%d)", col, argConter)
-						localrgs = append(localrgs, pq.rray(filteredList))
-						argConter++
+					if len(filteredList) > 0 {
+						condition = fmt.Sprintf("%s = ANY($%d)", col, argCounter)
+						localArgs = append(localArgs, pq.Array(filteredList))
+						argCounter++
 					}
 
-					if hasBelmDiatr {
+					if hasBelumDiatur {
 						if condition != "" {
 							condition = fmt.Sprintf("(%s OR %s IS NULL OR %s = '')", condition, col, col)
 						} else {
 							condition = fmt.Sprintf("(%s IS NULL OR %s = '')", col, col)
 						}
 					}
-					qery += " ND " + condition
+					query += " AND " + condition
 				}
 			}
 		}
-		retrn qery, localrgs
+		return query, localArgs
 	}
 	
-	addVendorFilter := fnc(qery, col, vales string) (string, []interface{}) {
-		localrgs := []interface{}{}
-		if vales != "" {
-			list := strings.Split(vales, ",")
-			if len(list) >  {
+	addVendorFilter := func(query, col, values string) (string, []interface{}) {
+		localArgs := []interface{}{}
+		if values != "" {
+			list := strings.Split(values, ",")
+			if len(list) > 0 {
 				hasNoVendor := false
 				var filteredList []string
 				for _, item := range list {
 					if item == "No Vendor" {
-						hasNoVendor = tre
+						hasNoVendor = true
 					} else {
 						filteredList = append(filteredList, item)
 					}
 				}
 
 				var conditions []string
-				if len(filteredList) >  {
-					conditions = append(conditions, fmt.Sprintf("%s = NY($%d)", col, argConter))
-					localrgs = append(localrgs, pq.rray(filteredList))
-					argConter++
+				if len(filteredList) > 0 {
+					conditions = append(conditions, fmt.Sprintf("%s = ANY($%d)", col, argCounter))
+					localArgs = append(localArgs, pq.Array(filteredList))
+					argCounter++
 				}
 				if hasNoVendor {
 					conditions = append(conditions, fmt.Sprintf("(%s IS NULL OR %s = '')", col, col))
 				}
 				
-				if len(conditions) >  {
-					qery += " ND (" + strings.Join(conditions, " OR ") + ")"
+				if len(conditions) > 0 {
+					query += " AND (" + strings.Join(conditions, " OR ") + ")"
 				}
 			}
 		}
-		retrn qery, localrgs
+		return query, localArgs
 	}
 
-	log.Printf("DEBUG: Final Qery: %s", panelQery)
-	log.Printf("DEBUG: Final rgs: %v", args)
-	var newrgs []interface{}
-	panelQery, newrgs = addDateFilter(panelQery, "p.start_date", qeryParams.Get("start_date_start"), qeryParams.Get("start_date_end"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addDateFilter(panelQery, "p.target_delivery", qeryParams.Get("delivery_date_start"), qeryParams.Get("delivery_date_end"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addDateFilter(panelQery, "p.closed_date", qeryParams.Get("closed_date_start"), qeryParams.Get("closed_date_end"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addListFilter(panelQery, "p.panel_type", qeryParams.Get("panel_types"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addListFilter(panelQery, "p.stats_bsbar_pcc", qeryParams.Get("pcc_statses"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addListFilter(panelQery, "p.stats_bsbar_mcc", qeryParams.Get("mcc_statses"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addListFilter(panelQery, "p.stats_component", qeryParams.Get("component_statses"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addListFilter(panelQery, "p.stats_palet", qeryParams.Get("palet_statses"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addListFilter(panelQery, "p.stats_corepart", qeryParams.Get("corepart_statses"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addVendorFilter(panelQery, "p.vendor_id", qeryParams.Get("panel_vendors"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addVendorFilter(panelQery, "b.vendor", qeryParams.Get("bsbar_vendors"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addVendorFilter(panelQery, "c.vendor", qeryParams.Get("component_vendors"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addVendorFilter(panelQery, "pa.vendor", qeryParams.Get("palet_vendors"))
-	args = append(args, newrgs...)
-	panelQery, newrgs = addVendorFilter(panelQery, "cp.vendor", qeryParams.Get("corepart_vendors"))
-	args = append(args, newrgs...)
+	log.Printf("DEBUG: Final Query: %s", panelQuery)
+	log.Printf("DEBUG: Final Args: %v", args)
+	var newArgs []interface{}
+	panelQuery, newArgs = addDateFilter(panelQuery, "p.start_date", queryParams.Get("start_date_start"), queryParams.Get("start_date_end"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addDateFilter(panelQuery, "p.target_delivery", queryParams.Get("delivery_date_start"), queryParams.Get("delivery_date_end"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addDateFilter(panelQuery, "p.closed_date", queryParams.Get("closed_date_start"), queryParams.Get("closed_date_end"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.panel_type", queryParams.Get("panel_types"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_busbar_pcc", queryParams.Get("pcc_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_busbar_mcc", queryParams.Get("mcc_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_component", queryParams.Get("component_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_palet", queryParams.Get("palet_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addListFilter(panelQuery, "p.status_corepart", queryParams.Get("corepart_statuses"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "p.vendor_id", queryParams.Get("panel_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "b.vendor", queryParams.Get("busbar_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "c.vendor", queryParams.Get("component_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "pa.vendor", queryParams.Get("palet_vendors"))
+	args = append(args, newArgs...)
+	panelQuery, newArgs = addVendorFilter(panelQuery, "cp.vendor", queryParams.Get("corepart_vendors"))
+	args = append(args, newArgs...)
 
-	if statses := qeryParams.Get("panel_statses"); statses != "" {
-		statsList := strings.Split(statses, ",")
-		var statsConditions []string
-		for _, stats := range statsList {
-			switch stats {
+	if statuses := queryParams.Get("panel_statuses"); statuses != "" {
+		statusList := strings.Split(statuses, ",")
+		var statusConditions []string
+		for _, status := range statusList {
+			switch status {
 			case "progressRed":
-				statsConditions = append(statsConditions, "(p.percent_progress >  ND p.percent_progress < 5)")
+				statusConditions = append(statusConditions, "(p.percent_progress > 0 AND p.percent_progress < 50)")
 			case "progressOrange":
-				statsConditions = append(statsConditions, "(p.percent_progress >= 5 ND p.percent_progress < 75)")
-			case "progressBle":
-				statsConditions = append(statsConditions, "(p.percent_progress >= 75 ND p.percent_progress < 1)")
+				statusConditions = append(statusConditions, "(p.percent_progress >= 50 AND p.percent_progress < 75)")
+			case "progressBlue":
+				statusConditions = append(statusConditions, "(p.percent_progress >= 75 AND p.percent_progress < 100)")
 			case "readyToDelivery":
-				statsConditions = append(statsConditions, "(p.percent_progress >= 1 ND p.is_closed = false)")
+				statusConditions = append(statusConditions, "(p.percent_progress >= 100 AND p.is_closed = false)")
 			case "closed":
-				statsConditions = append(statsConditions, "(p.is_closed = tre)")
+				statusConditions = append(statusConditions, "(p.is_closed = true)")
 			case "progressGrey":
-				statsConditions = append(statsConditions, "(p.percent_progress =  OR p.percent_progress IS NULL)")
+				statusConditions = append(statusConditions, "(p.percent_progress = 0 OR p.percent_progress IS NULL)")
 			}
 		}
-		if len(statsConditions) >  {
-			panelQery += " ND (" + strings.Join(statsConditions, " OR ") + ")"
+		if len(statusConditions) > 0 {
+			panelQuery += " AND (" + strings.Join(statusConditions, " OR ") + ")"
 		}
 	}
-	if inclderchived, err := strconv.ParseBool(qeryParams.Get("inclde_archived")); err == nil && !inclderchived {
-		panelQery += " ND (p.is_closed = false)"
+	if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
+		panelQuery += " AND (p.is_closed = false)"
 	}
 	
-	// Ekseksi qery
-	rows, err := tx.Qery(panelQery, args...)
+	// Eksekusi query
+	rows, err := tx.Query(panelQuery, args...)
 	if err != nil {
-		retrn nil, fmt.Errorf("gagal qery panel: %w", err)
+		return nil, fmt.Errorf("gagal query panel: %w", err)
 	}
 
 	var panels []Panel
@@ -2307,20 +2307,20 @@ fnc (a *pp) getFilteredDataForExport(r *http.Reqest) (map[string]interface{}, er
 		var p Panel
 		if err := rows.Scan(
 			&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress,
-			&p.StartDate, &p.TargetDelivery, &p.StatsBsbarPcc, &p.StatsBsbarMcc,
-			&p.StatsComponent, &p.StatsPalet, &p.StatsCorepart, &p.oBsbarPcc,
-			&p.oBsbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate,
-			&p.PanelType, &p.Remarks, &p.CloseDateBsbarPcc, &p.CloseDateBsbarMcc,
-			&p.StatsPenyelesaian, &p.ProdctionSlot, 
+			&p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc,
+			&p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc,
+			&p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate,
+			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc,
+			&p.StatusPenyelesaian, &p.ProductionSlot, 
 		); err != nil {
 			log.Printf("Peringatan: Gagal scan panel row: %v", err)
-			contine
+			continue
 		}
 		panels = append(panels, p)
-		panelIdSet[p.NoPp] = tre
+		panelIdSet[p.NoPp] = true
 	}
 	rows.Close()
-	reslt["panels"] = panels
+	result["panels"] = panels
 
 	relevantPanelIds := []string{}
 	for id := range panelIdSet {
@@ -2328,68 +2328,68 @@ fnc (a *pp) getFilteredDataForExport(r *http.Reqest) (map[string]interface{}, er
 	}
 	
 	
-	if len(relevantPanelIds) >  {
+	if len(relevantPanelIds) > 0 {
 		log.Printf("DEBUG: Fetching related data for panel IDs: %v", relevantPanelIds)
-		reslt["bsbars"], _ = fetchIns(tx, "bsbars", "panel_no_pp", relevantPanelIds, fnc() interface{} { retrn &Bsbar{} })
-		reslt["components"], _ = fetchIns(tx, "components", "panel_no_pp", relevantPanelIds, fnc() interface{} { retrn &Component{} })
-		reslt["palet"], _ = fetchIns(tx, "palet", "panel_no_pp", relevantPanelIds, fnc() interface{} { retrn &Palet{} })
-		reslt["corepart"], _ = fetchIns(tx, "corepart", "panel_no_pp", relevantPanelIds, fnc() interface{} { retrn &Corepart{} })
+		result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
+		result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
+		result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
+		result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
 		
-		isseQery := `
-            SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.stats, i.created_by, i.created_at
-            FROM isses i
+		issueQuery := `
+            SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.status, i.created_by, i.created_at
+            FROM issues i
             JOIN chats ch ON i.chat_id = ch.id
             JOIN panels p ON ch.panel_no_pp = p.no_pp
-            WHERE p.no_pp = NY($1)
+            WHERE p.no_pp = ANY($1)
             ORDER BY p.no_pp, i.created_at`
-		isseRows, err := tx.Qery(isseQery, pq.rray(relevantPanelIds))
+		issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
 		if err != nil {
 			// Log error tapi jangan hentikan proses, kembalikan slice kosong
-			log.Printf("Error qerying isses for export: %v", err)
-			reslt["isses"] = []IsseForExport{} // Defalt ke slice kosong
+			log.Printf("Error querying issues for export: %v", err)
+			result["issues"] = []IssueForExport{} // Default ke slice kosong
 		} else {
-			defer isseRows.Close() // Pastikan dittp
-			var isses []IsseForExport
-			for isseRows.Next() {
-				var isse IsseForExport
-				// Scan field sesai rtan SELECT
-				if err := isseRows.Scan(
-					&isse.PanelNoPp, &isse.PanelNoWbs, &isse.PanelNoPanel,
-					&isse.IsseID, &isse.Title, &isse.Description, &isse.Stats,
-					&isse.CreatedBy, &isse.Createdt,
+			defer issueRows.Close() // Pastikan ditutup
+			var issues []IssueForExport
+			for issueRows.Next() {
+				var issue IssueForExport
+				// Scan field sesuai urutan SELECT
+				if err := issueRows.Scan(
+					&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel,
+					&issue.IssueID, &issue.Title, &issue.Description, &issue.Status,
+					&issue.CreatedBy, &issue.CreatedAt,
 				); err == nil {
-					isses = append(isses, isse)
+					issues = append(issues, issue)
 				} else {
-					log.Printf("Warning: Failed to scan isse row: %v", err)
+					log.Printf("Warning: Failed to scan issue row: %v", err)
 				}
 			}
-            if err = isseRows.Err(); err != nil { // Cek error setelah loop
-               log.Printf("Error dring isse rows iteration: %v", err)
+            if err = issueRows.Err(); err != nil { // Cek error setelah loop
+               log.Printf("Error during issue rows iteration: %v", err)
             }
-			reslt["isses"] = isses // Simpan hasil ke map
-			log.Printf("DEBUG: Fond %d isses", len(isses)) // Log jmlah isse
+			result["issues"] = issues // Simpan hasil ke map
+			log.Printf("DEBUG: Found %d issues", len(issues)) // Log jumlah issue
 		}
 
-		// [PERBIKN 2] Qery ntk Comments
-		commentQery := `
-            SELECT ic.isse_id, ic.text, ic.sender_id, ic.reply_to_comment_id
-            FROM isse_comments ic
-            JOIN isses i ON ic.isse_id = i.id
+		// [PERBAIKAN 2] Query untuk Comments
+		commentQuery := `
+            SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
+            FROM issue_comments ic
+            JOIN issues i ON ic.issue_id = i.id
             JOIN chats ch ON i.chat_id = ch.id
-            WHERE ch.panel_no_pp = NY($1)
-            ORDER BY ic.isse_id, ic.timestamp` // smsi ada kolom timestamp
-		commentRows, err := tx.Qery(commentQery, pq.rray(relevantPanelIds))
+            WHERE ch.panel_no_pp = ANY($1)
+            ORDER BY ic.issue_id, ic.timestamp` // Asumsi ada kolom timestamp
+		commentRows, err := tx.Query(commentQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Error qerying comments for export: %v", err)
-			reslt["comments"] = []CommentForExport{}
+			log.Printf("Error querying comments for export: %v", err)
+			result["comments"] = []CommentForExport{}
 		} else {
 			defer commentRows.Close()
 			var comments []CommentForExport
 			for commentRows.Next() {
 				var comment CommentForExport
-				// Scan field sesai rtan SELECT
+				// Scan field sesuai urutan SELECT
 				if err := commentRows.Scan(
-					&comment.IsseID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID,
+					&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID,
 				); err == nil {
 					comments = append(comments, comment)
 				} else {
@@ -2397,32 +2397,32 @@ fnc (a *pp) getFilteredDataForExport(r *http.Reqest) (map[string]interface{}, er
 				}
 			}
             if err = commentRows.Err(); err != nil {
-               log.Printf("Error dring comment rows iteration: %v", err)
+               log.Printf("Error during comment rows iteration: %v", err)
             }
-			reslt["comments"] = comments // Simpan hasil ke map
-			log.Printf("DEBUG: Fond %d comments", len(comments)) // Log jmlah comment
+			result["comments"] = comments // Simpan hasil ke map
+			log.Printf("DEBUG: Found %d comments", len(comments)) // Log jumlah comment
 		}
 
-		srQery := `
-            SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_nmber, asr.item, asr.qantity, asr.spplier, asr.stats, asr.remarks
+		srQuery := `
+            SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks
             FROM additional_sr asr
             JOIN panels p ON asr.panel_no_pp = p.no_pp
-            WHERE p.no_pp = NY($1)
+            WHERE p.no_pp = ANY($1)
             ORDER BY p.no_pp, asr.id` 
-		srRows, err := tx.Qery(srQery, pq.rray(relevantPanelIds))
+		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Error qerying additional SRs for export: %v", err)
-			reslt["additional_srs"] = []dditionalSRForExport{}
+			log.Printf("Error querying additional SRs for export: %v", err)
+			result["additional_srs"] = []AdditionalSRForExport{}
 		} else {
 			defer srRows.Close()
-			var srs []dditionalSRForExport
+			var srs []AdditionalSRForExport
 			for srRows.Next() {
-				var sr dditionalSRForExport
-				// Scan field sesai rtan SELECT
+				var sr AdditionalSRForExport
+				// Scan field sesuai urutan SELECT
 				if err := srRows.Scan(
 					&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel,
-					&sr.PoNmber, &sr.Item, &sr.Qantity, &sr.Spplier,
-					&sr.Stats, &sr.Remarks,
+					&sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier,
+					&sr.Status, &sr.Remarks,
 				); err == nil {
 					srs = append(srs, sr)
 				} else {
@@ -2430,59 +2430,59 @@ fnc (a *pp) getFilteredDataForExport(r *http.Reqest) (map[string]interface{}, er
 				}
 			}
             if err = srRows.Err(); err != nil {
-               log.Printf("Error dring additional SR rows iteration: %v", err)
+               log.Printf("Error during additional SR rows iteration: %v", err)
             }
-			reslt["additional_srs"] = srs 
-			log.Printf("DEBUG: Fond %d additional SRs", len(srs)) 
+			result["additional_srs"] = srs 
+			log.Printf("DEBUG: Found %d additional SRs", len(srs)) 
 		}
 	} else {
-		log.Printf("DEBUG: No relevant panels fond, initializing related data to empty slices.")
-		reslt["bsbars"] = []Bsbar{} 
-		reslt["components"] = []Component{} 
-		reslt["palet"] = []Palet{} 
-		reslt["corepart"] = []Corepart{} 
-		reslt["isses"] = []IsseForExport{}
-		reslt["comments"] = []CommentForExport{}
-		reslt["additional_srs"] = []dditionalSRForExport{}
+		log.Printf("DEBUG: No relevant panels found, initializing related data to empty slices.")
+		result["busbars"] = []Busbar{} 
+		result["components"] = []Component{} 
+		result["palet"] = []Palet{} 
+		result["corepart"] = []Corepart{} 
+		result["issues"] = []IssueForExport{}
+		result["comments"] = []CommentForExport{}
+		result["additional_srs"] = []AdditionalSRForExport{}
 	}
-	reslt["companies"], _ = fetchlls(tx, "companies", fnc() interface{} { retrn &Company{} })
-	reslt["companycconts"], _ = fetchlls(tx, "company_acconts", fnc() interface{} { retrn &Companyccont{} })
+	result["companies"], _ = fetchAllAs(tx, "companies", func() interface{} { return &Company{} })
+	result["companyAccounts"], _ = fetchAllAs(tx, "company_accounts", func() interface{} { return &CompanyAccount{} })
 
-	retrn reslt, nil
+	return result, nil
 }
 
-fnc (a *pp) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Reqest) {
+func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Request) {
 	data, err := a.getFilteredDataForExport(r) 
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsOK, data)
+	respondWithJSON(w, http.StatusOK, data)
 }
 // file: main.go
 
-fnc (a *pp) generateCstomExportJsonHandler(w http.ResponseWriter, r *http.Reqest) {
-	// mbil parameter spesifik ntk export cstom
-	incldePanels, _ := strconv.ParseBool(r.URL.Qery().Get("panels"))
-	incldeUsers, _ := strconv.ParseBool(r.URL.Qery().Get("sers"))
+func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Request) {
+	// Ambil parameter spesifik untuk export custom
+	includePanels, _ := strconv.ParseBool(r.URL.Query().Get("panels"))
+	includeUsers, _ := strconv.ParseBool(r.URL.Query().Get("users"))
 
-	// [PERBIKN KUNCI]
-	// Panggil fngsi getFilteredDataForExport dengan selrh reqest 'r'.
-	// Fngsi ini sekarang akan membaca sema parameter filter (tanggal, vendor, stats, dll) dari URL.
+	// [PERBAIKAN KUNCI]
+	// Panggil fungsi getFilteredDataForExport dengan seluruh request 'r'.
+	// Fungsi ini sekarang akan membaca semua parameter filter (tanggal, vendor, status, dll) dari URL.
 	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	// Mengambil sema data 'companies' ntk mapping ID ke Nama
-	// Ini tidak perl difilter karena kita bth sema persahaan sebagai referensi
-	allCompaniesReslt, err := fetchlls(a.DB, "companies", fnc() interface{} { retrn &Company{} })
+	// Mengambil semua data 'companies' untuk mapping ID ke Nama
+	// Ini tidak perlu difilter karena kita butuh semua perusahaan sebagai referensi
+	allCompaniesResult, err := fetchAllAs(a.DB, "companies", func() interface{} { return &Company{} })
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal mengambil data companies: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
+		return
 	}
-	allCompanies := allCompaniesReslt.([]interface{})
+	allCompanies := allCompaniesResult.([]interface{})
 
 	companyMap := make(map[string]Company)
 	for _, c := range allCompanies {
@@ -2493,25 +2493,25 @@ fnc (a *pp) generateCstomExportJsonHandler(w http.ResponseWriter, r *http.Reqest
 	// Siapkan JSON final yang akan dikirim
 	jsonData := make(map[string]interface{})
 
-	// Logika internal ntk membangn strktr JSON tidak berbah.
-	// Sekarang ia akan otomatis bekerja dengan data panel yang sdah terfilter.
-	if incldePanels {
+	// Logika internal untuk membangun struktur JSON tidak berubah.
+	// Sekarang ia akan otomatis bekerja dengan data panel yang sudah terfilter.
+	if includePanels {
 		panels := data["panels"].([]Panel) // Konversi ke slice of Panel
-		bsbars := data["bsbars"].([]interface{})
-		panelBsbarMap := make(map[string]string)
-		for _, b := range bsbars {
-			bsbar := b.(*Bsbar)
-			if company, ok := companyMap[bsbar.Vendor]; ok {
-				if existing, ok := panelBsbarMap[bsbar.PanelNoPp]; ok {
-					panelBsbarMap[bsbar.PanelNoPp] = existing + ", " + company.Name
+		busbars := data["busbars"].([]interface{})
+		panelBusbarMap := make(map[string]string)
+		for _, b := range busbars {
+			busbar := b.(*Busbar)
+			if company, ok := companyMap[busbar.Vendor]; ok {
+				if existing, ok := panelBusbarMap[busbar.PanelNoPp]; ok {
+					panelBusbarMap[busbar.PanelNoPp] = existing + ", " + company.Name
 				} else {
-					panelBsbarMap[bsbar.PanelNoPp] = company.Name
+					panelBusbarMap[busbar.PanelNoPp] = company.Name
 				}
 			}
 		}
 
 		var panelData []map[string]interface{}
-		for _, panel := range panels { // Langsng iterate dari slice of Panel
+		for _, panel := range panels { // Langsung iterate dari slice of Panel
 			panelVendorName := ""
 			if panel.VendorID != nil {
 				if company, ok := companyMap[*panel.VendorID]; ok {
@@ -2524,79 +2524,79 @@ fnc (a *pp) generateCstomExportJsonHandler(w http.ResponseWriter, r *http.Reqest
 				"WBS":                      panel.NoWbs,
 				"PROJECT":                  panel.Project,
 				"Plan Start":               panel.StartDate,
-				"ctal Delivery ke SEC":   panel.TargetDelivery,
+				"Actual Delivery ke SEC":   panel.TargetDelivery,
 				"Panel":                    panelVendorName,
-				"Bsbar":                   panelBsbarMap[panel.NoPp],
+				"Busbar":                   panelBusbarMap[panel.NoPp],
 				"Progres Panel":            panel.PercentProgress,
-				"Stats Corepart":          panel.StatsCorepart,
-				"Stats Palet":             panel.StatsPalet,
-				"Stats Bsbar PCC":        panel.StatsBsbarPcc,
-				"Stats Bsbar MCC":        panel.StatsBsbarMcc,
-				"O Bsbar PCC":            panel.oBsbarPcc,
-				"O Bsbar MCC":            panel.oBsbarMcc,
+				"Status Corepart":          panel.StatusCorepart,
+				"Status Palet":             panel.StatusPalet,
+				"Status Busbar PCC":        panel.StatusBusbarPcc,
+				"Status Busbar MCC":        panel.StatusBusbarMcc,
+				"AO Busbar PCC":            panel.AoBusbarPcc,
+				"AO Busbar MCC":            panel.AoBusbarMcc,
 			})
 		}
 		jsonData["panel_data"] = panelData
 	}
 
-	if incldeUsers {
-		acconts := data["companycconts"].([]interface{})
-		var serData []map[string]interface{}
-		for _, acc := range acconts {
-			accont := acc.(*Companyccont)
+	if includeUsers {
+		accounts := data["companyAccounts"].([]interface{})
+		var userData []map[string]interface{}
+		for _, acc := range accounts {
+			account := acc.(*CompanyAccount)
 			companyName := ""
 			companyRole := ""
-			if company, ok := companyMap[accont.CompanyID]; ok {
+			if company, ok := companyMap[account.CompanyID]; ok {
 				companyName = company.Name
 				companyRole = company.Role
 			}
-			serData = append(serData, map[string]interface{}{
-				"Username":     accont.Username,
-				"Password":     accont.Password,
+			userData = append(userData, map[string]interface{}{
+				"Username":     account.Username,
+				"Password":     account.Password,
 				"Company":      companyName,
 				"Company Role": companyRole,
 			})
 		}
-		jsonData["ser_data"] = serData
+		jsonData["user_data"] = userData
 	}
 
-	respondWithJSON(w, http.StatsOK, jsonData)
+	respondWithJSON(w, http.StatusOK, jsonData)
 }
 // file: main.go
 
-fnc (a *pp) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http.Reqest) {
-	// mbil parameter tabel mana saja yang ma di-export
-	tablesParam := r.URL.Qery().Get("tables")
-	tablesToInclde := strings.Split(tablesParam, ",")
+func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http.Request) {
+	// Ambil parameter tabel mana saja yang mau di-export
+	tablesParam := r.URL.Query().Get("tables")
+	tablesToInclude := strings.Split(tablesParam, ",")
 
-	// [PERBIKN KUNCI]
-	// Panggil fngsi getFilteredDataForExport dengan selrh reqest 'r'.
-	// Ini akan mengembalikan data yang sdah difilter berdasarkan parameter URL
-	// seperti tanggal, vendor, stats, dll.
+	// [PERBAIKAN KUNCI]
+	// Panggil fungsi getFilteredDataForExport dengan seluruh request 'r'.
+	// Ini akan mengembalikan data yang sudah difilter berdasarkan parameter URL
+	// seperti tanggal, vendor, status, dll.
 	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	// Bat map JSON final
+	// Buat map JSON final
 	jsonData := make(map[string]interface{})
 	
-	// Logika ntk memilih tabel mana yang akan dimaskkan ke JSON final tidak berbah.
-	// Sekarang ia akan bekerja dengan data yang sdah terfilter.
-	for _, table := range tablesToInclde {
-		// Normalisasi nama tabel ntk pencocokan yang lebih fleksibel
-		normalizedTable := strings.ToLower(strings.Replacell(table, " ", ""))
+	// Logika untuk memilih tabel mana yang akan dimasukkan ke JSON final tidak berubah.
+	// Sekarang ia akan bekerja dengan data yang sudah terfilter.
+	for _, table := range tablesToInclude {
+		// Normalisasi nama tabel untuk pencocokan yang lebih fleksibel
+		normalizedTable := strings.ToLower(strings.ReplaceAll(table, " ", ""))
 		switch normalizedTable {
 		case "companies":
 			jsonData["companies"] = data["companies"]
-		case "companyacconts":
-			// Nama tabel di JSON adalah 'company_acconts'
-			jsonData["company_acconts"] = data["companycconts"]
+		case "companyaccounts":
+			// Nama tabel di JSON adalah 'company_accounts'
+			jsonData["company_accounts"] = data["companyAccounts"]
 		case "panels":
 			jsonData["panels"] = data["panels"]
-		case "bsbars":
-			jsonData["bsbars"] = data["bsbars"]
+		case "busbars":
+			jsonData["busbars"] = data["busbars"]
 		case "components":
 			jsonData["components"] = data["components"]
 		case "palet":
@@ -2606,44 +2606,44 @@ fnc (a *pp) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http.R
 		}
 	}
 	
-	respondWithJSON(w, http.StatsOK, jsonData)
+	respondWithJSON(w, http.StatusOK, jsonData)
 }
-fnc (a *pp) importDataHandler(w http.ResponseWriter, r *http.Reqest) {
+func (a *App) importDataHandler(w http.ResponseWriter, r *http.Request) {
 	var data map[string][]map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid JSON payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON payload: "+err.Error())
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer tx.Rollback()
 
-	tableOrder := []string{"companies", "company_acconts", "panels", "bsbars", "components", "palet", "corepart"}
+	tableOrder := []string{"companies", "company_accounts", "panels", "busbars", "components", "palet", "corepart"}
 	for _, tableName := range tableOrder {
 		if items, ok := data[tableName]; ok {
 			for _, itemData := range items {
 				cleanMapData(itemData)
 				if err := insertMap(tx, tableName, itemData); err != nil {
-					respondWithError(w, http.StatsInternalServerError, fmt.Sprintf("Failed to import to %s: %v", tableName, err))
-					retrn
+					respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to import to %s: %v", tableName, err))
+					return
 				}
 			}
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Transaction commit failed: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsCreated, map[string]string{"stats": "sccess", "message": "Data imported sccessflly"})
+	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success", "message": "Data imported successfully"})
 }
-fnc (a *pp) generateImportTemplateHandler(w http.ResponseWriter, r *http.Reqest) {
-	dataType := r.URL.Qery().Get("dataType")
-	format := r.URL.Qery().Get("format")
+func (a *App) generateImportTemplateHandler(w http.ResponseWriter, r *http.Request) {
+	dataType := r.URL.Query().Get("dataType")
+	format := r.URL.Query().Get("format")
 
 	var fileBytes []byte
 	var extension string
@@ -2656,31 +2656,31 @@ fnc (a *pp) generateImportTemplateHandler(w http.ResponseWriter, r *http.Reqest)
 	} else {
 		extension = "xlsx"
 		excelFile := generateExcelTemplate(dataType)
-		bffer, err_excel := excelFile.WriteToBffer()
+		buffer, err_excel := excelFile.WriteToBuffer()
 		if err_excel == nil {
-			fileBytes = bffer.Bytes()
+			fileBytes = buffer.Bytes()
 		} else {
 			err = err_excel
 		}
 	}
 
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to generate template file: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate template file: "+err.Error())
+		return
 	}
 
 	encodedBytes := base64.StdEncoding.EncodeToString(fileBytes)
-	respondWithJSON(w, http.StatsOK, map[string]string{
+	respondWithJSON(w, http.StatusOK, map[string]string{
 		"bytes":     encodedBytes,
 		"extension": extension,
 	})
 }
 
 
-// normalizeVendorName membersihkan nama vendor ke format dasar ntk pencocokan.
-// Contoh: "PT. G.. 2" -> "G"
-fnc normalizeVendorName(name string) string {
-	// 1. Haps Prefiks Umm (PT, CV, etc.)
+// normalizeVendorName membersihkan nama vendor ke format dasar untuk pencocokan.
+// Contoh: "PT. G.A.A 2" -> "GAA"
+func normalizeVendorName(name string) string {
+	// 1. Hapus Prefiks Umum (PT, CV, etc.)
 	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
 	tempName := strings.ToUpper(name)
 	for _, prefix := range prefixes {
@@ -2690,20 +2690,20 @@ fnc normalizeVendorName(name string) string {
 		}
 	}
 
-	// 2. Haps sema karakter non-alfabet
-	var reslt strings.Bilder
+	// 2. Hapus semua karakter non-alfabet
+	var result strings.Builder
 	for _, r := range tempName {
-		if r >= '' && r <= 'Z' {
-			reslt.WriteRne(r)
+		if r >= 'A' && r <= 'Z' {
+			result.WriteRune(r)
 		}
 	}
-	retrn reslt.String()
+	return result.String()
 }
 
-// generatecronym membat akronim dari nama vendor.
-// Contoh: "PT Global bc cd" -> "G"
-fnc generatecronym(name string) string {
-	// 1. Haps Prefiks
+// generateAcronym membuat akronim dari nama vendor.
+// Contoh: "PT Global Abc Acd" -> "GAA"
+func generateAcronym(name string) string {
+	// 1. Hapus Prefiks
 	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
 	tempName := strings.ToUpper(name)
 	for _, prefix := range prefixes {
@@ -2713,178 +2713,178 @@ fnc generatecronym(name string) string {
 		}
 	}
 
-	// 2. Bat kronim dari sisa kata
+	// 2. Buat Akronim dari sisa kata
 	parts := strings.Fields(tempName) // Memisahkan berdasarkan spasi
 	if len(parts) <= 1 {
-		retrn "" // Bkan nama mlti-kata, tidak ada akronim
+		return "" // Bukan nama multi-kata, tidak ada akronim
 	}
-	var acronym strings.Bilder
+	var acronym strings.Builder
 	for _, part := range parts {
-		if len(part) >  {
-			acronym.WriteRne([]rne(part)[])
+		if len(part) > 0 {
+			acronym.WriteRune([]rune(part)[0])
 		}
 	}
 
-	// Hanya kembalikan jika benar-benar sebah akronim (2+ hrf)
+	// Hanya kembalikan jika benar-benar sebuah akronim (2+ huruf)
 	if acronym.Len() > 1 {
-		retrn acronym.String()
+		return acronym.String()
 	}
-	retrn ""
+	return ""
 }
 
-fnc (a *pp) importFromCstomTemplateHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
+func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
 		Data             map[string][]map[string]interface{} `json:"data"`
 		LoggedInUsername *string                           `json:"loggedInUsername"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer tx.Rollback()
 
-	// --- [MODIFIKSI] mbil role dan company ID dari ser yang login ---
+	// --- [MODIFIKASI] Ambil role dan company ID dari user yang login ---
 	var loggedInUserCompanyId string
 	var loggedInUserRole string
 	if payload.LoggedInUsername != nil && *payload.LoggedInUsername != "" {
-		qery := `SELECT c.id, c.role FROM pblic.companies c JOIN pblic.company_acconts ca ON c.id = ca.company_id WHERE ca.sername = $1`
-		err := tx.QeryRow(qery, *payload.LoggedInUsername).Scan(&loggedInUserCompanyId, &loggedInUserRole)
+		query := `SELECT c.id, c.role FROM public.companies c JOIN public.company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
+		err := tx.QueryRow(query, *payload.LoggedInUsername).Scan(&loggedInUserCompanyId, &loggedInUserRole)
 		if err != nil && err != sql.ErrNoRows {
-			// Ini adalah error database sngghan, bkan ser tidak ditemkan
-			respondWithError(w, http.StatsInternalServerError, "Gagal mengambil data ser: "+err.Error())
-			retrn
+			// Ini adalah error database sungguhan, bukan user tidak ditemukan
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data user: "+err.Error())
+			return
 		}
 	}
 
 	var errors []string
 	dataProcessed := false
 
-	// --- Pre-comptation & Caching Vendor Names ---
+	// --- Pre-computation & Caching Vendor Names ---
 	vendorIdMap := make(map[string]bool)
 	normalizedNameToIdMap := make(map[string]string)
 	acronymToIdMap := make(map[string]string)
 
-	rows, err := tx.Qery("SELECT id, name FROM pblic.companies")
+	rows, err := tx.Query("SELECT id, name FROM public.companies")
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal mengambil data companies: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
+		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var c Company
 		if err := rows.Scan(&c.ID, &c.Name); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Gagal scan company: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Gagal scan company: "+err.Error())
+			return
 		}
-		vendorIdMap[c.ID] = tre
+		vendorIdMap[c.ID] = true
 		normalized := normalizeVendorName(c.Name)
 		if normalized != "" {
 			normalizedNameToIdMap[normalized] = c.ID
 		}
-		acronym := generatecronym(c.Name)
+		acronym := generateAcronym(c.Name)
 		if acronym != "" {
 			acronymToIdMap[acronym] = c.ID
 		}
 	}
 
-	resolveVendor := fnc(vendorInpt string) string {
-		trimmedInpt := strings.TrimSpace(vendorInpt)
-		if trimmedInpt == "" {
-			retrn ""
+	resolveVendor := func(vendorInput string) string {
+		trimmedInput := strings.TrimSpace(vendorInput)
+		if trimmedInput == "" {
+			return ""
 		}
-		if vendorIdMap[trimmedInpt] {
-			retrn trimmedInpt
+		if vendorIdMap[trimmedInput] {
+			return trimmedInput
 		}
-		normalizedInpt := normalizeVendorName(trimmedInpt)
-		if id, ok := normalizedNameToIdMap[normalizedInpt]; ok {
-			retrn id
+		normalizedInput := normalizeVendorName(trimmedInput)
+		if id, ok := normalizedNameToIdMap[normalizedInput]; ok {
+			return id
 		}
-		if id, ok := acronymToIdMap[normalizedInpt]; ok {
-			retrn id
+		if id, ok := acronymToIdMap[normalizedInput]; ok {
+			return id
 		}
-		acronymInpt := generatecronym(trimmedInpt)
-		if id, ok := acronymToIdMap[acronymInpt]; ok {
-			retrn id
+		acronymInput := generateAcronym(trimmedInput)
+		if id, ok := acronymToIdMap[acronymInput]; ok {
+			return id
 		}
-		retrn ""
+		return ""
 	}
 
-	if serSheetData, ok := payload.Data["ser"]; ok {
-		for i, row := range serSheetData {
+	if userSheetData, ok := payload.Data["user"]; ok {
+		for i, row := range userSheetData {
 			cleanMapData(row)
-			rowNm := i + 2
-			sername := getValeCaseInsensitive(row, "Username")
-			companyName := getValeCaseInsensitive(row, "Company")
-			companyRole := strings.ToLower(getValeCaseInsensitive(row, "Company Role"))
-			password := getValeCaseInsensitive(row, "Password")
+			rowNum := i + 2
+			username := getValueCaseInsensitive(row, "Username")
+			companyName := getValueCaseInsensitive(row, "Company")
+			companyRole := strings.ToLower(getValueCaseInsensitive(row, "Company Role"))
+			password := getValueCaseInsensitive(row, "Password")
 			if password == "" {
 				password = "123"
 			}
 
-			if sername == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNm))
-				contine
+			if username == "" {
+				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNum))
+				continue
 			}
 			if companyName == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNm))
-				contine
+				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNum))
+				continue
 			}
 			var companyId string
-			err := tx.QeryRow("SELECT id FROM pblic.companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(companyName)).Scan(&companyId)
+			err := tx.QueryRow("SELECT id FROM public.companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(companyName)).Scan(&companyId)
 			if err == sql.ErrNoRows {
-				companyId = strings.ToLower(strings.Replacell(companyName, " ", "_"))
-				_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VLUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING", companyId, companyName, companyRole)
+				companyId = strings.ToLower(strings.ReplaceAll(companyName, " ", "_"))
+				_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING", companyId, companyName, companyRole)
 				if errInsert != nil {
-					errors = append(errors, fmt.Sprintf("User baris %d: Gagal membat company bar '%s': %v", rowNm, companyName, errInsert))
-					contine
+					errors = append(errors, fmt.Sprintf("User baris %d: Gagal membuat company baru '%s': %v", rowNum, companyName, errInsert))
+					continue
 				}
 			} else if err != nil {
-				errors = append(errors, fmt.Sprintf("User baris %d: Error mencari company: %v", rowNm, err))
-				contine
+				errors = append(errors, fmt.Sprintf("User baris %d: Error mencari company: %v", rowNum, err))
+				continue
 			}
-			_, err = tx.Exec("INSERT INTO company_acconts (sername, password, company_id) VLUES ($1, $2, $3) ON CONFLICT (sername) DO UPDTE SET password = EXCLUDED.password, company_id = EXCLUDED.company_id", sername, password, companyId)
+			_, err = tx.Exec("INSERT INTO company_accounts (username, password, company_id) VALUES ($1, $2, $3) ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, company_id = EXCLUDED.company_id", username, password, companyId)
 			if err != nil {
-				errors = append(errors, fmt.Sprintf("User baris %d: Gagal memaskkan/pdate akn '%s': %v", rowNm, sername, err))
-				contine
+				errors = append(errors, fmt.Sprintf("User baris %d: Gagal memasukkan/update akun '%s': %v", rowNum, username, err))
+				continue
 			}
-			dataProcessed = tre
+			dataProcessed = true
 		}
 	}
 
 	if panelSheetData, ok := payload.Data["panel"]; ok {
-		// [PERBIKN 1] Logika bar ntk memastikan Warehose selal ada
-		var warehoseCompanyId string
-		err := tx.QeryRow("SELECT id FROM pblic.companies WHERE name = 'Warehose'").Scan(&warehoseCompanyId)
+		// [PERBAIKAN 1] Logika baru untuk memastikan Warehouse selalu ada
+		var warehouseCompanyId string
+		err := tx.QueryRow("SELECT id FROM public.companies WHERE name = 'Warehouse'").Scan(&warehouseCompanyId)
 		if err == sql.ErrNoRows {
-			// Jika tidak ada, bat bar
-			warehoseCompanyId = "warehose" // ID defalt
+			// Jika tidak ada, buat baru
+			warehouseCompanyId = "warehouse" // ID default
 			_, errInsert := tx.Exec(
-				"INSERT INTO companies (id, name, role) VLUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING",
-				warehoseCompanyId,
-				"Warehose",
-				ppRoleWarehose,
+				"INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING",
+				warehouseCompanyId,
+				"Warehouse",
+				AppRoleWarehouse,
 			)
 			if errInsert != nil {
-				errors = append(errors, fmt.Sprintf("Kritis: Gagal membat company 'Warehose' secara otomatis: %v", errInsert))
+				errors = append(errors, fmt.Sprintf("Kritis: Gagal membuat company 'Warehouse' secara otomatis: %v", errInsert))
 			}
 		} else if err != nil {
-			errors = append(errors, fmt.Sprintf("Kritis: Gagal mencari company 'Warehose': %v", err))
+			errors = append(errors, fmt.Sprintf("Kritis: Gagal mencari company 'Warehouse': %v", err))
 		}
 
 		for i, row := range panelSheetData {
 			cleanMapData(row)
-			rowNm := i + 2
-			noPpRaw := getValeCaseInsensitive(row, "PP Panel")
-			noPanel := getValeCaseInsensitive(row, "Panel No")
-			project := getValeCaseInsensitive(row, "PROJECT")
-			noWbs := getValeCaseInsensitive(row, "WBS")
+			rowNum := i + 2
+			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
+			noPanel := getValueCaseInsensitive(row, "Panel No")
+			project := getValueCaseInsensitive(row, "PROJECT")
+			noWbs := getValueCaseInsensitive(row, "WBS")
 
 			var noPp string
 			if f, err := strconv.ParseFloat(noPpRaw, 64); err == nil {
@@ -2895,88 +2895,88 @@ fnc (a *pp) importFromCstomTemplateHandler(w http.ResponseWriter, r *http.Reqest
 
 			var oldTempNoPp string
 			if noPp != "" && (noPanel != "" || project != "" || noWbs != "") {
-				findTempQery := `SELECT no_pp FROM pblic.panels WHERE no_pp LIKE 'TEMP_PP_%' ND no_panel = $1 ND project = $2 ND no_wbs = $3`
-				err := tx.QeryRow(findTempQery, noPanel, project, noWbs).Scan(&oldTempNoPp)
+				findTempQuery := `SELECT no_pp FROM public.panels WHERE no_pp LIKE 'TEMP_PP_%' AND no_panel = $1 AND project = $2 AND no_wbs = $3`
+				err := tx.QueryRow(findTempQuery, noPanel, project, noWbs).Scan(&oldTempNoPp)
 				if err != nil && err != sql.ErrNoRows {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal mencari data sementara: %v", rowNm, err))
-					contine
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal mencari data sementara: %v", rowNum, err))
+					continue
 				}
 
 				if oldTempNoPp != "" {
-					_, err := tx.Exec("DELETE FROM pblic.panels WHERE no_pp = $1", oldTempNoPp)
+					_, err := tx.Exec("DELETE FROM public.panels WHERE no_pp = $1", oldTempNoPp)
 					if err != nil {
-						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal menghaps data sementara %s: %v", rowNm, oldTempNoPp, err))
-						contine
+						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal menghapus data sementara %s: %v", rowNum, oldTempNoPp, err))
+						continue
 					}
 				}
 			}
 
 			if noPp == "" {
 				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
-				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNm, timestamp)
+				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
 			}
 
-			// --- [MODIFIKSI] Logika bar ntk vendor Panel dan Bsbar berdasarkan role ---
-			var panelVendorId, bsbarVendorId sql.NllString
+			// --- [MODIFIKASI] Logika baru untuk vendor Panel dan Busbar berdasarkan role ---
+			var panelVendorId, busbarVendorId sql.NullString
 
-			if loggedInUserRole == ppRoleK3 {
-				// LOGIK KHUSUS UNTUK K3
+			if loggedInUserRole == AppRoleK3 {
+				// LOGIKA KHUSUS UNTUK K3
 				// 1. Panel Vendor otomatis diisi dengan company K3 yang login
-				panelVendorId = sql.NllString{String: loggedInUserCompanyId, Valid: tre}
-				// 2. Kolom Bsbar diabaikan, bsbarVendorId dibiarkan nll (tidak valid)
+				panelVendorId = sql.NullString{String: loggedInUserCompanyId, Valid: true}
+				// 2. Kolom Busbar diabaikan, busbarVendorId dibiarkan null (tidak valid)
 			} else {
-				// LOGIK STNDR UNTUK ROLE LIN
-				panelVendorInpt := getValeCaseInsensitive(row, "Panel")
-				bsbarVendorInpt := getValeCaseInsensitive(row, "Bsbar")
+				// LOGIKA STANDAR UNTUK ROLE LAIN
+				panelVendorInput := getValueCaseInsensitive(row, "Panel")
+				busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
 
-				if panelVendorInpt != "" {
-					resolvedId := resolveVendor(panelVendorInpt)
+				if panelVendorInput != "" {
+					resolvedId := resolveVendor(panelVendorInput)
 					if resolvedId == "" {
-						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemkan.", rowNm, panelVendorInpt))
+						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemukan.", rowNum, panelVendorInput))
 					} else {
-						panelVendorId = sql.NllString{String: resolvedId, Valid: tre}
+						panelVendorId = sql.NullString{String: resolvedId, Valid: true}
 					}
 				}
 
-				if bsbarVendorInpt != "" {
-					resolvedId := resolveVendor(bsbarVendorInpt)
+				if busbarVendorInput != "" {
+					resolvedId := resolveVendor(busbarVendorInput)
 					if resolvedId == "" {
-						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Bsbar '%s' tidak ditemkan.", rowNm, bsbarVendorInpt))
+						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorInput))
 					} else {
-						bsbarVendorId = sql.NllString{String: resolvedId, Valid: tre}
+						busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
 					}
 				}
 			}
-			// --- KHIR MODIFIKSI ---
+			// --- AKHIR MODIFIKASI ---
 
 			lastErrorIndex := len(errors) - 1
-			if lastErrorIndex >=  && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNm)) {
-				contine
+			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
+				continue
 			}
 
-			actalDeliveryDate := parseDate(getValeCaseInsensitive(row, "ctal Delivery ke SEC"))
-			var progress float64 = .
-			// Jika tanggal delivery ada, set progress ke 1
-			if actalDeliveryDate != nil {
-				progress = 1.
+			actualDeliveryDate := parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC"))
+			var progress float64 = 0.0
+			// Jika tanggal delivery ada, set progress ke 100
+			if actualDeliveryDate != nil {
+				progress = 100.0
 			}
 
 			panelMap := map[string]interface{}{
 				"no_pp":             noPp,
-				"no_panel":          getValeCaseInsensitive(row, "Panel No"),
-				"no_wbs":            getValeCaseInsensitive(row, "WBS"),
-				"project":           getValeCaseInsensitive(row, "PROJECT"),
-				"target_delivery":   parseDate(getValeCaseInsensitive(row, "Plan Start")),
-				"closed_date":       actalDeliveryDate,
-				"is_closed":         actalDeliveryDate != nil, // is_closed jga bergantng pada tanggal ini
+				"no_panel":          getValueCaseInsensitive(row, "Panel No"),
+				"no_wbs":            getValueCaseInsensitive(row, "WBS"),
+				"project":           getValueCaseInsensitive(row, "PROJECT"),
+				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")),
+				"closed_date":       actualDeliveryDate,
+				"is_closed":         actualDeliveryDate != nil, // is_closed juga bergantung pada tanggal ini
 				"vendor_id":         panelVendorId,
 				"created_by":        "import",
-				"percent_progress":  progress, // [PERBIKN] Gnakan variabel progress yang sdah dihitng
-				"stats_bsbar_pcc": "On Progress",
-				"stats_bsbar_mcc": "On Progress",
-				"stats_component":  "Open",
-				"stats_palet":      "Open",
-				"stats_corepart":   "Open",
+				"percent_progress":  progress, // [PERBAIKAN] Gunakan variabel progress yang sudah dihitung
+				"status_busbar_pcc": "On Progress",
+				"status_busbar_mcc": "On Progress",
+				"status_component":  "Open",
+				"status_palet":      "Open",
+				"status_corepart":   "Open",
 			}
 
 			if payload.LoggedInUsername != nil {
@@ -2984,122 +2984,122 @@ fnc (a *pp) importFromCstomTemplateHandler(w http.ResponseWriter, r *http.Reqest
 			}
 
 			if err := insertMap(tx, "panels", panelMap); err != nil {
-				errors = append(errors, fmt.Sprintf("Panel baris %d (%s): Gagal menyimpan: %v", rowNm, noPp, err))
-				contine
+				errors = append(errors, fmt.Sprintf("Panel baris %d (%s): Gagal menyimpan: %v", rowNum, noPp, err))
+				continue
 			}
 			if panelVendorId.Valid {
 				if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNm, err))
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err))
 				}
 				if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNm, err))
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err))
 				}
 			}
-			if warehoseCompanyId != "" {
-				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehoseCompanyId}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNm, err))
+			if warehouseCompanyId != "" {
+				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err))
 				}
 			}
-			if bsbarVendorId.Valid {
-				if err := insertMap(tx, "bsbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": bsbarVendorId.String}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link bsbar: %v", rowNm, err))
+			if busbarVendorId.Valid {
+				if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId.String}); err != nil {
+					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err))
 				}
 			}
 
-			dataProcessed = tre
+			dataProcessed = true
 		}
 	}
-	if len(errors) >  {
+	if len(errors) > 0 {
 		log.Printf("Import validation error details: %s", strings.Join(errors, " | "))
-		finalMessage := "Impor dibatalkan karena error berikt:\n- " + strings.Join(errors, "\n- ")
-		respondWithError(w, http.StatsBadReqest, finalMessage)
-		retrn
+		finalMessage := "Impor dibatalkan karena error berikut:\n- " + strings.Join(errors, "\n- ")
+		respondWithError(w, http.StatusBadRequest, finalMessage)
+		return
 	}
 
 	if !dataProcessed {
-		respondWithError(w, http.StatsBadReqest, "Tidak ada data valid yang ditemkan di dalam sheet 'Panel' ata 'User'.")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Tidak ada data valid yang ditemukan di dalam sheet 'Panel' atau 'User'.")
+		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Transaction commit failed: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
 
 
-fnc getOrCreateChatByPanel(tx *sql.Tx, panelNoPp string) (int, error) {
+func getOrCreateChatByPanel(tx *sql.Tx, panelNoPp string) (int, error) {
 	var chatID int
 	// Check if chat exists
-	err := tx.QeryRow("SELECT id FROM pblic.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
+	err := tx.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
 		// Chat does not exist, create it
-		err = tx.QeryRow("INSERT INTO chats (panel_no_pp) VLUES ($1) RETURNING id", panelNoPp).Scan(&chatID)
+		err = tx.QueryRow("INSERT INTO chats (panel_no_pp) VALUES ($1) RETURNING id", panelNoPp).Scan(&chatID)
 		if err != nil {
-			retrn , fmt.Errorf("failed to create chat: %w", err)
+			return 0, fmt.Errorf("failed to create chat: %w", err)
 		}
 	} else if err != nil {
-		retrn , fmt.Errorf("failed to qery chat: %w", err)
+		return 0, fmt.Errorf("failed to query chat: %w", err)
 	}
-	retrn chatID, nil
+	return chatID, nil
 }
 
-fnc (a *pp) createIsseForPanelHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
 	if !ok {
-		respondWithError(w, http.StatsBadReqest, "Panel No PP is reqired")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		return
 	}
 
-	var payload strct {
-		Description string   `json:"isse_description"`
-		Title       string   `json:"isse_title"`
+	var payload struct {
+		Description string   `json:"issue_description"`
+		Title       string   `json:"issue_title"`
 		CreatedBy   string   `json:"created_by"`
 		NotifyEmail string   `json:"notify_email"`
 		Photos      []string `json:"photos"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid reqest payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
+		return
 	}
 	if payload.Title == "" {
-		respondWithError(w, http.StatsBadReqest, "Root case tidak boleh kosong")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Root cause tidak boleh kosong")
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to start transaction")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to start transaction")
+		return
 	}
 	defer tx.Rollback()
 
 	chatID, err := getOrCreateChatByPanel(tx, panelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
 	initialLog := Logs{
-		{ction: "membat isse", User: payload.CreatedBy, Timestamp: time.Now()},
+		{Action: "membuat issue", User: payload.CreatedBy, Timestamp: time.Now()},
 	}
-	var isseID int
-	qery := `INSERT INTO isses (chat_id, title, description, created_by, logs, stats, notify_email)
-			  VLUES ($1, $2, $3, $4, $5, 'nsolved', $6) RETURNING id`
-	err = tx.QeryRow(qery, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog, payload.NotifyEmail).Scan(&isseID)
+	var issueID int
+	query := `INSERT INTO issues (chat_id, title, description, created_by, logs, status, notify_email)
+			  VALUES ($1, $2, $3, $4, $5, 'unsolved', $6) RETURNING id`
+	err = tx.QueryRow(query, chatID, payload.Title, payload.Description, payload.CreatedBy, initialLog, payload.NotifyEmail).Scan(&issueID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to create isse: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to create issue: "+err.Error())
+		return
 	}
 
 	for _, photoBase64 := range payload.Photos {
-		_, err := tx.Exec("INSERT INTO photos (isse_id, photo_data) VLUES ($1, $2)", isseID, photoBase64)
+		_, err := tx.Exec("INSERT INTO photos (issue_id, photo_data) VALUES ($1, $2)", issueID, photoBase64)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to save photo: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
+			return
 		}
 	}
 
@@ -3112,41 +3112,41 @@ fnc (a *pp) createIsseForPanelHandler(w http.ResponseWriter, r *http.Reqest) {
 	var imageUrls []string
 	for _, photoBase64 := range payload.Photos {
 		parts := strings.Split(photoBase64, ",")
-		if len(parts) != 2 { contine }
+		if len(parts) != 2 { continue }
 		imgData, err := base64.StdEncoding.DecodeString(parts[1])
-		if err != nil { contine }
-		filename := fmt.Sprintf("%s.jpg", id.New().String())
-		filepath := fmt.Sprintf("ploads/%s", filename)
-		err = os.WriteFile(filepath, imgData, 644)
-		if err != nil { contine }
+		if err != nil { continue }
+		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+		filepath := fmt.Sprintf("uploads/%s", filename)
+		err = os.WriteFile(filepath, imgData, 0644)
+		if err != nil { continue }
 		imageUrls = append(imageUrls, "/"+filepath)
 	}
 	imageUrlsJSON, _ := json.Marshal(imageUrls)
-	newCommentID := id.New().String()
+	newCommentID := uuid.New().String()
 
-	// --- ▼▼▼ PERUBHN DI SINI ▼▼▼ ---
-	// Tambahkan is_system_comment ke qery
-	commentQery := `
-		INSERT INTO isse_comments (id, isse_id, sender_id, text, image_rls, is_system_comment)
-		VLUES ($1, $2, $3, $4, $5, TRUE)` // Set nilainya menjadi TRUE
-	_, err = tx.Exec(commentQery, newCommentID, isseID, payload.CreatedBy, commentText, imageUrlsJSON)
-	// --- ▲▲▲ KHIR PERUBHN ▲▲▲
+	// --- ▼▼▼ PERUBAHAN DI SINI ▼▼▼ ---
+	// Tambahkan is_system_comment ke query
+	commentQuery := `
+		INSERT INTO issue_comments (id, issue_id, sender_id, text, image_urls, is_system_comment)
+		VALUES ($1, $2, $3, $4, $5, TRUE)` // Set nilainya menjadi TRUE
+	_, err = tx.Exec(commentQuery, newCommentID, issueID, payload.CreatedBy, commentText, imageUrlsJSON)
+	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
 	
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to create initial comment: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to create initial comment: "+err.Error())
+		return
 	}
 
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to commit transaction")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to commit transaction")
+		return
 	}
 
-	go fnc() {
-		// 1. Cek & Filter daftar penerima (ckp sekali)
+	go func() {
+		// 1. Cek & Filter daftar penerima (cukup sekali)
 		if payload.NotifyEmail == "" {
-			retrn
+			return
 		}
 		allRecipients := strings.Split(payload.NotifyEmail, ",")
 		finalRecipients := []string{}
@@ -3158,248 +3158,248 @@ fnc (a *pp) createIsseForPanelHandler(w http.ResponseWriter, r *http.Reqest) {
 			}
 		}
 
-		// 2. Jika ada penerima, kirim keda notifikasi
-		if len(finalRecipients) >  {
-			// . Kirim Psh Notification
-			title := fmt.Sprintf("Is Bar di Panel %s", panelNoPp)
-			body := fmt.Sprintf("%s membat is bar: '%s'", payload.CreatedBy, payload.Title)
+		// 2. Jika ada penerima, kirim kedua notifikasi
+		if len(finalRecipients) > 0 {
+			// A. Kirim Push Notification
+			title := fmt.Sprintf("Isu Baru di Panel %s", panelNoPp)
+			body := fmt.Sprintf("%s membuat isu baru: '%s'", payload.CreatedBy, payload.Title)
 			a.sendNotificationToUsers(finalRecipients, title, body)
 
 			// B. Kirim Email Notifikasi
-			sbject := fmt.Sprintf("[SecPanel] Is Bar Dibat: %s", payload.Title)
+			subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
 			htmlBody := fmt.Sprintf(
-				`<h3>Is Bar Telah Dibat pada Panel %s</h3>
-				 <p><strong>Jdl Is:</strong> %s</p>
+				`<h3>Isu Baru Telah Dibuat pada Panel %s</h3>
+				 <p><strong>Judul Isu:</strong> %s</p>
 				 <p><strong>Deskripsi:</strong> %s</p>
-				 <p><strong>Dibat oleh:</strong> %s</p>
+				 <p><strong>Dibuat oleh:</strong> %s</p>
 				 <hr>
-				 <p><i>Email ini dibat secara otomatis. Silakan periksa aplikasi SecPanel ntk detail lebih lanjt.</i></p>`,
+				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
 				panelNoPp, payload.Title, payload.Description, payload.CreatedBy,
 			)
-			sendNotificationEmail(finalRecipients, sbject, htmlBody)
+			sendNotificationEmail(finalRecipients, subject, htmlBody)
 		}
 	}()
 
-	respondWithJSON(w, http.StatsCreated, map[string]int{"isse_id": isseID})
+	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
 }
 
-fnc (a *pp) getIssesByPanelHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
 
 	var chatID int
-	err := a.DB.QeryRow("SELECT id FROM pblic.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
+	err := a.DB.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
-		respondWithJSON(w, http.StatsOK, []IsseWithPhotos{}) // Retrn empty list
-		retrn
+		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{}) // Return empty list
+		return
 	}
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to find chat for panel: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to find chat for panel: "+err.Error())
+		return
 	}
 
-	// Qery tama ntk mendapatkan sema is
-	rows, err := a.DB.Qery("SELECT id, chat_id, title, description, stats, logs, created_by, created_at, pdated_at, notify_email FROM pblic.isses WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
+	// Query utama untuk mendapatkan semua isu
+	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at, notify_email FROM public.issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
-	// Gnakan map ntk mapping isse ID ke isse-nya
-	isseMap := make(map[int]*IsseWithPhotos)
-	var isseIDs []int
+	// Gunakan map untuk mapping issue ID ke issue-nya
+	issueMap := make(map[int]*IssueWithPhotos)
+	var issueIDs []int
 
 	for rows.Next() {
-		var isse Isse
-		if err := rows.Scan(&isse.ID, &isse.ChatID, &isse.Title, &isse.Description, &isse.Stats, &isse.Logs, &isse.CreatedBy, &isse.Createdt, &isse.Updatedt, &isse.NotifyEmail); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to scan isse: "+err.Error())
-			retrn
+		var issue Issue
+		if err := rows.Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt, &issue.NotifyEmail); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan issue: "+err.Error())
+			return
 		}
-		isseIDs = append(isseIDs, isse.ID)
-		isseMap[isse.ID] = &IsseWithPhotos{Isse: isse, Photos: []Photo{}} // Inisialisasi dengan slice foto kosong
+		issueIDs = append(issueIDs, issue.ID)
+		issueMap[issue.ID] = &IssueWithPhotos{Issue: issue, Photos: []Photo{}} // Inisialisasi dengan slice foto kosong
 	}
 	
-	if len(isseIDs) ==  {
-		respondWithJSON(w, http.StatsOK, []IsseWithPhotos{})
-		retrn
+	if len(issueIDs) == 0 {
+		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{})
+		return
 	}
 
-	// Qery keda ntk mendapatkan sema foto yang relevan sekaligs
-	photoRows, err := a.DB.Qery("SELECT id, isse_id, photo_data FROM pblic.photos WHERE isse_id = NY($1)", pq.rray(isseIDs))
+	// Query kedua untuk mendapatkan semua foto yang relevan sekaligus
+	photoRows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM public.photos WHERE issue_id = ANY($1)", pq.Array(issueIDs))
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to retrieve photos: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve photos: "+err.Error())
+		return
 	}
 	defer photoRows.Close()
 
-	// Gabngkan foto ke dalam map is
+	// Gabungkan foto ke dalam map isu
 	for photoRows.Next() {
 		var p Photo
-		if err := photoRows.Scan(&p.ID, &p.IsseID, &p.PhotoData); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to scan photo: "+err.Error())
-			retrn
+		if err := photoRows.Scan(&p.ID, &p.IssueID, &p.PhotoData); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan photo: "+err.Error())
+			return
 		}
-		if isse, ok := isseMap[p.IsseID]; ok {
-			isse.Photos = append(isse.Photos, p)
+		if issue, ok := issueMap[p.IssueID]; ok {
+			issue.Photos = append(issue.Photos, p)
 		}
 	}
 
-	// Konversi map kembali ke slice ntk respons JSON
-	var issesWithPhotos []IsseWithPhotos
-	for _, id := range isseIDs { // Iterasi sesai rtan asli
-		issesWithPhotos = append(issesWithPhotos, *isseMap[id])
+	// Konversi map kembali ke slice untuk respons JSON
+	var issuesWithPhotos []IssueWithPhotos
+	for _, id := range issueIDs { // Iterasi sesuai urutan asli
+		issuesWithPhotos = append(issuesWithPhotos, *issueMap[id])
 	}
 	
-	respondWithJSON(w, http.StatsOK, issesWithPhotos)
+	respondWithJSON(w, http.StatusOK, issuesWithPhotos)
 }
-// getIsseByIDHandler retrieves a single isse with its photos.
-fnc (a *pp) getIsseByIDHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	id, err := strconv.toi(vars["id"])
+// getIssueByIDHandler retrieves a single issue with its photos.
+func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid isse ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
 	}
 
-	var isse Isse
-	// ▼▼▼ FIX: REMOVED "isse_type" FROM THE QUERY ▼▼▼
-	err = a.DB.QeryRow("SELECT id, chat_id, title, description, stats, logs, created_by, created_at, pdated_at FROM pblic.isses WHERE id = $1", id).Scan(&isse.ID, &isse.ChatID, &isse.Title, &isse.Description, &isse.Stats, &isse.Logs, &isse.CreatedBy, &isse.Createdt, &isse.Updatedt)
+	var issue Issue
+	// ▼▼▼ FIX: REMOVED "issue_type" FROM THE QUERY ▼▼▼
+	err = a.DB.QueryRow("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM public.issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "Isse not fond")
+			respondWithError(w, http.StatusNotFound, "Issue not found")
 		} else {
-			respondWithError(w, http.StatsInternalServerError, err.Error())
+			respondWithError(w, http.StatusInternalServerError, err.Error())
 		}
-		retrn
+		return
 	}
 
-	rows, err := a.DB.Qery("SELECT id, isse_id, photo_data FROM photos WHERE isse_id = $1", id)
+	rows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM photos WHERE issue_id = $1", id)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to retrieve photos: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve photos: "+err.Error())
+		return
 	}
 	defer rows.Close()
 
 	var photos []Photo
 	for rows.Next() {
 		var p Photo
-		if err := rows.Scan(&p.ID, &p.IsseID, &p.PhotoData); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to scan photo: "+err.Error())
-			retrn
+		if err := rows.Scan(&p.ID, &p.IssueID, &p.PhotoData); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan photo: "+err.Error())
+			return
 		}
 		photos = append(photos, p)
 	}
 
-	response := IsseWithPhotos{Isse: isse, Photos: photos}
-	respondWithJSON(w, http.StatsOK, response)
+	response := IssueWithPhotos{Issue: issue, Photos: photos}
+	respondWithJSON(w, http.StatusOK, response)
 }
-fnc (a *pp) pdateIsseHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	isseID, err := strconv.toi(vars["id"])
+func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid isse ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
 	}
 
-	// 1. Ubah NotifyEmail menjadi pointer agar bisa deteksi perbahannya
-	var payload strct {
-		Description string  `json:"isse_description"`
-		Title       string  `json:"isse_title"`
-		Stats      string  `json:"isse_stats"`
-		UpdatedBy   string  `json:"pdated_by"`
+	// 1. Ubah NotifyEmail menjadi pointer agar bisa deteksi perubahannya
+	var payload struct {
+		Description string  `json:"issue_description"`
+		Title       string  `json:"issue_title"`
+		Status      string  `json:"issue_status"`
+		UpdatedBy   string  `json:"updated_by"`
 		NotifyEmail *string `json:"notify_email,omitempty"` // Pointer agar bisa nil
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 	if payload.Title == "" {
-		respondWithError(w, http.StatsBadReqest, "Tipe Masalah tidak boleh kosong")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Tipe Masalah tidak boleh kosong")
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal memlai transaksi")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
+		return
 	}
 	defer tx.Rollback()
 
-	// 2. mbil data lama termask notify_email dan panel_no_pp
-	var crrentLogs Logs
-	var crrentStats, notifyEmail, panelNoPp string
-	err = tx.QeryRow(`
-		SELECT i.logs, i.stats, COLESCE(i.notify_email, ''), c.panel_no_pp
-		FROM pblic.isses i JOIN pblic.chats c ON i.chat_id = c.id
-		WHERE i.id = $1`, isseID).Scan(&crrentLogs, &crrentStats, &notifyEmail, &panelNoPp)
+	// 2. Ambil data lama termasuk notify_email dan panel_no_pp
+	var currentLogs Logs
+	var currentStatus, notifyEmail, panelNoPp string
+	err = tx.QueryRow(`
+		SELECT i.logs, i.status, COALESCE(i.notify_email, ''), c.panel_no_pp
+		FROM public.issues i JOIN public.chats c ON i.chat_id = c.id
+		WHERE i.id = $1`, issueID).Scan(&currentLogs, &currentStatus, &notifyEmail, &panelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatsNotFond, "Isse not fond or failed to get details: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusNotFound, "Issue not found or failed to get details: "+err.Error())
+		return
 	}
 
-	logction := "mengbah isse"
-	if payload.Stats != crrentStats {
-		if payload.Stats == "solved" {
-			logction = "menandai solved"
-		} else if payload.Stats == "nsolved" {
-			logction = "membka kembali isse"
+	logAction := "mengubah issue"
+	if payload.Status != currentStatus {
+		if payload.Status == "solved" {
+			logAction = "menandai solved"
+		} else if payload.Status == "unsolved" {
+			logAction = "membuka kembali issue"
 		}
 	}
 
-	newLogEntry := LogEntry{ction: logction, User: payload.UpdatedBy, Timestamp: time.Now()}
-	pdatedLogs := append(crrentLogs, newLogEntry)
+	newLogEntry := LogEntry{Action: logAction, User: payload.UpdatedBy, Timestamp: time.Now()}
+	updatedLogs := append(currentLogs, newLogEntry)
 
-	// 3. Tentkan nilai final notify_email
-	finalNotifyEmail := notifyEmail // Defalt pakai nilai lama
+	// 3. Tentukan nilai final notify_email
+	finalNotifyEmail := notifyEmail // Default pakai nilai lama
 	if payload.NotifyEmail != nil {
-		finalNotifyEmail = *payload.NotifyEmail // Pakai nilai bar jika dikirim di payload
-		if logction == "mengbah isse" {
-			logction = "mengbah daftar notifikasi" // ksi lebih spesifik ntk email
+		finalNotifyEmail = *payload.NotifyEmail // Pakai nilai baru jika dikirim di payload
+		if logAction == "mengubah issue" {
+			logAction = "mengubah daftar notifikasi" // Aksi lebih spesifik untuk email
 		}
 	}
 	
-	// 4. Update qery ntk menyertakan notify_email
-	qery := `UPDTE isses SET title = $1, description = $2, stats = $3, logs = $4, notify_email = $5 WHERE id = $6`
-	res, err := tx.Exec(qery, payload.Title, payload.Description, payload.Stats, pdatedLogs, finalNotifyEmail, isseID)
+	// 4. Update query untuk menyertakan notify_email
+	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4, notify_email = $5 WHERE id = $6`
+	res, err := tx.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, finalNotifyEmail, issueID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to pdate isse: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to update issue: "+err.Error())
+		return
 	}
-	cont, _ := res.Rowsffected()
-	if cont ==  {
-		respondWithError(w, http.StatsNotFond, "Isse not fond")
-		retrn
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Issue not found")
+		return
 	}
 
-	// 2. Bat teks komentar yang bar
-	pdatedCommentText := fmt.Sprintf("**%s**", payload.Title)
+	// 2. Buat teks komentar yang baru
+	updatedCommentText := fmt.Sprintf("**%s**", payload.Title)
 	if payload.Description != "" {
-		pdatedCommentText = fmt.Sprintf("**%s**: %s", payload.Title, payload.Description)
+		updatedCommentText = fmt.Sprintf("**%s**: %s", payload.Title, payload.Description)
 	}
 
-	// 3. Update komentar sistem yang sesai
-	// Kita jga set is_edited menjadi tre ntk menandakan ada perbahan
-	commentQery := `
-		UPDTE isse_comments 
+	// 3. Update komentar sistem yang sesuai
+	// Kita juga set is_edited menjadi true untuk menandakan ada perubahan
+	commentQuery := `
+		UPDATE issue_comments 
 		SET text = $1, is_edited = TRUE
-		WHERE isse_id = $2 ND is_system_comment = TRUE`
-	_, err = tx.Exec(commentQery, pdatedCommentText, isseID)
+		WHERE issue_id = $2 AND is_system_comment = TRUE`
+	_, err = tx.Exec(commentQuery, updatedCommentText, issueID)
 	if err != nil {
 		// Transaksi akan di-rollback jika ini gagal
-		respondWithError(w, http.StatsInternalServerError, "Failed to pdate system comment: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to update system comment: "+err.Error())
+		return
 	}
 
-	// 4. Commit transaksi jika sema berhasil
+	// 4. Commit transaksi jika semua berhasil
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal commit transaksi")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
+		return
 	}
 	
-		go fnc() {
-		if crrentStats != payload.Stats {
-			// mbil daftar penerima final dan filter pelak aksi
+		go func() {
+		if currentStatus != payload.Status {
+			// Ambil daftar penerima final dan filter pelaku aksi
 			allRecipients := strings.Split(finalNotifyEmail, ",")
 			finalRecipients := []string{}
 			for _, recipient := range allRecipients {
@@ -3409,152 +3409,152 @@ fnc (a *pp) pdateIsseHandler(w http.ResponseWriter, r *http.Reqest) {
 				}
 			}
 
-			if len(finalRecipients) >  {
-				// . Kirim Psh Notification Perbahan Stats
-				notifTitle := fmt.Sprintf("Update Is di Panel %s", panelNoPp)
-				notifBody := fmt.Sprintf("%s mengbah stats is '%s' menjadi %s.", payload.UpdatedBy, payload.Title, payload.Stats)
+			if len(finalRecipients) > 0 {
+				// A. Kirim Push Notification Perubahan Status
+				notifTitle := fmt.Sprintf("Update Isu di Panel %s", panelNoPp)
+				notifBody := fmt.Sprintf("%s mengubah status isu '%s' menjadi %s.", payload.UpdatedBy, payload.Title, payload.Status)
 				a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
-				// B. Kirim Email Perbahan Stats
-				sbject := fmt.Sprintf("[SecPanel] Update Stats Is: %s", payload.Title)
+				// B. Kirim Email Perubahan Status
+				subject := fmt.Sprintf("[SecPanel] Update Status Isu: %s", payload.Title)
 				htmlBody := fmt.Sprintf(
-					`<h3>Stats Is pada Panel %s Telah Dibah</h3>
-					 <p><strong>Jdl Is:</strong> %s</p>
-					 <p><strong>ksi:</strong> Stats is ini telah dibah menjadi <strong>%s</strong>.</p>
+					`<h3>Status Isu pada Panel %s Telah Diubah</h3>
+					 <p><strong>Judul Isu:</strong> %s</p>
+					 <p><strong>Aksi:</strong> Status isu ini telah diubah menjadi <strong>%s</strong>.</p>
 					 <p><strong>Oleh:</strong> %s</p>
 					 <hr>
-					 <p><i>Email ini dibat secara otomatis. Periksa aplikasi SecPanel ntk detail lebih lanjt.</i></p>`,
-					panelNoPp, payload.Title, payload.Stats, payload.UpdatedBy,
+					 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+					panelNoPp, payload.Title, payload.Status, payload.UpdatedBy,
 				)
-				sendNotificationEmail(finalRecipients, sbject, htmlBody)
+				sendNotificationEmail(finalRecipients, subject, htmlBody)
 			}
-			retrn // Penting: Hentikan proses agar tidak lanjt ke skenario 2
+			return // Penting: Hentikan proses agar tidak lanjut ke skenario 2
 		}
 
-		// --- SKENRIO 2: HNY DFTR NOTIFIKSI YNG BERUBH ---
-		// Kode ini hanya akan berjalan jika stats is TIDK berbah
+		// --- SKENARIO 2: HANYA DAFTAR NOTIFIKASI YANG BERUBAH ---
+		// Kode ini hanya akan berjalan jika status isu TIDAK berubah
 		if payload.NotifyEmail != nil {
-			// mbil daftar email lama dan bar ntk perbandingan
+			// Ambil daftar email lama dan baru untuk perbandingan
 			oldEmails := make(map[string]bool)
 			for _, email := range strings.Split(notifyEmail, ",") {
 				if strings.TrimSpace(email) != "" {
-					oldEmails[strings.TrimSpace(email)] = tre
+					oldEmails[strings.TrimSpace(email)] = true
 				}
 			}
 
 			var addedEmails []string
 			for _, emailStr := range strings.Split(finalNotifyEmail, ",") {
 				email := strings.TrimSpace(emailStr)
-				if email != "" && !oldEmails[email] { // Jika email bar dan tidak ada di daftar lama
+				if email != "" && !oldEmails[email] { // Jika email baru dan tidak ada di daftar lama
 					addedEmails = append(addedEmails, email)
 				}
 			}
 			
-			if len(addedEmails) >  {
-				// . Kirim Psh Notifikasi "nda Ditambahkan"
-				notifTitle := fmt.Sprintf("nda ditambahkan ke Is di Panel %s", panelNoPp)
-				notifBody := fmt.Sprintf("%s menambahkan nda ke notifikasi is '%s'.", payload.UpdatedBy, payload.Title)
+			if len(addedEmails) > 0 {
+				// A. Kirim Push Notifikasi "Anda Ditambahkan"
+				notifTitle := fmt.Sprintf("Anda ditambahkan ke Isu di Panel %s", panelNoPp)
+				notifBody := fmt.Sprintf("%s menambahkan Anda ke notifikasi isu '%s'.", payload.UpdatedBy, payload.Title)
 				a.sendNotificationToUsers(addedEmails, notifTitle, notifBody)
 
-				// B. Kirim Email Notifikasi "nda Ditambahkan"
-				sbject := fmt.Sprintf("[SecPanel] nda Ditambahkan ke Notifikasi Is: %s", payload.Title)
+				// B. Kirim Email Notifikasi "Anda Ditambahkan"
+				subject := fmt.Sprintf("[SecPanel] Anda Ditambahkan ke Notifikasi Isu: %s", payload.Title)
 				htmlBody := fmt.Sprintf(
-					`<h3>nda Telah Ditambahkan ke Notifikasi Is</h3>
-					 <p>nda akan menerima pembaran ntk is <strong>"%s"</strong> pada panel <strong>%s</strong>.</p>
+					`<h3>Anda Telah Ditambahkan ke Notifikasi Isu</h3>
+					 <p>Anda akan menerima pembaruan untuk isu <strong>"%s"</strong> pada panel <strong>%s</strong>.</p>
 					 <p><strong>Ditambahkan oleh:</strong> %s</p>
 					 <hr>
-					 <p><i>Email ini dibat secara otomatis. Periksa aplikasi SecPanel ntk detail lebih lanjt.</i></p>`,
+					 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
 					payload.Title, panelNoPp, payload.UpdatedBy,
 				)
-				sendNotificationEmail(addedEmails, sbject, htmlBody)
+				sendNotificationEmail(addedEmails, subject, htmlBody)
 			}
 		}
 	}()
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-// deleteIsseHandler deletes an isse and its associated photos.
-fnc (a *pp) deleteIsseHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	id, err := strconv.toi(vars["id"])
+// deleteIssueHandler deletes an issue and its associated photos.
+func (a *App) deleteIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid isse ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
 	}
 
-	res, err := a.DB.Exec("DELETE FROM pblic.isses WHERE id = $1", id)
+	res, err := a.DB.Exec("DELETE FROM public.issues WHERE id = $1", id)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	cont, _ := res.Rowsffected()
-	if cont ==  {
-		respondWithError(w, http.StatsNotFond, "Isse not fond")
-		retrn
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Issue not found")
+		return
 	}
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "deleted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// addPhotoToIsseHandler adds a new photo to an isse.
-fnc (a *pp) addPhotoToIsseHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	isseID, err := strconv.toi(vars["isse_id"])
+// addPhotoToIssueHandler adds a new photo to an issue.
+func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid isse ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid issue ID")
+		return
 	}
 
-	var payload strct {
+	var payload struct {
 		PhotoData string `json:"photo"` // Base64 string
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	var photoID int
-	err = a.DB.QeryRow("INSERT INTO photos (isse_id, photo_data) VLUES ($1, $2) RETURNING id", isseID, payload.PhotoData).Scan(&photoID)
+	err = a.DB.QueryRow("INSERT INTO photos (issue_id, photo_data) VALUES ($1, $2) RETURNING id", issueID, payload.PhotoData).Scan(&photoID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to save photo: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to save photo: "+err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsCreated, map[string]int{"photo_id": photoID})
+	respondWithJSON(w, http.StatusCreated, map[string]int{"photo_id": photoID})
 }
 
 // deletePhotoHandler removes a photo.
-fnc (a *pp) deletePhotoHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	id, err := strconv.toi(vars["id"])
+func (a *App) deletePhotoHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid photo ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid photo ID")
+		return
 	}
 
 	res, err := a.DB.Exec("DELETE FROM photos WHERE id = $1", id)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	cont, _ := res.Rowsffected()
-	if cont ==  {
-		respondWithError(w, http.StatsNotFond, "Photo not fond")
-		retrn
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Photo not found")
+		return
 	}
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "deleted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-fnc cleanMapData(data map[string]interface{}) {
-	for key, vale := range data {
+func cleanMapData(data map[string]interface{}) {
+	for key, value := range data {
 		// Cek apakah nilainya adalah string
-		if s, ok := vale.(string); ok {
+		if s, ok := value.(string); ok {
 			trimmedS := strings.TrimSpace(s)
 			if trimmedS == "" {
-				// Jika stringnya kosong setelah di-trim, haps dari map
+				// Jika stringnya kosong setelah di-trim, hapus dari map
 				delete(data, key)
 			} else {
-				// Jika tidak, pdate map dengan nilai yang sdah bersih
+				// Jika tidak, update map dengan nilai yang sudah bersih
 				data[key] = trimmedS
 			}
 		}
@@ -3564,255 +3564,255 @@ fnc cleanMapData(data map[string]interface{}) {
 // =============================================================================
 // HELPERS & DB INIT
 // =============================================================================
-fnc jsonContentTypeMiddleware(next http.Handler) http.Handler {
-	retrn http.HandlerFnc(fnc(w http.ResponseWriter, r *http.Reqest) {
+func jsonContentTypeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 		next.ServeHTTP(w, r)
 	})
 }
-fnc respondWithError(w http.ResponseWriter, code int, message string) {
+func respondWithError(w http.ResponseWriter, code int, message string) {
 	respondWithJSON(w, code, map[string]string{"error": message})
 }
-fnc respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	response, _ := json.Marshal(payload)
 	w.WriteHeader(code)
 	w.Write(response)
 }
-fnc splitIds(ns sql.NllString) []string {
+func splitIds(ns sql.NullString) []string {
 	if !ns.Valid || ns.String == "" {
-		retrn []string{}
+		return []string{}
 	}
-	retrn strings.Split(ns.String, ",")
+	return strings.Split(ns.String, ",")
 }
 
-fnc toColmnName(n int) string {
-    reslt := ""
-    for n >=  {
-        // Modlo 26 ntk mendapatkan karakter saat ini
+func toColumnName(n int) string {
+    result := ""
+    for n >= 0 {
+        // Modulo 26 untuk mendapatkan karakter saat ini
         remainder := n % 26
-        reslt = string(''+remainder) + reslt
+        result = string('A'+remainder) + result
         n = (n / 26) - 1
     }
-    retrn reslt
+    return result
 }
-fnc initDB(db *sql.DB) {
+func initDB(db *sql.DB) {
 	createTablesSQL := `
-	CRETE TBLE IF NOT EXISTS companies ( id TEXT PRIMRY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
-	CRETE TBLE IF NOT EXISTS company_acconts ( sername TEXT PRIMRY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CSCDE );
-	CRETE TBLE IF NOT EXISTS panels (
-		no_pp TEXT PRIMRY KEY, 
+	CREATE TABLE IF NOT EXISTS companies ( id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, role TEXT NOT NULL );
+	CREATE TABLE IF NOT EXISTS company_accounts ( username TEXT PRIMARY KEY, password TEXT, company_id TEXT REFERENCES companies(id) ON DELETE CASCADE );
+	CREATE TABLE IF NOT EXISTS panels (
+		no_pp TEXT PRIMARY KEY, 
 		no_panel TEXT, 
 		no_wbs TEXT, 
 		project TEXT, 
-		percent_progress REL,
-		start_date TIMESTMPTZ, 
-		target_delivery TIMESTMPTZ, 
-		stats_bsbar_pcc TEXT, 
-		stats_bsbar_mcc TEXT,
-		stats_component TEXT, 
-		stats_palet TEXT, 
-		stats_corepart TEXT, 
-		ao_bsbar_pcc TIMESTMPTZ, 
-		ao_bsbar_mcc TIMESTMPTZ,
+		percent_progress REAL,
+		start_date TIMESTAMPTZ, 
+		target_delivery TIMESTAMPTZ, 
+		status_busbar_pcc TEXT, 
+		status_busbar_mcc TEXT,
+		status_component TEXT, 
+		status_palet TEXT, 
+		status_corepart TEXT, 
+		ao_busbar_pcc TIMESTAMPTZ, 
+		ao_busbar_mcc TIMESTAMPTZ,
 		created_by TEXT, 
 		vendor_id TEXT, 
-		is_closed BOOLEN DEFULT false, 
-		closed_date TIMESTMPTZ
+		is_closed BOOLEAN DEFAULT false, 
+		closed_date TIMESTAMPTZ
 	);
-	CRETE TBLE IF NOT EXISTS bsbars ( id SERIL PRIMRY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CSCDE ON UPDTE CSCDE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
-	CRETE TBLE IF NOT EXISTS components ( id SERIL PRIMRY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CSCDE ON UPDTE CSCDE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
-	CRETE TBLE IF NOT EXISTS palet ( id SERIL PRIMRY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CSCDE ON UPDTE CSCDE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
-	CRETE TBLE IF NOT EXISTS corepart ( id SERIL PRIMRY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CSCDE ON UPDTE CSCDE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
+	CREATE TABLE IF NOT EXISTS busbars ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, remarks TEXT, UNIQUE(panel_no_pp, vendor) );
+	CREATE TABLE IF NOT EXISTS components ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
+	CREATE TABLE IF NOT EXISTS palet ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
+	CREATE TABLE IF NOT EXISTS corepart ( id SERIAL PRIMARY KEY, panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE, vendor TEXT NOT NULL, UNIQUE(panel_no_pp, vendor) );
 	`
 	if _, err := db.Exec(createTablesSQL); err != nil {
-		log.Fatalf("Gagal membat tabel awal: %v", err)
+		log.Fatalf("Gagal membuat tabel awal: %v", err)
 	}
 
 	createUserDevicesTableSQL := `
-	CRETE TBLE IF NOT EXISTS ser_devices (
-		id SERIL PRIMRY KEY,
-		sername TEXT NOT NULL REFERENCES company_acconts(sername) ON DELETE CSCDE,
+	CREATE TABLE IF NOT EXISTS user_devices (
+		id SERIAL PRIMARY KEY,
+		username TEXT NOT NULL REFERENCES company_accounts(username) ON DELETE CASCADE,
 		fcm_token TEXT NOT NULL,
-		last_login TIMESTMPTZ DEFULT CURRENT_TIMESTMP,
-		UNIQUE(sername, fcm_token)
+		last_login TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(username, fcm_token)
 	);
 	`
 	if _, err := db.Exec(createUserDevicesTableSQL); err != nil {
-		log.Fatalf("Gagal membat tabel ser_devices: %v", err)
+		log.Fatalf("Gagal membuat tabel user_devices: %v", err)
 	}
 
-	createdditionalSRTableSQL := `
-    CRETE TBLE IF NOT EXISTS additional_sr (
-        id SERIL PRIMRY KEY,
-        panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CSCDE ON UPDTE CSCDE,
-        po_nmber TEXT,
+	createAdditionalSRTableSQL := `
+    CREATE TABLE IF NOT EXISTS additional_sr (
+        id SERIAL PRIMARY KEY,
+        panel_no_pp TEXT NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE ON UPDATE CASCADE,
+        po_number TEXT,
         item TEXT,
-        qantity INTEGER,
-        stats TEXT DEFULT 'open',
+        quantity INTEGER,
+        status TEXT DEFAULT 'open',
         remarks TEXT,
-        created_at TIMESTMPTZ DEFULT CURRENT_TIMESTMP
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     );`
-    if _, err := db.Exec(createdditionalSRTableSQL); err != nil {
-        log.Fatalf("Gagal membat tabel additional_sr: %v", err)
+    if _, err := db.Exec(createAdditionalSRTableSQL); err != nil {
+        log.Fatalf("Gagal membuat tabel additional_sr: %v", err)
     }
 
-	alterTabledditionalSRSQL := `
-    LTER TBLE additional_sr
-    DD COLUMN IF NOT EXISTS received_date TIMESTMPTZ NULL;
+	alterTableAdditionalSRSQL := `
+    ALTER TABLE additional_sr
+    ADD COLUMN IF NOT EXISTS received_date TIMESTAMPTZ NULL;
     `
-    if _, err := db.Exec(alterTabledditionalSRSQL); err != nil {
-        log.Fatalf("Gagal mengbah tabel additional_sr: %v", err)
+    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
+        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
     }
 
 	createTablesSQLChats:= `
-	CRETE TBLE IF NOT EXISTS chats (
-		id SERIL PRIMRY KEY,
-		panel_no_pp VRCHR(255) UNIQUE NOT NULL REFERENCES panels(no_pp) ON DELETE CSCDE,
-		created_at TIMESTMP WITH TIME ZONE DEFULT CURRENT_TIMESTMP
+	CREATE TABLE IF NOT EXISTS chats (
+		id SERIAL PRIMARY KEY,
+		panel_no_pp VARCHAR(255) UNIQUE NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
 	if _, err := db.Exec(createTablesSQLChats); err != nil {
-		log.Fatalf("Gagal membat tabel chats: %v", err)
+		log.Fatalf("Gagal membuat tabel chats: %v", err)
 	}
 
-	createTablesSQLIsses := `
-	CRETE TBLE IF NOT EXISTS isses (
-		id SERIL PRIMRY KEY,
-		chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CSCDE,
-		title VRCHR(255) NOT NULL,
+	createTablesSQLIssues := `
+	CREATE TABLE IF NOT EXISTS issues (
+		id SERIAL PRIMARY KEY,
+		chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+		title VARCHAR(255) NOT NULL,
 		description TEXT,
-		stats VRCHR(5) NOT NULL DEFULT 'nsolved',
+		status VARCHAR(50) NOT NULL DEFAULT 'unsolved',
 		logs JSONB,
-		created_by VRCHR(255),
-		notify_email TEXT, -- TMBHKN KOLOM INI
-		created_at TIMESTMP WITH TIME ZONE DEFULT CURRENT_TIMESTMP,
-		pdated_at TIMESTMP WITH TIME ZONE DEFULT CURRENT_TIMESTMP
+		created_by VARCHAR(255),
+		notify_email TEXT, -- TAMBAHKAN KOLOM INI
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
-	if _, err := db.Exec(createTablesSQLIsses); err != nil {
-		log.Fatalf("Gagal membat tabel isses: %v", err)
+	if _, err := db.Exec(createTablesSQLIssues); err != nil {
+		log.Fatalf("Gagal membuat tabel issues: %v", err)
 	}
-	alterIssesTableSQL := `
+	alterIssuesTableSQL := `
 	DO $$
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'isses' ND colmn_name = 'notify_email') THEN
-			LTER TBLE isses DD COLUMN notify_email TEXT;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'issues' AND column_name = 'notify_email') THEN
+			ALTER TABLE issues ADD COLUMN notify_email TEXT;
 		END IF;
 	END;
 	$$;
 	`
-	if _, err := db.Exec(alterIssesTableSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk kolom notify_email: %v", err)
+	if _, err := db.Exec(alterIssuesTableSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom notify_email: %v", err)
 	}
 
-	createIsseTitlesTableSQL := `
-	CRETE TBLE IF NOT EXISTS isse_titles (
-		id SERIL PRIMRY KEY,
+	createIssueTitlesTableSQL := `
+	CREATE TABLE IF NOT EXISTS issue_titles (
+		id SERIAL PRIMARY KEY,
 		title TEXT UNIQUE NOT NULL
 	);`
-	if _, err := db.Exec(createIsseTitlesTableSQL); err != nil {
-		log.Fatalf("Gagal membat tabel isse_titles: %v", err)
+	if _, err := db.Exec(createIssueTitlesTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel issue_titles: %v", err)
 	}
 
-	// Tambahkan beberapa data awal jika tabel bar dibat
-	var cont_titles int
-	if err := db.QeryRow("SELECT COUNT(*) FROM pblic.isse_titles").Scan(&cont_titles); err == nil && cont_titles ==  {
-		log.Println("Tabel isse_titles kosong, menambahkan data awal...")
-		initialTitles := []string{"Kersakan Komponen", "Masalah Instalasi", "Error Software", "Lainnya"}
+	// Tambahkan beberapa data awal jika tabel baru dibuat
+	var count_titles int
+	if err := db.QueryRow("SELECT COUNT(*) FROM public.issue_titles").Scan(&count_titles); err == nil && count_titles == 0 {
+		log.Println("Tabel issue_titles kosong, menambahkan data awal...")
+		initialTitles := []string{"Kerusakan Komponen", "Masalah Instalasi", "Error Software", "Lainnya"}
 		for _, title := range initialTitles {
-			db.Exec("INSERT INTO isse_titles (title) VLUES ($1) ON CONFLICT (title) DO NOTHING", title)
+			db.Exec("INSERT INTO issue_titles (title) VALUES ($1) ON CONFLICT (title) DO NOTHING", title)
 		}
 	}
 
-	createIsseCommentsTableSQL := `
-	CRETE TBLE IF NOT EXISTS isse_comments (
-		id TEXT PRIMRY KEY,
-		isse_id INT NOT NULL REFERENCES isses(id) ON DELETE CSCDE,
-		sender_id TEXT NOT NULL REFERENCES company_acconts(sername) ON DELETE CSCDE,
+	createIssueCommentsTableSQL := `
+	CREATE TABLE IF NOT EXISTS issue_comments (
+		id TEXT PRIMARY KEY,
+		issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+		sender_id TEXT NOT NULL REFERENCES company_accounts(username) ON DELETE CASCADE,
 		text TEXT,
-		timestamp TIMESTMPTZ NOT NULL DEFULT NOW(),
-		reply_to_comment_id TEXT REFERENCES isse_comments(id) ON DELETE SET NULL,
-		reply_to_ser_id TEXT REFERENCES company_acconts(sername) ON DELETE SET NULL,
-		is_edited BOOLEN DEFULT false,
-		image_rls JSONB
+		timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		reply_to_comment_id TEXT REFERENCES issue_comments(id) ON DELETE SET NULL,
+		reply_to_user_id TEXT REFERENCES company_accounts(username) ON DELETE SET NULL,
+		is_edited BOOLEAN DEFAULT false,
+		image_urls JSONB
 	);
 	`
-	if _, err := db.Exec(createIsseCommentsTableSQL); err != nil {
-		log.Fatalf("Gagal membat tabel isse_comments: %v", err)
+	if _, err := db.Exec(createIssueCommentsTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel issue_comments: %v", err)
 	}
 
-	// Bat folder 'ploads' jika belm ada ntk menyimpan gambar
-	if _, err := os.Stat("ploads"); os.IsNotExist(err) {
-		os.Mkdir("ploads", 755)
-		log.Println("Folder 'ploads' berhasil dibat.")
+	// Buat folder 'uploads' jika belum ada untuk menyimpan gambar
+	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
+		os.Mkdir("uploads", 0755)
+		log.Println("Folder 'uploads' berhasil dibuat.")
 	}
-	pdateCommentConstraintSQL := `
+	updateCommentConstraintSQL := `
 	DO $$
-	DECLRE
+	DECLARE
 		constraint_name TEXT;
 	BEGIN
 		-- Cari nama constraint foreign key yang ada saat ini
 		SELECT conname INTO constraint_name
 		FROM pg_constraint
-		WHERE conrelid = 'isse_comments'::regclass
-		ND confrelid = 'isse_comments'::regclass
-		ND contype = 'f';
+		WHERE conrelid = 'issue_comments'::regclass
+		AND confrelid = 'issue_comments'::regclass
+		AND contype = 'f';
 
-		-- Jika constraint ditemkan, haps dan bat yang bar dengan ON DELETE CSCDE
+		-- Jika constraint ditemukan, hapus dan buat yang baru dengan ON DELETE CASCADE
 		IF constraint_name IS NOT NULL THEN
-			EXECUTE 'LTER TBLE isse_comments DROP CONSTRINT ' || qote_ident(constraint_name);
-			LTER TBLE isse_comments
-				DD CONSTRINT isse_comments_reply_to_comment_id_fkey
+			EXECUTE 'ALTER TABLE issue_comments DROP CONSTRAINT ' || quote_ident(constraint_name);
+			ALTER TABLE issue_comments
+				ADD CONSTRAINT issue_comments_reply_to_comment_id_fkey
 				FOREIGN KEY (reply_to_comment_id)
-				REFERENCES isse_comments(id)
-				ON DELETE CSCDE; -- <--- INI BGIN PENTINGNY
+				REFERENCES issue_comments(id)
+				ON DELETE CASCADE; -- <--- INI BAGIAN PENTINGNYA
 		END IF;
 	END;
 	$$;
 	`
-	if _, err := db.Exec(pdateCommentConstraintSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi constraint ntk isse_comments: %v", err)
+	if _, err := db.Exec(updateCommentConstraintSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi constraint untuk issue_comments: %v", err)
 	}
 	alterCommentsTableSQL := `
 	DO $$
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'isse_comments' ND colmn_name = 'is_system_comment') THEN
-			LTER TBLE isse_comments DD COLUMN is_system_comment BOOLEN DEFULT false;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'issue_comments' AND column_name = 'is_system_comment') THEN
+			ALTER TABLE issue_comments ADD COLUMN is_system_comment BOOLEAN DEFAULT false;
 		END IF;
 	END;
 	$$;
 	`
 	if _, err := db.Exec(alterCommentsTableSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk kolom is_system_comment: %v", err)
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom is_system_comment: %v", err)
 	}
 	
 
 
 	createTablesSQLPhotos:= `
-	CRETE TBLE IF NOT EXISTS photos (
-		id SERIL PRIMRY KEY,
-		isse_id INT NOT NULL REFERENCES isses(id) ON DELETE CSCDE,
+	CREATE TABLE IF NOT EXISTS photos (
+		id SERIAL PRIMARY KEY,
+		issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
 		photo_data TEXT NOT NULL
 	);`
 	if _, err := db.Exec(createTablesSQLPhotos); err != nil {
-		log.Fatalf("Gagal membat tabel photos: %v", err)
+		log.Fatalf("Gagal membuat tabel photos: %v", err)
 	}
 
-	pdateIssesTrigger:= `
-	CRETE OR REPLCE FUNCTION pdate_pdated_at_colmn()
-	RETURNS TRIGGER S $$
+	updateIssuesTrigger:= `
+	CREATE OR REPLACE FUNCTION update_updated_at_column()
+	RETURNS TRIGGER AS $$
 	BEGIN
-		NEW.pdated_at = NOW();
+		NEW.updated_at = NOW();
 		RETURN NEW;
 	END;
-	$$ langage 'plpgsql';
+	$$ language 'plpgsql';
 
-	DROP TRIGGER IF EXISTS pdate_isses_pdated_at ON isses;
-	CRETE TRIGGER pdate_isses_pdated_at
-	BEFORE UPDTE ON isses
-	FOR ECH ROW
-	EXECUTE FUNCTION pdate_pdated_at_colmn();
+	DROP TRIGGER IF EXISTS update_issues_updated_at ON issues;
+	CREATE TRIGGER update_issues_updated_at
+	BEFORE UPDATE ON issues
+	FOR EACH ROW
+	EXECUTE FUNCTION update_updated_at_column();
 	`
-	if _, err := db.Exec(pdateIssesTrigger); err != nil {
-		log.Fatalf("Gagal membat trigger pdated_at di tabel isses: %v", err)
+	if _, err := db.Exec(updateIssuesTrigger); err != nil {
+		log.Fatalf("Gagal membuat trigger updated_at di tabel issues: %v", err)
 	}
 
 	alterTableSQL := `
@@ -3820,176 +3820,176 @@ fnc initDB(db *sql.DB) {
 	BEGIN
 		IF EXISTS (
 			SELECT 1 FROM pg_constraint
-			WHERE conname = 'panels_no_panel_key' ND conrelid = 'panels'::regclass
+			WHERE conname = 'panels_no_panel_key' AND conrelid = 'panels'::regclass
 		) THEN
-			LTER TBLE panels DROP CONSTRINT panels_no_panel_key;
+			ALTER TABLE panels DROP CONSTRAINT panels_no_panel_key;
 		END IF;
 	END;
 	$$;
 	`
 	if _, err := db.Exec(alterTableSQL); err != nil {
-		log.Fatalf("Gagal mengbah constraint tabel panels: %v", err)
+		log.Fatalf("Gagal mengubah constraint tabel panels: %v", err)
 	}
 
-	alterTableddPanelTypeSQL := `
+	alterTableAddPanelTypeSQL := `
 	DO $$
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'panel_type') THEN
-			LTER TBLE panels DD COLUMN panel_type TEXT;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'panel_type') THEN
+			ALTER TABLE panels ADD COLUMN panel_type TEXT;
 		END IF;
 	END;
 	$$;
 	`
-	if _, err := db.Exec(alterTableddPanelTypeSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk kolom panel_type: %v", err)
+	if _, err := db.Exec(alterTableAddPanelTypeSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom panel_type: %v", err)
 	}
 
-	alterTableddPanelRemarksSQL := `
+	alterTableAddPanelRemarksSQL := `
 	DO $$
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'remarks') THEN
-			LTER TBLE panels DD COLUMN remarks TEXT;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'remarks') THEN
+			ALTER TABLE panels ADD COLUMN remarks TEXT;
 		END IF;
 	END;
 	$$;
 	`
-	if _, err := db.Exec(alterTableddPanelRemarksSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk kolom panel.remarks: %v", err)
+	if _, err := db.Exec(alterTableAddPanelRemarksSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom panel.remarks: %v", err)
 	}
 
-	var cont int
-	if err := db.QeryRow("SELECT COUNT(*) FROM pblic.companies").Scan(&cont); err != nil {
-		log.Fatalf("Gagal cek data dmmy: %v", err)
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM public.companies").Scan(&count); err != nil {
+		log.Fatalf("Gagal cek data dummy: %v", err)
 	}
-	if cont ==  {
-		log.Println("Database kosong, membat data dmmy...")
-		insertDmmyData(db)
+	if count == 0 {
+		log.Println("Database kosong, membuat data dummy...")
+		insertDummyData(db)
 	}
 
-	alterTableddBsbarCloseDatesSQL := `
+	alterTableAddBusbarCloseDatesSQL := `
 	DO $$
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'close_date_bsbar_pcc') THEN
-			LTER TBLE panels DD COLUMN close_date_bsbar_pcc TIMESTMPTZ;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'close_date_busbar_pcc') THEN
+			ALTER TABLE panels ADD COLUMN close_date_busbar_pcc TIMESTAMPTZ;
 		END IF;
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'close_date_bsbar_mcc') THEN
-			LTER TBLE panels DD COLUMN close_date_bsbar_mcc TIMESTMPTZ;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'close_date_busbar_mcc') THEN
+			ALTER TABLE panels ADD COLUMN close_date_busbar_mcc TIMESTAMPTZ;
 		END IF;
 	END;
 	$$;
 	`
-	if _, err := db.Exec(alterTableddBsbarCloseDatesSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk kolom close_date_bsbar: %v", err)
+	if _, err := db.Exec(alterTableAddBusbarCloseDatesSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom close_date_busbar: %v", err)
 	}
 
-	log.Println("Memastikan ser sistem ntk Gemini I ada...")
-	createiUserSQL := `
+	log.Println("Memastikan user sistem untuk Gemini AI ada...")
+	createAiUserSQL := `
 		INSERT INTO companies (id, name, role)
-		VLUES ('gemini_ai_system', 'Gemini I', 'viewer')
+		VALUES ('gemini_ai_system', 'Gemini AI', 'viewer')
 		ON CONFLICT (id) DO NOTHING;
 
-		INSERT INTO company_acconts (sername, password, company_id)
-		VLUES ('gemini_ai', NULL, 'gemini_ai_system')
-		ON CONFLICT (sername) DO NOTHING;
+		INSERT INTO company_accounts (username, password, company_id)
+		VALUES ('gemini_ai', NULL, 'gemini_ai_system')
+		ON CONFLICT (username) DO NOTHING;
 	`
-	if _, err := db.Exec(createiUserSQL); err != nil {
-		log.Fatalf("Gagal membat ser sistem ntk Gemini I: %v", err)
+	if _, err := db.Exec(createAiUserSQL); err != nil {
+		log.Fatalf("Gagal membuat user sistem untuk Gemini AI: %v", err)
 	}
 
-	var cont_companies int
-	if err := db.QeryRow("SELECT COUNT(*) FROM pblic.companies").Scan(&cont); err != nil {
-		log.Fatalf("Gagal cek data dmmy: %v", err)
+	var count_companies int
+	if err := db.QueryRow("SELECT COUNT(*) FROM public.companies").Scan(&count); err != nil {
+		log.Fatalf("Gagal cek data dummy: %v", err)
 	}
-	if cont_companies ==  {
-		log.Println("Database kosong, membat data dmmy...")
-		insertDmmyData(db)
+	if count_companies == 0 {
+		log.Println("Database kosong, membuat data dummy...")
+		insertDummyData(db)
 	}
 
-	// Migrasi ntk menambahkan kolom stats_penyelesaian dan prodction_slot ke tabel panels
+	// Migrasi untuk menambahkan kolom status_penyelesaian dan production_slot ke tabel panels
 	alterPanelsForTransferSQL := `
 	DO $$
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'stats_penyelesaian') THEN
-			LTER TBLE panels DD COLUMN stats_penyelesaian TEXT DEFULT 'VendorWarehose';
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'status_penyelesaian') THEN
+			ALTER TABLE panels ADD COLUMN status_penyelesaian TEXT DEFAULT 'VendorWarehouse';
 		END IF;
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'prodction_slot') THEN
-			LTER TBLE panels DD COLUMN prodction_slot TEXT;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'production_slot') THEN
+			ALTER TABLE panels ADD COLUMN production_slot TEXT;
 		END IF;
 	END;
 	$$;
 	`
 	if _, err := db.Exec(alterPanelsForTransferSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk workflow transfer: %v", err)
+		log.Fatalf("Gagal menjalankan migrasi untuk workflow transfer: %v", err)
 	}
 
-	// Membat tabel prodction_slots
-	createProdctionSlotsTableSQL := `
-	CRETE TBLE IF NOT EXISTS prodction_slots (
-		position_code TEXT PRIMRY KEY,
-		is_occpied BOOLEN DEFULT false NOT NULL
+	// Membuat tabel production_slots
+	createProductionSlotsTableSQL := `
+	CREATE TABLE IF NOT EXISTS production_slots (
+		position_code TEXT PRIMARY KEY,
+		is_occupied BOOLEAN DEFAULT false NOT NULL
 	);
 	`
-	if _, err := db.Exec(createProdctionSlotsTableSQL); err != nil {
-		log.Fatalf("Gagal membat tabel prodction_slots: %v", err)
+	if _, err := db.Exec(createProductionSlotsTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel production_slots: %v", err)
 	}
 
-	addSnapshotColmnSQL := `
+	addSnapshotColumnSQL := `
 	DO $$
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'rollback_snapshot') THEN
-			LTER TBLE panels DD COLUMN rollback_snapshot JSONB;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'rollback_snapshot') THEN
+			ALTER TABLE panels ADD COLUMN rollback_snapshot JSONB;
 		END IF;
 	END;
 	$$;
 	`
-	if _, err := db.Exec(addSnapshotColmnSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk kolom rollback_snapshot: %v", err)
+	if _, err := db.Exec(addSnapshotColumnSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom rollback_snapshot: %v", err)
 	}
 
 	migrateHistoryStackSQL := `
 	DO $$
 	BEGIN
-		-- Haps kolom lama jika ada
-		IF EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'rollback_snapshot') THEN
-			LTER TBLE panels DROP COLUMN rollback_snapshot;
+		-- Hapus kolom lama jika ada
+		IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'rollback_snapshot') THEN
+			ALTER TABLE panels DROP COLUMN rollback_snapshot;
 		END IF;
 
-		-- Tambah kolom bar ntk menyimpan array JSON dari histori
-		IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'panels' ND colmn_name = 'history_stack') THEN
-			LTER TBLE panels DD COLUMN history_stack JSONB DEFULT '[]'::jsonb;
+		-- Tambah kolom baru untuk menyimpan array JSON dari histori
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'panels' AND column_name = 'history_stack') THEN
+			ALTER TABLE panels ADD COLUMN history_stack JSONB DEFAULT '[]'::jsonb;
 		END IF;
 	END;
 	$$;
 	`
 	if _, err := db.Exec(migrateHistoryStackSQL); err != nil {
-		log.Fatalf("Gagal menjalankan migrasi ntk kolom history_stack: %v", err)
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom history_stack: %v", err)
 	}
 	
-	var slotCont int
-	if err := db.QeryRow("SELECT COUNT(*) FROM prodction_slots").Scan(&slotCont); err == nil && slotCont ==  {
-		log.Println("Tabel prodction_slots kosong, menambahkan data slot awal...")
+	var slotCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM production_slots").Scan(&slotCount); err == nil && slotCount == 0 {
+		log.Println("Tabel production_slots kosong, menambahkan data slot awal...")
 		tx, err := db.Begin()
 		if err != nil {
-			log.Fatalf("Gagal memlai transaksi ntk slot: %v", err)
+			log.Fatalf("Gagal memulai transaksi untuk slot: %v", err)
 		}
-		stmt, err := tx.Prepare("INSERT INTO prodction_slots (position_code) VLUES ($1)")
+		stmt, err := tx.Prepare("INSERT INTO production_slots (position_code) VALUES ($1)")
 		if err != nil {
 			tx.Rollback()
-			log.Fatalf("Gagal prepare statement ntk slot: %v", err)
+			log.Fatalf("Gagal prepare statement untuk slot: %v", err)
 		}
 		defer stmt.Close()
 
-		        // --- [PERUBHN UTM DI SINI] ---
-        // Jmlah total slot yang diinginkan per cell.
-        // -Z   = 26
-        // -ZZ  = 26 + 26*26 = 72
-        // -ZZZ = 26 + 26*26 + 26*26*26 = 18278
-        const slotsPerCell = 72 
+		        // --- [PERUBAHAN UTAMA DI SINI] ---
+        // Jumlah total slot yang diinginkan per cell.
+        // A-Z   = 26
+        // A-ZZ  = 26 + 26*26 = 702
+        // A-ZZZ = 26 + 26*26 + 26*26*26 = 18278
+        const slotsPerCell = 702 
 		for row := 1; row <= 7; row++ {
-            // Lakkan perlangan berdasarkan angka, bkan karakter
-            for i := ; i < slotsPerCell; i++ {
-                // Ubah angka 'i' menjadi kode kolom (, B, ..., , B, ...)
-                colName := toColmnName(i)
+            // Lakukan perulangan berdasarkan angka, bukan karakter
+            for i := 0; i < slotsPerCell; i++ {
+                // Ubah angka 'i' menjadi kode kolom (A, B, ..., AA, AB, ...)
+                colName := toColumnName(i)
                 
                 slotCode := fmt.Sprintf("Cell %d-%s", row, colName)
                 if _, err := stmt.Exec(slotCode); err != nil {
@@ -3998,41 +3998,41 @@ fnc initDB(db *sql.DB) {
                 }
             }
         }
-		// === KHIR BGIN PENTING ===
+		// === AKHIR BAGIAN PENTING ===
 
 		tx.Commit()
-		log.Println("Berhasil menambahkan 28 slot prodksi dalam format baris.")
+		log.Println("Berhasil menambahkan 28 slot produksi dalam format baris.")
 	}
-	// Menambahkan foreign key constraint dari panels.prodction_slot ke prodction_slots.position_code
+	// Menambahkan foreign key constraint dari panels.production_slot ke production_slots.position_code
 	addForeignKeyConstraintSQL := `
 	DO $$
 	BEGIN
 		IF NOT EXISTS (
 			SELECT 1 FROM pg_constraint
-			WHERE conname = 'fk_panels_prodction_slot' ND conrelid = 'panels'::regclass
+			WHERE conname = 'fk_panels_production_slot' AND conrelid = 'panels'::regclass
 		) THEN
-			LTER TBLE panels
-			DD CONSTRINT fk_panels_prodction_slot
-			FOREIGN KEY (prodction_slot) REFERENCES prodction_slots(position_code) ON DELETE SET NULL;
+			ALTER TABLE panels
+			ADD CONSTRAINT fk_panels_production_slot
+			FOREIGN KEY (production_slot) REFERENCES production_slots(position_code) ON DELETE SET NULL;
 		END IF;
 	END;
 	$$;
 	`
 	if _, err := db.Exec(addForeignKeyConstraintSQL); err != nil {
-		log.Fatalf("Gagal menambahkan foreign key constraint ntk prodction_slot: %v", err)
+		log.Fatalf("Gagal menambahkan foreign key constraint untuk production_slot: %v", err)
 	}
 
-    alterTableddSpplierSQL := `
+    alterTableAddSupplierSQL := `
     DO $$
     BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.colmns WHERE table_name = 'additional_sr' ND colmn_name = 'spplier') THEN
-            LTER TBLE additional_sr DD COLUMN spplier TEXT;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'supplier') THEN
+            ALTER TABLE additional_sr ADD COLUMN supplier TEXT;
         END IF;
     END;
     $$;
     `
-    if _, err := db.Exec(alterTableddSpplierSQL); err != nil {
-        log.Fatalf("Gagal menjalankan migrasi ntk kolom additional_sr.spplier: %v", err)
+    if _, err := db.Exec(alterTableAddSupplierSQL); err != nil {
+        log.Fatalf("Gagal menjalankan migrasi untuk kolom additional_sr.supplier: %v", err)
     }
 
 	fixChatsForeignKeySQL := `
@@ -4041,38 +4041,38 @@ fnc initDB(db *sql.DB) {
         -- Cek apakah constraint yang lama ada
         IF EXISTS (
             SELECT 1 FROM pg_constraint
-            WHERE conname = 'chats_panel_no_pp_fkey' ND conrelid = 'chats'::regclass
+            WHERE conname = 'chats_panel_no_pp_fkey' AND conrelid = 'chats'::regclass
         ) THEN
-            -- Haps constraint yang lama
-            LTER TBLE chats DROP CONSTRINT chats_panel_no_pp_fkey;
+            -- Hapus constraint yang lama
+            ALTER TABLE chats DROP CONSTRAINT chats_panel_no_pp_fkey;
         END IF;
 
-        -- Tambahkan constraint yang bar dengan ON UPDTE CSCDE
-        LTER TBLE chats
-            DD CONSTRINT chats_panel_no_pp_fkey
+        -- Tambahkan constraint yang baru dengan ON UPDATE CASCADE
+        ALTER TABLE chats
+            ADD CONSTRAINT chats_panel_no_pp_fkey
             FOREIGN KEY (panel_no_pp) REFERENCES panels(no_pp)
-            ON DELETE CSCDE ON UPDTE CSCDE; -- <-- INI KUNCINY
+            ON DELETE CASCADE ON UPDATE CASCADE; -- <-- INI KUNCINYA
     END
     $$;
     `
     if _, err := db.Exec(fixChatsForeignKeySQL); err != nil {
-        log.Fatalf("Gagal memperbaiki foreign key ntk tabel chats: %v", err)
+        log.Fatalf("Gagal memperbaiki foreign key untuk tabel chats: %v", err)
     }
 
 }
 
-fnc insertDmmyData(db *sql.DB) {
+func insertDummyData(db *sql.DB) {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Fatal(err)
 	}
 	companies := []Company{
-		{ID: "admin", Name: "dministrator", Role: ppRoledmin}, {ID: "viewer", Name: "Viewer", Role: ppRoleViewer},
-		{ID: "warehose", Name: "Warehose", Role: ppRoleWarehose}, {ID: "abacs", Name: "BCUS", Role: ppRoleK3},
-		{ID: "gaa", Name: "G", Role: ppRoleK3}, {ID: "gpe", Name: "GPE", Role: ppRoleK5},
-		{ID: "dsm", Name: "DSM", Role: ppRoleK5}, {ID: "presisi", Name: "Presisi", Role: ppRoleK5},
+		{ID: "admin", Name: "Administrator", Role: AppRoleAdmin}, {ID: "viewer", Name: "Viewer", Role: AppRoleViewer},
+		{ID: "warehouse", Name: "Warehouse", Role: AppRoleWarehouse}, {ID: "abacus", Name: "ABACUS", Role: AppRoleK3},
+		{ID: "gaa", Name: "GAA", Role: AppRoleK3}, {ID: "gpe", Name: "GPE", Role: AppRoleK5},
+		{ID: "dsm", Name: "DSM", Role: AppRoleK5}, {ID: "presisi", Name: "Presisi", Role: AppRoleK5},
 	}
-	stmt, err := tx.Prepare("INSERT INTO companies (id, name, role) VLUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
+	stmt, err := tx.Prepare("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
 	if err != nil {
 		tx.Rollback()
 		log.Fatal(err)
@@ -4084,21 +4084,21 @@ fnc insertDmmyData(db *sql.DB) {
 			log.Fatal(err)
 		}
 	}
-	acconts := []Companyccont{
+	accounts := []CompanyAccount{
 		{Username: "admin", Password: "123", CompanyID: "admin"}, {Username: "viewer", Password: "123", CompanyID: "viewer"},
-		{Username: "whs_ser1", Password: "123", CompanyID: "warehose"}, {Username: "whs_ser2", Password: "123", CompanyID: "warehose"},
-		{Username: "abacs_ser1", Password: "123", CompanyID: "abacs"}, {Username: "abacs_ser2", Password: "123", CompanyID: "abacs"},
-		{Username: "gaa_ser1", Password: "123", CompanyID: "gaa"}, {Username: "gaa_ser2", Password: "123", CompanyID: "gaa"},
-		{Username: "gpe_ser1", Password: "123", CompanyID: "gpe"}, {Username: "gpe_ser2", Password: "123", CompanyID: "gpe"},
-		{Username: "dsm_ser1", Password: "123", CompanyID: "dsm"}, {Username: "dsm_ser2", Password: "123", CompanyID: "dsm"},
+		{Username: "whs_user1", Password: "123", CompanyID: "warehouse"}, {Username: "whs_user2", Password: "123", CompanyID: "warehouse"},
+		{Username: "abacus_user1", Password: "123", CompanyID: "abacus"}, {Username: "abacus_user2", Password: "123", CompanyID: "abacus"},
+		{Username: "gaa_user1", Password: "123", CompanyID: "gaa"}, {Username: "gaa_user2", Password: "123", CompanyID: "gaa"},
+		{Username: "gpe_user1", Password: "123", CompanyID: "gpe"}, {Username: "gpe_user2", Password: "123", CompanyID: "gpe"},
+		{Username: "dsm_user1", Password: "123", CompanyID: "dsm"}, {Username: "dsm_user2", Password: "123", CompanyID: "dsm"},
 	}
-	stmt2, err := tx.Prepare("INSERT INTO company_acconts (sername, password, company_id) VLUES ($1, $2, $3) ON CONFLICT (sername) DO NOTHING")
+	stmt2, err := tx.Prepare("INSERT INTO company_accounts (username, password, company_id) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING")
 	if err != nil {
 		tx.Rollback()
 		log.Fatal(err)
 	}
 	defer stmt2.Close()
-	for _, a := range acconts {
+	for _, a := range accounts {
 		if _, err := stmt2.Exec(a.Username, a.Password, a.CompanyID); err != nil {
 			tx.Rollback()
 			log.Fatal(err)
@@ -4107,41 +4107,41 @@ fnc insertDmmyData(db *sql.DB) {
 	if err := tx.Commit(); err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Data dmmy berhasil dibat.")
+	log.Println("Data dummy berhasil dibuat.")
 }
-fnc fetchlls(db DBTX, tableName string, factory fnc() interface{}) (interface{}, error) {
-	rows, err := db.Qery(fmt.Sprintf("SELECT * FROM %s", tableName))
+func fetchAllAs(db DBTX, tableName string, factory func() interface{}) (interface{}, error) {
+	rows, err := db.Query(fmt.Sprintf("SELECT * FROM %s", tableName))
 	if err != nil {
-		retrn nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var reslts []interface{}
+	var results []interface{}
 	for rows.Next() {
 		model := factory()
 		switch m := model.(type) {
 		case *Company:
 			if err := rows.Scan(&m.ID, &m.Name, &m.Role); err != nil {
-				retrn nil, err
+				return nil, err
 			}
-		case *Companyccont:
+		case *CompanyAccount:
 			if err := rows.Scan(&m.Username, &m.Password, &m.CompanyID); err != nil {
-				retrn nil, err
+				return nil, err
 			}
 		case *Panel:
-			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatsBsbarPcc, &m.StatsBsbarMcc, &m.StatsComponent, &m.StatsPalet, &m.StatsCorepart, &m.oBsbarPcc, &m.oBsbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil {
-				retrn nil, err
+			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatusBusbarPcc, &m.StatusBusbarMcc, &m.StatusComponent, &m.StatusPalet, &m.StatusCorepart, &m.AoBusbarPcc, &m.AoBusbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil {
+				return nil, err
 			}
-		defalt:
-			retrn nil, fmt.Errorf("nspported type for fetchlls: %T", m)
+		default:
+			return nil, fmt.Errorf("unsupported type for fetchAllAs: %T", m)
 		}
-		reslts = append(reslts, model)
+		results = append(results, model)
 	}
-	retrn reslts, nil
+	return results, nil
 }
-fnc fetchIns(db DBTX, tableName, colmnName string, ids []string, factory fnc() interface{}) (interface{}, error) {
-	if len(ids) ==  {
-		retrn []interface{}{}, nil
+func fetchInAs(db DBTX, tableName, columnName string, ids []string, factory func() interface{}) (interface{}, error) {
+	if len(ids) == 0 {
+		return []interface{}{}, nil
 	}
 
 	placeholders := make([]string, len(ids))
@@ -4151,53 +4151,53 @@ fnc fetchIns(db DBTX, tableName, colmnName string, ids []string, factory fnc() i
 		args[i] = id
 	}
 
-	qery := fmt.Sprintf("SELECT * FROM %s WHERE %s IN (%s)", tableName, colmnName, strings.Join(placeholders, ","))
-	rows, err := db.Qery(qery, args...)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE %s IN (%s)", tableName, columnName, strings.Join(placeholders, ","))
+	rows, err := db.Query(query, args...)
 	if err != nil {
-		retrn nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var reslts []interface{}
+	var results []interface{}
 	for rows.Next() {
 		model := factory()
 		switch m := model.(type) {
 		case *Panel:
-			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatsBsbarPcc, &m.StatsBsbarMcc, &m.StatsComponent, &m.StatsPalet, &m.StatsCorepart, &m.oBsbarPcc, &m.oBsbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil {
-				retrn nil, err
+			if err := rows.Scan(&m.NoPp, &m.NoPanel, &m.NoWbs, &m.Project, &m.PercentProgress, &m.StartDate, &m.TargetDelivery, &m.StatusBusbarPcc, &m.StatusBusbarMcc, &m.StatusComponent, &m.StatusPalet, &m.StatusCorepart, &m.AoBusbarPcc, &m.AoBusbarMcc, &m.CreatedBy, &m.VendorID, &m.IsClosed, &m.ClosedDate); err != nil {
+				return nil, err
 			}
-		case *Bsbar:
+		case *Busbar:
 			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor, &m.Remarks); err != nil {
-				retrn nil, err
+				return nil, err
 			}
 		case *Component:
 			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
-				retrn nil, err
+				return nil, err
 			}
 		case *Palet:
 			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
-				retrn nil, err
+				return nil, err
 			}
 		case *Corepart:
 			if err := rows.Scan(&m.ID, &m.PanelNoPp, &m.Vendor); err != nil {
-				retrn nil, err
+				return nil, err
 			}
-		defalt:
-			retrn nil, fmt.Errorf("nspported type for fetchIns: %T", m)
+		default:
+			return nil, fmt.Errorf("unsupported type for fetchInAs: %T", m)
 		}
-		reslts = append(reslts, model)
+		results = append(results, model)
 	}
 
-	retrn reslts, nil
+	return results, nil
 }
-fnc insertMap(tx DBTX, tableName string, data map[string]interface{}) error {
+func insertMap(tx DBTX, tableName string, data map[string]interface{}) error {
 	var cols []string
 	var vals []interface{}
 	var placeholders []string
 	i := 1
 	for col, val := range data {
 		if val == nil {
-			contine
+			continue
 		}
 		cols = append(cols, col)
 		vals = append(vals, val)
@@ -4205,265 +4205,265 @@ fnc insertMap(tx DBTX, tableName string, data map[string]interface{}) error {
 		i++
 	}
 
-	if len(cols) ==  {
-		retrn nil
+	if len(cols) == 0 {
+		return nil
 	}
 
-	var conflictColmn string
-	var pdateSetters []string
+	var conflictColumn string
+	var updateSetters []string
 
 	switch tableName {
 	case "companies":
-		conflictColmn = "(id)"
-	case "company_acconts":
-		conflictColmn = "(sername)"
+		conflictColumn = "(id)"
+	case "company_accounts":
+		conflictColumn = "(username)"
 	case "panels":
-		conflictColmn = "(no_pp)"
-	case "bsbars", "components", "palet", "corepart":
-		conflictColmn = "(panel_no_pp, vendor)"
-	defalt:
-		retrn fmt.Errorf("nknown table for insertMap: %s", tableName)
+		conflictColumn = "(no_pp)"
+	case "busbars", "components", "palet", "corepart":
+		conflictColumn = "(panel_no_pp, vendor)"
+	default:
+		return fmt.Errorf("unknown table for insertMap: %s", tableName)
 	}
 
 	for _, col := range cols {
-		if !strings.Contains(conflictColmn, col) {
-			pdateSetters = append(pdateSetters, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
+		if !strings.Contains(conflictColumn, col) {
+			updateSetters = append(updateSetters, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
 		}
 	}
 
-	if len(pdateSetters) ==  && strings.Contains(conflictColmn, ",") {
-		qery := fmt.Sprintf("INSERT INTO %s (%s) VLUES (%s) ON CONFLICT %s DO NOTHING",
-			tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "), conflictColmn)
-		_, err := tx.Exec(qery, vals...)
-		retrn err
+	if len(updateSetters) == 0 && strings.Contains(conflictColumn, ",") {
+		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT %s DO NOTHING",
+			tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "), conflictColumn)
+		_, err := tx.Exec(query, vals...)
+		return err
 	}
 
-	qery := fmt.Sprintf("INSERT INTO %s (%s) VLUES (%s) ON CONFLICT %s DO UPDTE SET %s",
-		tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "), conflictColmn, strings.Join(pdateSetters, ", "))
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT %s DO UPDATE SET %s",
+		tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "), conflictColumn, strings.Join(updateSetters, ", "))
 
-	_, err := tx.Exec(qery, vals...)
-	retrn err
+	_, err := tx.Exec(query, vals...)
+	return err
 }
-fnc generateJsonTemplate(dataType string) map[string]interface{} {
+func generateJsonTemplate(dataType string) map[string]interface{} {
 	jsonData := make(map[string]interface{})
-	if dataType == "companies_and_acconts" {
+	if dataType == "companies_and_accounts" {
 		jsonData["companies"] = []map[string]string{{"id": "vendor_k3_contoh", "name": "Nama Vendor K3 Contoh", "role": "k3"}}
-		jsonData["company_acconts"] = []map[string]string{{"sername": "staff_k3_contoh", "password": "123", "company_id": "vendor_k3_contoh"}}
+		jsonData["company_accounts"] = []map[string]string{{"username": "staff_k3_contoh", "password": "123", "company_id": "vendor_k3_contoh"}}
 	} else {
 		now := time.Now().Format(time.RFC3339)
-		jsonData["panels"] = []map[string]interface{}{{"no_pp": "PP-CONTOH-1", "no_panel": "PNEL-CONTOH-", "percent_progress": 8.5, "start_date": now}}
-		jsonData["bsbars"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-1", "vendor": "vendor_k5_contoh", "remarks": "Catatan bsbar"}}
-		jsonData["components"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-1", "vendor": "warehose"}}
-		jsonData["palet"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-1", "vendor": "vendor_k3_contoh"}}
-		jsonData["corepart"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-1", "vendor": "vendor_k3_contoh"}}
+		jsonData["panels"] = []map[string]interface{}{{"no_pp": "PP-CONTOH-01", "no_panel": "PANEL-CONTOH-A", "percent_progress": 80.5, "start_date": now}}
+		jsonData["busbars"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-01", "vendor": "vendor_k5_contoh", "remarks": "Catatan busbar"}}
+		jsonData["components"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-01", "vendor": "warehouse"}}
+		jsonData["palet"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-01", "vendor": "vendor_k3_contoh"}}
+		jsonData["corepart"] = []map[string]string{{"panel_no_pp": "PP-CONTOH-01", "vendor": "vendor_k3_contoh"}}
 	}
-	retrn jsonData
+	return jsonData
 }
-fnc generateExcelTemplate(dataType string) *excelize.File {
+func generateExcelTemplate(dataType string) *excelize.File {
 	f := excelize.NewFile()
-	if dataType == "companies_and_acconts" {
+	if dataType == "companies_and_accounts" {
 		f.NewSheet("companies")
-		f.SetCellVale("companies", "1", "id")
-		f.SetCellVale("companies", "B1", "name")
-		f.SetCellVale("companies", "C1", "role")
-		f.SetCellVale("companies", "2", "vendor_k3_contoh")
-		f.SetCellVale("companies", "B2", "Nama Vendor K3 Contoh")
-		f.SetCellVale("companies", "C2", "k3")
-		f.NewSheet("company_acconts")
-		f.SetCellVale("company_acconts", "1", "sername")
-		f.SetCellVale("company_acconts", "B1", "password")
-		f.SetCellVale("company_acconts", "C1", "company_id")
-		f.SetCellVale("company_acconts", "2", "staff_k3_contoh")
-		f.SetCellVale("company_acconts", "B2", "password123")
-		f.SetCellVale("company_acconts", "C2", "vendor_k3_contoh")
+		f.SetCellValue("companies", "A1", "id")
+		f.SetCellValue("companies", "B1", "name")
+		f.SetCellValue("companies", "C1", "role")
+		f.SetCellValue("companies", "A2", "vendor_k3_contoh")
+		f.SetCellValue("companies", "B2", "Nama Vendor K3 Contoh")
+		f.SetCellValue("companies", "C2", "k3")
+		f.NewSheet("company_accounts")
+		f.SetCellValue("company_accounts", "A1", "username")
+		f.SetCellValue("company_accounts", "B1", "password")
+		f.SetCellValue("company_accounts", "C1", "company_id")
+		f.SetCellValue("company_accounts", "A2", "staff_k3_contoh")
+		f.SetCellValue("company_accounts", "B2", "password123")
+		f.SetCellValue("company_accounts", "C2", "vendor_k3_contoh")
 	} else {
-		panelHeaders := []string{"no_pp", "no_panel", "no_wbs", "project", "percent_progress", "start_date", "target_delivery", "stats_bsbar_pcc", "stats_bsbar_mcc", "stats_component", "stats_palet", "stats_corepart", "ao_bsbar_pcc", "ao_bsbar_mcc", "created_by", "vendor_id", "is_closed", "closed_date"}
+		panelHeaders := []string{"no_pp", "no_panel", "no_wbs", "project", "percent_progress", "start_date", "target_delivery", "status_busbar_pcc", "status_busbar_mcc", "status_component", "status_palet", "status_corepart", "ao_busbar_pcc", "ao_busbar_mcc", "created_by", "vendor_id", "is_closed", "closed_date"}
 		f.NewSheet("panels")
 		for i, h := range panelHeaders {
-			f.SetCellVale("panels", fmt.Sprintf("%c1", ''+i), h)
+			f.SetCellValue("panels", fmt.Sprintf("%c1", 'A'+i), h)
 		}
 
-		bsbarHeaders := []string{"panel_no_pp", "vendor", "remarks"}
-		f.NewSheet("bsbars")
-		for i, h := range bsbarHeaders {
-			f.SetCellVale("bsbars", fmt.Sprintf("%c1", ''+i), h)
+		busbarHeaders := []string{"panel_no_pp", "vendor", "remarks"}
+		f.NewSheet("busbars")
+		for i, h := range busbarHeaders {
+			f.SetCellValue("busbars", fmt.Sprintf("%c1", 'A'+i), h)
 		}
 
 		f.NewSheet("components")
-		f.SetCellVale("components", "1", "panel_no_pp")
-		f.SetCellVale("components", "B1", "vendor")
+		f.SetCellValue("components", "A1", "panel_no_pp")
+		f.SetCellValue("components", "B1", "vendor")
 		f.NewSheet("palet")
-		f.SetCellVale("palet", "1", "panel_no_pp")
-		f.SetCellVale("palet", "B1", "vendor")
+		f.SetCellValue("palet", "A1", "panel_no_pp")
+		f.SetCellValue("palet", "B1", "vendor")
 		f.NewSheet("corepart")
-		f.SetCellVale("corepart", "1", "panel_no_pp")
-		f.SetCellVale("corepart", "B1", "vendor")
+		f.SetCellValue("corepart", "A1", "panel_no_pp")
+		f.SetCellValue("corepart", "B1", "vendor")
 	}
 	f.DeleteSheet("Sheet1")
-	retrn f
+	return f
 }
-fnc getValeCaseInsensitive(row map[string]interface{}, key string) string {
-	lowerKey := strings.ToLower(strings.Replacell(key, " ", ""))
+func getValueCaseInsensitive(row map[string]interface{}, key string) string {
+	lowerKey := strings.ToLower(strings.ReplaceAll(key, " ", ""))
 	for k, v := range row {
-		if strings.ToLower(strings.Replacell(k, " ", "")) == lowerKey {
+		if strings.ToLower(strings.ReplaceAll(k, " ", "")) == lowerKey {
 			if v != nil {
-				retrn fmt.Sprintf("%v", v)
+				return fmt.Sprintf("%v", v)
 			}
 		}
 	}
-	retrn ""
+	return ""
 }
 
-fnc parseDate(dateStr string) *string {
+func parseDate(dateStr string) *string {
 	if dateStr == "" {
-		retrn nil
+		return nil
 	}
-	// Daftar format yang akan dicoba ntk di-parsing.
-	layots := []string{
-		time.RFC3339Nano,              // [PENMBHN] Format dengan milidetik: 225-7-17T::.Z
-		time.RFC3339,                   // Format standar: 225-7-17T::Z
-		"26-1-2T15:4:5Z7:",     // Format standar lain
-		"2-Jan-26",                  // Format: 17-Jl-225
-		"2-Jan-6",                    // Format: 17-Jl-25
-		"1/2/26",                     // Format: 7/17/225
+	// Daftar format yang akan dicoba untuk di-parsing.
+	layouts := []string{
+		time.RFC3339Nano,              // [PENAMBAHAN] Format dengan milidetik: 2025-07-17T00:00:00.000Z
+		time.RFC3339,                   // Format standar: 2025-07-17T00:00:00Z
+		"2006-01-02T15:04:05Z07:00",     // Format standar lain
+		"02-Jan-2006",                  // Format: 17-Jul-2025
+		"02-Jan-06",                    // Format: 17-Jul-25
+		"1/2/2006",                     // Format: 7/17/2025
 	}
-	for _, layot := range layots {
-		t, err := time.Parse(layot, dateStr)
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, dateStr)
 		if err == nil {
-			// Jika berhasil, bah ke format standar ISO 861 ntk disimpan di DB
+			// Jika berhasil, ubah ke format standar ISO 8601 untuk disimpan di DB
 			s := t.Format(time.RFC3339)
-			retrn &s
+			return &s
 		}
 	}
-	// Jika sema format gagal, kembalikan nil
-	retrn nil
+	// Jika semua format gagal, kembalikan nil
+	return nil
 }
 
-// getMessagesByChatIDHandler mengambil sema pesan ntk sebah chat ID.
-fnc (a *pp) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	chatID, err := strconv.toi(vars["chat_id"])
+// getMessagesByChatIDHandler mengambil semua pesan untuk sebuah chat ID.
+func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	chatID, err := strconv.Atoi(vars["chat_id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid Chat ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid Chat ID")
+		return
 	}
 
-	rows, err := a.DB.Qery(`
-		SELECT id, chat_id, sender_sername, text, image_data, replied_isse_id, created_at 
-		FROM pblic.chat_messages 
+	rows, err := a.DB.Query(`
+		SELECT id, chat_id, sender_username, text, image_data, replied_issue_id, created_at 
+		FROM public.chat_messages 
 		WHERE chat_id = $1 
-		ORDER BY created_at SC`, chatID)
+		ORDER BY created_at ASC`, chatID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to retrieve messages: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve messages: "+err.Error())
+		return
 	}
 	defer rows.Close()
 
 	var messages []ChatMessage
 	for rows.Next() {
 		var msg ChatMessage
-		if err := rows.Scan(&msg.ID, &msg.ChatID, &msg.SenderUsername, &msg.Text, &msg.ImageData, &msg.RepliedIsseID, &msg.Createdt); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to scan message: "+err.Error())
-			retrn
+		if err := rows.Scan(&msg.ID, &msg.ChatID, &msg.SenderUsername, &msg.Text, &msg.ImageData, &msg.RepliedIssueID, &msg.CreatedAt); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan message: "+err.Error())
+			return
 		}
 		messages = append(messages, msg)
 	}
 
-	respondWithJSON(w, http.StatsOK, messages)
+	respondWithJSON(w, http.StatusOK, messages)
 }
 
-// createMessageHandler mengirim sebah pesan bar ke dalam chat.
-fnc (a *pp) createMessageHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	chatID, err := strconv.toi(vars["chat_id"])
+// createMessageHandler mengirim sebuah pesan baru ke dalam chat.
+func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	chatID, err := strconv.Atoi(vars["chat_id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid Chat ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid Chat ID")
+		return
 	}
 
-	var payload strct {
-		SenderUsername string  `json:"sender_sername"`
+	var payload struct {
+		SenderUsername string  `json:"sender_username"`
 		Text           *string `json:"text"`
 		ImageData      *string `json:"image_data"` // Base64 string
-		RepliedIsseID *int    `json:"replied_isse_id"`
+		RepliedIssueID *int    `json:"replied_issue_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	if (payload.Text == nil || *payload.Text == "") && (payload.ImageData == nil || *payload.ImageData == "") {
-		respondWithError(w, http.StatsBadReqest, "Message cannot be empty (mst have text or image)")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Message cannot be empty (must have text or image)")
+		return
 	}
 
 	var createdMessage ChatMessage
-	qery := `
-		INSERT INTO chat_messages (chat_id, sender_sername, text, image_data, replied_isse_id) 
-		VLUES ($1, $2, $3, $4, $5) 
-		RETURNING id, chat_id, sender_sername, text, image_data, replied_isse_id, created_at`
+	query := `
+		INSERT INTO chat_messages (chat_id, sender_username, text, image_data, replied_issue_id) 
+		VALUES ($1, $2, $3, $4, $5) 
+		RETURNING id, chat_id, sender_username, text, image_data, replied_issue_id, created_at`
 
-	err = a.DB.QeryRow(qery, chatID, payload.SenderUsername, payload.Text, payload.ImageData, payload.RepliedIsseID).Scan(
-		&createdMessage.ID, &createdMessage.ChatID, &createdMessage.SenderUsername, &createdMessage.Text, &createdMessage.ImageData, &createdMessage.RepliedIsseID, &createdMessage.Createdt,
+	err = a.DB.QueryRow(query, chatID, payload.SenderUsername, payload.Text, payload.ImageData, payload.RepliedIssueID).Scan(
+		&createdMessage.ID, &createdMessage.ChatID, &createdMessage.SenderUsername, &createdMessage.Text, &createdMessage.ImageData, &createdMessage.RepliedIssueID, &createdMessage.CreatedAt,
 	)
 
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to create message: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to create message: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, createdMessage)
+	respondWithJSON(w, http.StatusOK, createdMessage)
 }
 
-fnc (a *pp) getCommentsByIsseHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	isseID, err := strconv.toi(vars["isse_id"])
+func (a *App) getCommentsByIssueHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid Isse ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
+		return
 	}
 
-	qery := `
+	query := `
 		SELECT
 			ic.id,
-			ic.isse_id,
+			ic.issue_id,
 			ic.text,
 			ic.timestamp,
 			ic.reply_to_comment_id,
 			ic.is_edited,
-			COLESCE(ic.image_rls, '[]'::jsonb),
-			sender.sername as sender_id,
-			sender.sername as sender_name, -- Bisa diganti dengan nama asli jika ada
-			reply_ser.sername as reply_to_ser_id,
-			reply_ser.sername as reply_to_ser_name
-		FROM pblic.isse_comments ic
-		JOIN pblic.company_acconts sender ON ic.sender_id = sender.sername
-		LEFT JOIN pblic.company_acconts reply_ser ON ic.reply_to_ser_id = reply_ser.sername
-		WHERE ic.isse_id = $1
-		ORDER BY ic.timestamp SC
+			COALESCE(ic.image_urls, '[]'::jsonb),
+			sender.username as sender_id,
+			sender.username as sender_name, -- Bisa diganti dengan nama asli jika ada
+			reply_user.username as reply_to_user_id,
+			reply_user.username as reply_to_user_name
+		FROM public.issue_comments ic
+		JOIN public.company_accounts sender ON ic.sender_id = sender.username
+		LEFT JOIN public.company_accounts reply_user ON ic.reply_to_user_id = reply_user.username
+		WHERE ic.issue_id = $1
+		ORDER BY ic.timestamp ASC
 	`
 
-	rows, err := a.DB.Qery(qery, isseID)
+	rows, err := a.DB.Query(query, issueID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to qery comments: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to query comments: "+err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var comments []IsseComment
+	var comments []IssueComment
 	for rows.Next() {
-		var c IsseComment
-		var senderID, senderName, replyToUserID, replyToUserName sql.NllString
+		var c IssueComment
+		var senderID, senderName, replyToUserID, replyToUserName sql.NullString
 		var imageUrlsJSON []byte
 
 		err := rows.Scan(
-			&c.ID, &c.IsseID, &c.Text, &c.Timestamp, &c.ReplyToCommentID, &c.IsEdited, &imageUrlsJSON,
+			&c.ID, &c.IssueID, &c.Text, &c.Timestamp, &c.ReplyToCommentID, &c.IsEdited, &imageUrlsJSON,
 			&senderID, &senderName, &replyToUserID, &replyToUserName,
 		)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to scan comment: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan comment: "+err.Error())
+			return
 		}
 
 		c.Sender = User{ID: senderID.String, Name: senderName.String}
@@ -4478,21 +4478,21 @@ fnc (a *pp) getCommentsByIsseHandler(w http.ResponseWriter, r *http.Reqest) {
 		comments = append(comments, c)
 	}
 
-	respondWithJSON(w, http.StatsOK, comments)
+	respondWithJSON(w, http.StatusOK, comments)
 }
 
-fnc (a *pp) createCommentHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	isseID, err := strconv.toi(vars["isse_id"])
+func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid Isse ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
+		return
 	}
 
 	var payload CreateCommentPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
 	var imageUrls []string
@@ -4501,54 +4501,54 @@ fnc (a *pp) createCommentHandler(w http.ResponseWriter, r *http.Reqest) {
 		parts := strings.Split(base64Image, ",")
 		if len(parts) != 2 {
 			log.Println("Invalid base64 image format")
-			contine
+			continue
 		}
 		imgData, err := base64.StdEncoding.DecodeString(parts[1])
 		if err != nil {
 			log.Printf("Failed to decode base64: %v", err)
-			contine
+			continue
 		}
 
 		// Simpan ke file
-		filename := fmt.Sprintf("%s.jpg", id.New().String())
-		filepath := fmt.Sprintf("ploads/%s", filename)
-		err = os.WriteFile(filepath, imgData, 644)
+		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+		filepath := fmt.Sprintf("uploads/%s", filename)
+		err = os.WriteFile(filepath, imgData, 0644)
 		if err != nil {
 			log.Printf("Failed to save image file: %v", err)
-			contine
+			continue
 		}
 		// Simpan URL-nya
 		imageUrls = append(imageUrls, "/"+filepath)
 	}
 
-	imageUrlsJSON, _ := json.Marshal(imageUrls) // smsikan `imageUrls` sdah diproses
-	newCommentID := id.New().String()
+	imageUrlsJSON, _ := json.Marshal(imageUrls) // Asumsikan `imageUrls` sudah diproses
+	newCommentID := uuid.New().String()
 
-	qery := `
-		INSERT INTO isse_comments (id, isse_id, sender_id, text, reply_to_comment_id, reply_to_ser_id, image_rls)
-		VLUES ($1, $2, $3, $4, $5, $6, $7)`
-	_, err = a.DB.Exec(qery, newCommentID, isseID, payload.SenderID, payload.Text, payload.ReplyToCommentID, payload.ReplyToUserID, imageUrlsJSON)
+	query := `
+		INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_comment_id, reply_to_user_id, image_urls)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	_, err = a.DB.Exec(query, newCommentID, issueID, payload.SenderID, payload.Text, payload.ReplyToCommentID, payload.ReplyToUserID, imageUrlsJSON)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to create comment: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to create comment: "+err.Error())
+		return
 	}
 
-	go fnc() {
-		// 1. mbil data dari database (ckp sekali)
-		var notifyList, isseTitle, panelNoPp string
-		err := a.DB.QeryRow(`
-			SELECT COLESCE(i.notify_email, ''), i.title, c.panel_no_pp
-			FROM pblic.isses i JOIN pblic.chats c ON i.chat_id = c.id
-			WHERE i.id = $1`, isseID).Scan(&notifyList, &isseTitle, &panelNoPp)
+	go func() {
+		// 1. Ambil data dari database (cukup sekali)
+		var notifyList, issueTitle, panelNoPp string
+		err := a.DB.QueryRow(`
+			SELECT COALESCE(i.notify_email, ''), i.title, c.panel_no_pp
+			FROM public.issues i JOIN public.chats c ON i.chat_id = c.id
+			WHERE i.id = $1`, issueID).Scan(&notifyList, &issueTitle, &panelNoPp)
 		if err != nil {
-			log.Printf("Gagal ambil info is ntk notifikasi (ID: %d): %v", isseID, err)
-			retrn
+			log.Printf("Gagal ambil info isu untuk notifikasi (ID: %d): %v", issueID, err)
+			return
 		}
 		if notifyList == "" {
-			retrn // Tidak ada yang perl dinotifikasi
+			return // Tidak ada yang perlu dinotifikasi
 		}
 
-		// 2. Filter daftar penerima (ckp sekali)
+		// 2. Filter daftar penerima (cukup sekali)
 		allRecipients := strings.Split(notifyList, ",")
 		finalRecipients := []string{}
 		for _, recipient := range allRecipients {
@@ -4559,75 +4559,75 @@ fnc (a *pp) createCommentHandler(w http.ResponseWriter, r *http.Reqest) {
 			}
 		}
 
-		// 3. Jika ada penerima, kirim keda jenis notifikasi
-		if len(finalRecipients) >  {
-			// . Kirim Psh Notification
-			notifTitle := fmt.Sprintf("Komentar bar di Panel %s", panelNoPp)
+		// 3. Jika ada penerima, kirim kedua jenis notifikasi
+		if len(finalRecipients) > 0 {
+			// A. Kirim Push Notification
+			notifTitle := fmt.Sprintf("Komentar baru di Panel %s", panelNoPp)
 			notifBody := fmt.Sprintf("%s: \"%s\"", payload.SenderID, payload.Text)
 			a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
 			// B. Kirim Email Notifikasi
-			emailSbject := fmt.Sprintf("[SecPanel] Komentar Bar: %s", isseTitle)
+			emailSubject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
 			emailHtmlBody := fmt.Sprintf(
-				`<h3>Komentar Bar pada Is di Panel %s</h3>
-				 <p><strong>Jdl Is:</strong> %s</p>
+				`<h3>Komentar Baru pada Isu di Panel %s</h3>
+				 <p><strong>Judul Isu:</strong> %s</p>
 				 <p><strong>Dari:</strong> %s</p>
 				 <p><strong>Komentar:</strong></p>
-				 <blockqote style="border-left: 2px solid #ccc; padding-left: 1px; margin-left: 5px; font-style: italic;">
+				 <blockquote style="border-left: 2px solid #ccc; padding-left: 10px; margin-left: 5px; font-style: italic;">
 					%s
-				 </blockqote>
+				 </blockquote>
 				 <hr>
-				 <p><i>Email ini dibat secara otomatis. Silakan periksa aplikasi SecPanel ntk detail lebih lanjt.</i></p>`,
-				panelNoPp, isseTitle, payload.SenderID, payload.Text,
+				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+				panelNoPp, issueTitle, payload.SenderID, payload.Text,
 			)
-			sendNotificationEmail(finalRecipients, emailSbject, emailHtmlBody)
+			sendNotificationEmail(finalRecipients, emailSubject, emailHtmlBody)
 		}
 	}()
 
-	respondWithJSON(w, http.StatsCreated, map[string]string{"id": newCommentID})
+	respondWithJSON(w, http.StatusCreated, map[string]string{"id": newCommentID})
 }
-// Ganti fngsi lama dengan versi final ini di main.go
-fnc (a *pp) pdateCommentHandler(w http.ResponseWriter, r *http.Reqest) {
-	commentID := mx.Vars(r)["id"]
+// Ganti fungsi lama dengan versi final ini di main.go
+func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
+	commentID := mux.Vars(r)["id"]
 
-	var payload strct {
+	var payload struct {
 		Text   string   `json:"text"`
 		Images []string `json:"images"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal memlai transaksi")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
+		return
 	}
 	defer tx.Rollback()
 
-	var isseID int
-	var isSystemComment sql.NllBool
-	err = tx.QeryRow("SELECT isse_id, is_system_comment FROM pblic.isse_comments WHERE id = $1", commentID).Scan(&isseID, &isSystemComment)
+	var issueID int
+	var isSystemComment sql.NullBool
+	err = tx.QueryRow("SELECT issue_id, is_system_comment FROM public.issue_comments WHERE id = $1", commentID).Scan(&issueID, &isSystemComment)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "Komentar tidak ditemkan")
+			respondWithError(w, http.StatusNotFound, "Komentar tidak ditemukan")
 		} else {
-			respondWithError(w, http.StatsInternalServerError, "Gagal mengambil detail komentar: "+err.Error())
+			respondWithError(w, http.StatusInternalServerError, "Gagal mengambil detail komentar: "+err.Error())
 		}
-		retrn
+		return
 	}
 
-	// Update komentar it sendiri seperti biasa
+	// Update komentar itu sendiri seperti biasa
 	var finalImageUrls []string
 	for _, img := range payload.Images {
 		if strings.HasPrefix(img, "data:image") {
 			parts := strings.Split(img, ",")
-			if len(parts) < 2 { contine }
+			if len(parts) < 2 { continue }
 			imgData, _ := base64.StdEncoding.DecodeString(parts[1])
-			filename := fmt.Sprintf("%s.jpg", id.New().String())
-			filepath := fmt.Sprintf("ploads/%s", filename)
-			os.WriteFile(filepath, imgData, 644)
+			filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+			filepath := fmt.Sprintf("uploads/%s", filename)
+			os.WriteFile(filepath, imgData, 0644)
 			finalImageUrls = append(finalImageUrls, "/"+filepath)
 		} else {
 			finalImageUrls = append(finalImageUrls, img)
@@ -4635,318 +4635,318 @@ fnc (a *pp) pdateCommentHandler(w http.ResponseWriter, r *http.Reqest) {
 	}
 	imageUrlsJSON, _ := json.Marshal(finalImageUrls)
 	
-	pdateCommentQery := `UPDTE isse_comments SET text = $1, is_edited = tre, image_rls = $2, is_system_comment = false WHERE id = $3`
-	_, err = tx.Exec(pdateCommentQery, payload.Text, imageUrlsJSON, commentID)
+	updateCommentQuery := `UPDATE issue_comments SET text = $1, is_edited = true, image_urls = $2, is_system_comment = false WHERE id = $3`
+	_, err = tx.Exec(updateCommentQuery, payload.Text, imageUrlsJSON, commentID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal pdate komentar")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal update komentar")
+		return
 	}
 
-	// Jika komentar yang diedit DLH komentar sistem, pdate jga isnya
+	// Jika komentar yang diedit ADALAH komentar sistem, update juga isunya
 	if isSystemComment.Valid && isSystemComment.Bool {
 		
-		// --- ▼▼▼ LOGIK PRSING BRU YNG LEBIH FLEKSIBEL ▼▼▼ ---
+		// --- ▼▼▼ LOGIKA PARSING BARU YANG LEBIH FLEKSIBEL ▼▼▼ ---
 		var newTitle, newDescription string
 		
-		// Gnakan SplitN ntk membagi string hanya pada kemnclan ": " pertama
+		// Gunakan SplitN untuk membagi string hanya pada kemunculan ": " pertama
 		parts := strings.SplitN(payload.Text, ": ", 2)
 
 		if len(parts) == 2 {
-			// Jika ada pemisah ": ", bagian pertama adalah title, keda adalah description
-			newTitle = strings.Trim(parts[], "* ") // Haps markdown ** dan spasi
+			// Jika ada pemisah ": ", bagian pertama adalah title, kedua adalah description
+			newTitle = strings.Trim(parts[0], "* ") // Hapus markdown ** dan spasi
 			newDescription = strings.TrimSpace(parts[1])
 		} else {
-			// Jika tidak ada pemisah, selrh teks adalah title
+			// Jika tidak ada pemisah, seluruh teks adalah title
 			newTitle = strings.Trim(payload.Text, "* ")
 			newDescription = "" // Kosongkan deskripsi
 		}
-		// --- ▲▲▲ KHIR LOGIK PRSING BRU ▲▲▲ ---
+		// --- ▲▲▲ AKHIR LOGIKA PARSING BARU ▲▲▲ ---
 
-		// Lanjtkan hanya jika title tidak kosong setelah parsing
+		// Lanjutkan hanya jika title tidak kosong setelah parsing
 		if newTitle != "" {
-			pdateIsseQery := `UPDTE isses SET title = $1, description = $2 WHERE id = $3`
-			_, err = tx.Exec(pdateIsseQery, newTitle, newDescription, isseID)
+			updateIssueQuery := `UPDATE issues SET title = $1, description = $2 WHERE id = $3`
+			_, err = tx.Exec(updateIssueQuery, newTitle, newDescription, issueID)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Gagal sinkronisasi pdate ke is: "+err.Error())
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Gagal sinkronisasi update ke isu: "+err.Error())
+				return
 			}
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal commit transaksi")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
+		return
 	}
 	
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-fnc (a *pp) deleteCommentHandler(w http.ResponseWriter, r *http.Reqest) {
-	commentID := mx.Vars(r)["id"]
-	_, err := a.DB.Exec("DELETE FROM pblic.isse_comments WHERE id = $1", commentID)
+func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
+	commentID := mux.Vars(r)["id"]
+	_, err := a.DB.Exec("DELETE FROM public.issue_comments WHERE id = $1", commentID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to delete comment")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to delete comment")
+		return
 	}
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "deleted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
-fnc (a *pp) getllIsseTitlesHandler(w http.ResponseWriter, r *http.Reqest) {
-	rows, err := a.DB.Qery("SELECT id, title FROM pblic.isse_titles ORDER BY title SC")
+func (a *App) getAllIssueTitlesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.DB.Query("SELECT id, title FROM public.issue_titles ORDER BY title ASC")
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var titles []IsseTitle
+	var titles []IssueTitle
 	for rows.Next() {
-		var it IsseTitle
+		var it IssueTitle
 		if err := rows.Scan(&it.ID, &it.Title); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Gagal scan title: "+err.Error())
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Gagal scan title: "+err.Error())
+			return
 		}
 		titles = append(titles, it)
 	}
-	respondWithJSON(w, http.StatsOK, titles)
+	respondWithJSON(w, http.StatusOK, titles)
 }
 
-fnc (a *pp) createIsseTitleHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
+func (a *App) createIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
 		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
 	if payload.Title == "" {
-		respondWithError(w, http.StatsBadReqest, "Title tidak boleh kosong")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
+		return
 	}
 
-	var newTitle IsseTitle
-	qery := "INSERT INTO isse_titles (title) VLUES ($1) RETURNING id, title"
-	err := a.DB.QeryRow(qery, payload.Title).Scan(&newTitle.ID, &newTitle.Title)
+	var newTitle IssueTitle
+	query := "INSERT INTO issue_titles (title) VALUES ($1) RETURNING id, title"
+	err := a.DB.QueryRow(query, payload.Title).Scan(&newTitle.ID, &newTitle.Title)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "2355" {
-			respondWithError(w, http.StatsConflict, "Tipe masalah dengan nama tersebt sdah ada.")
-			retrn
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, "Gagal membat tipe masalah: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal membuat tipe masalah: "+err.Error())
+		return
 	}
-	respondWithJSON(w, http.StatsCreated, newTitle)
+	respondWithJSON(w, http.StatusCreated, newTitle)
 }
 
-fnc (a *pp) pdateIsseTitleHandler(w http.ResponseWriter, r *http.Reqest) {
-	id, err := strconv.toi(mx.Vars(r)["id"])
+func (a *App) updateIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid ID")
+		return
 	}
-	var payload strct {
+	var payload struct {
 		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
 	if payload.Title == "" {
-		respondWithError(w, http.StatsBadReqest, "Title tidak boleh kosong")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Title tidak boleh kosong")
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal memlai transaksi")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi")
+		return
 	}
 	defer tx.Rollback()
 
 	var oldTitle string
-	err = tx.QeryRow("SELECT title FROM pblic.isse_titles WHERE id = $1", id).Scan(&oldTitle)
+	err = tx.QueryRow("SELECT title FROM public.issue_titles WHERE id = $1", id).Scan(&oldTitle)
 	if err != nil {
-		respondWithError(w, http.StatsNotFond, "Tipe masalah tidak ditemkan")
-		retrn
+		respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
+		return
 	}
 
-	_, err = tx.Exec("UPDTE isse_titles SET title = $1 WHERE id = $2", payload.Title, id)
+	_, err = tx.Exec("UPDATE issue_titles SET title = $1 WHERE id = $2", payload.Title, id)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "2355" {
-			respondWithError(w, http.StatsConflict, "Tipe masalah dengan nama tersebt sdah ada.")
-			retrn
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			respondWithError(w, http.StatusConflict, "Tipe masalah dengan nama tersebut sudah ada.")
+			return
 		}
-		respondWithError(w, http.StatsInternalServerError, "Gagal pdate master title: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal update master title: "+err.Error())
+		return
 	}
 
-	_, err = tx.Exec("UPDTE isses SET title = $1 WHERE title = $2", payload.Title, oldTitle)
+	_, err = tx.Exec("UPDATE issues SET title = $1 WHERE title = $2", payload.Title, oldTitle)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal pdate isse yang ada: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal update issue yang ada: "+err.Error())
+		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal commit transaksi")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
-fnc (a *pp) deleteIsseTitleHandler(w http.ResponseWriter, r *http.Reqest) {
-	id, err := strconv.toi(mx.Vars(r)["id"])
+func (a *App) deleteIssueTitleHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid ID")
+		return
 	}
 
 	var oldTitle string
-	err = a.DB.QeryRow("SELECT title FROM pblic.isse_titles WHERE id = $1", id).Scan(&oldTitle)
+	err = a.DB.QueryRow("SELECT title FROM public.issue_titles WHERE id = $1", id).Scan(&oldTitle)
 	if err != nil {
-		respondWithError(w, http.StatsNotFond, "Tipe masalah tidak ditemkan")
-		retrn
+		respondWithError(w, http.StatusNotFound, "Tipe masalah tidak ditemukan")
+		return
 	}
 
-	var cont int
-	err = a.DB.QeryRow("SELECT COUNT(*) FROM pblic.isses WHERE title = $1", oldTitle).Scan(&cont)
+	var count int
+	err = a.DB.QueryRow("SELECT COUNT(*) FROM public.issues WHERE title = $1", oldTitle).Scan(&count)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal memeriksa penggnaan title: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal memeriksa penggunaan title: "+err.Error())
+		return
 	}
 
-	if cont >  {
-		respondWithError(w, http.StatsConflict, fmt.Sprintf("Tidak dapat menghaps. Tipe masalah ini dignakan oleh %d is.", cont))
-		retrn
+	if count > 0 {
+		respondWithError(w, http.StatusConflict, fmt.Sprintf("Tidak dapat menghapus. Tipe masalah ini digunakan oleh %d isu.", count))
+		return
 	}
 
-	_, err = a.DB.Exec("DELETE FROM pblic.isse_titles WHERE id = $1", id)
+	_, err = a.DB.Exec("DELETE FROM public.issue_titles WHERE id = $1", id)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal menghaps: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "deleted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
-fnc (a *pp) askGeminiHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	isseID, err := strconv.toi(vars["isse_id"])
+func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	issueID, err := strconv.Atoi(vars["issue_id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid Isse ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid Issue ID")
+		return
 	}
 
-	var payload strct {
-		Qestion       string `json:"qestion"`
+	var payload struct {
+		Question       string `json:"question"`
 		SenderID       string `json:"sender_id"`
 		ReplyToCommentID string `json:"reply_to_comment_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
-	// 1. mbil Konteks Is
-	var isseTitle, isseDesc string
-	err = a.DB.QeryRow("SELECT title, description FROM pblic.isses WHERE id = $1", isseID).Scan(&isseTitle, &isseDesc)
+	// 1. Ambil Konteks Isu
+	var issueTitle, issueDesc string
+	err = a.DB.QueryRow("SELECT title, description FROM public.issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
 	if err != nil {
-		respondWithError(w, http.StatsNotFond, "Isse not fond")
-		retrn
+		respondWithError(w, http.StatusNotFound, "Issue not found")
+		return
 	}
 
-	// 2. mbil Konteks Komentar
-	rows, err := a.DB.Qery(`
-        SELECT ca.sername, ic.text 
-        FROM pblic.isse_comments ic
-        JOIN pblic.company_acconts ca ON ic.sender_id = ca.sername
-        WHERE ic.isse_id = $1 ORDER BY ic.timestamp SC
-    `, isseID)
+	// 2. Ambil Konteks Komentar
+	rows, err := a.DB.Query(`
+        SELECT ca.username, ic.text 
+        FROM public.issue_comments ic
+        JOIN public.company_accounts ca ON ic.sender_id = ca.username
+        WHERE ic.issue_id = $1 ORDER BY ic.timestamp ASC
+    `, issueID)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal mengambil histori komentar")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil histori komentar")
+		return
 	}
 	defer rows.Close()
 
-	var commentHistory strings.Bilder
+	var commentHistory strings.Builder
 	for rows.Next() {
-		var sername, text string
-		if err := rows.Scan(&sername, &text); err != nil {
-			contine
+		var username, text string
+		if err := rows.Scan(&username, &text); err != nil {
+			continue
 		}
-		commentHistory.WriteString(fmt.Sprintf("%s: %s\n", sername, text))
+		commentHistory.WriteString(fmt.Sprintf("%s: %s\n", username, text))
 	}
 
-	// 3. Setp Gemini Client
-	ctx := context.Backgrond()
+	// 3. Setup Gemini Client
+	ctx := context.Background()
 	
-	apiKey := "IzaSyDiMY2xYN_eOw5vUzk-J3sLVDb81TEfS8"
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
 	if apiKey == ""  {
-		respondWithError(w, http.StatsInternalServerError, "GEMINI_PI_KEY is not set on the server")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set on the server")
+		return
 	}
 
-	client, err := genai.NewClient(ctx, option.WithPIKey(apiKey))
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to create Gemini client: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error())
+		return
 	}
 	defer client.Close()
 
-	// 4. Setp Model dan Prompt
+	// 4. Setup Model dan Prompt
 	model := client.GenerativeModel("gemini-2.5-flash-lite")
-	model.Tools = tools // Menggnakan tools yang sdah didefinisikan
+	model.Tools = tools // Menggunakan tools yang sudah didefinisikan
 	cs := model.StartChat()
 
-	fllPrompt := fmt.Sprintf(
-		"nda adalah asisten I. Berdasarkan konteks is dan histori komentar berikt, jawab pertanyaan ser.\n\n"+
-			"--- Konteks Is ---\n"+
-			"Jdl: %s\n"+
+	fullPrompt := fmt.Sprintf(
+		"Anda adalah asisten AI. Berdasarkan konteks isu dan histori komentar berikut, jawab pertanyaan user.\n\n"+
+			"--- Konteks Isu ---\n"+
+			"Judul: %s\n"+
 			"Deskripsi: %s\n\n"+
-			"--- Histori Komentar Sejah Ini ---\n"+
+			"--- Histori Komentar Sejauh Ini ---\n"+
 			"%s\n"+
 			"-----------------------------------\n\n"+
-			"Pertanyaan dari ser '%s': %s",
-		isseTitle, isseDesc, commentHistory.String(), payload.SenderID, payload.Qestion,
+			"Pertanyaan dari user '%s': %s",
+		issueTitle, issueDesc, commentHistory.String(), payload.SenderID, payload.Question,
 	)
 
-	// 5. Kirim Prompt dan Ekseksi Fnction Call (BGIN PERBIKN)
-	log.Printf("Mengirim prompt ke Gemini: %s", fllPrompt)
-	resp, err := cs.SendMessage(ctx, genai.Text(fllPrompt))
+	// 5. Kirim Prompt dan Eksekusi Function Call (BAGIAN PERBAIKAN)
+	log.Printf("Mengirim prompt ke Gemini: %s", fullPrompt)
+	resp, err := cs.SendMessage(ctx, genai.Text(fullPrompt))
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to generate content: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error())
+		return
 	}
 
-	if resp.Candidates != nil && len(resp.Candidates) >  && resp.Candidates[].Content != nil {
-		part := resp.Candidates[].Content.Parts[]
-		if fc, ok := part.(genai.FnctionCall); ok {
-			log.Printf("Gemini meminta pemanggilan fngsi: %s dengan argmen: %v", fc.Name, fc.rgs)
+	if resp.Candidates != nil && len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
+		part := resp.Candidates[0].Content.Parts[0]
+		if fc, ok := part.(genai.FunctionCall); ok {
+			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 
-			// ▼▼▼ PERBIKN UTM D DI SINI ▼▼▼
-			// Dapatkan 'panelNoPp' dari 'isseID' sebelm memanggil fngsi ekseksi.
+			// ▼▼▼ PERBAIKAN UTAMA ADA DI SINI ▼▼▼
+			// Dapatkan 'panelNoPp' dari 'issueID' sebelum memanggil fungsi eksekusi.
 			var panelNoPp string
-			err := a.DB.QeryRow(`
-                SELECT p.no_pp FROM pblic.panels p 
-                JOIN pblic.chats c ON p.no_pp = c.panel_no_pp 
-                JOIN pblic.isses i ON c.id = i.chat_id 
-                WHERE i.id = $1`, isseID).Scan(&panelNoPp)
+			err := a.DB.QueryRow(`
+                SELECT p.no_pp FROM public.panels p 
+                JOIN public.chats c ON p.no_pp = c.panel_no_pp 
+                JOIN public.issues i ON c.id = i.chat_id 
+                WHERE i.id = $1`, issueID).Scan(&panelNoPp)
 			if err != nil {
-				// Jika panel tidak ditemkan, kirim pesan error yang jelas.
-				respondWithError(w, http.StatsInternalServerError, "Gagal menemkan panel terkait is ini: "+err.Error())
-				retrn
+				// Jika panel tidak ditemukan, kirim pesan error yang jelas.
+				respondWithError(w, http.StatusInternalServerError, "Gagal menemukan panel terkait isu ini: "+err.Error())
+				return
 			}
-			// ▲▲▲ KHIR PERBIKN UTM ▲▲▲
+			// ▲▲▲ AKHIR PERBAIKAN UTAMA ▲▲▲
 
-			// Panggil fngsi ekseksi dengan argmen yang benar (string, bkan int)
-			fnctionReslt, err := a.execteDatabaseFnction(fc, panelNoPp)
+			// Panggil fungsi eksekusi dengan argumen yang benar (string, bukan int)
+			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
 			if err != nil {
-				fnctionReslt = fmt.Sprintf("Error saat menjalankan fngsi: %v", err)
+				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err)
 			}
 
-			log.Printf("Hasil ekseksi fngsi: %s", fnctionReslt)
+			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
 
-			resp, err = cs.SendMessage(ctx, genai.FnctionResponse{Name: fc.Name, Response: map[string]any{"reslt": fnctionReslt}})
+			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Failed to generate confirmation message: "+err.Error())
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error())
+				return
 			}
 		}
 	}
@@ -4954,248 +4954,248 @@ fnc (a *pp) askGeminiHandler(w http.ResponseWriter, r *http.Reqest) {
 	// 6. Proses dan Kirim Jawaban Final
 	finalResponseText := extractTextFromResponse(resp)
 	if finalResponseText == "" {
-		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan nda."
+		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda."
 	}
 	log.Printf("Jawaban final dari Gemini: %s", finalResponseText)
 
-	a.postiComment(isseID, payload.SenderID, finalResponseText, payload.ReplyToCommentID)
-	respondWithJSON(w, http.StatsCreated, map[string]string{"stats": "sccess"})
+	a.postAiComment(issueID, payload.SenderID, finalResponseText, payload.ReplyToCommentID)
+	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
 }
-fnc (a *pp) postiComment(isseID int, senderID string, text string, replyToCommentID string) { // <-- UBH DI SINI
-	newCommentID := id.New().String()
+func (a *App) postAiComment(issueID int, senderID string, text string, replyToCommentID string) { // <-- UBAH DI SINI
+	newCommentID := uuid.New().String()
 	geminiUserID := "gemini_ai"
 
-	// Qery INSERT sekarang hars menyertakan reply_to_comment_id
-	qery := `
-		INSERT INTO isse_comments (id, isse_id, sender_id, text, reply_to_ser_id, reply_to_comment_id) 
-		VLUES ($1, $2, $3, $4, $5, $6)` 
+	// Query INSERT sekarang harus menyertakan reply_to_comment_id
+	query := `
+		INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id, reply_to_comment_id) 
+		VALUES ($1, $2, $3, $4, $5, $6)` 
 		
-	_, _ = a.DB.Exec(qery, newCommentID, isseID, geminiUserID, text, senderID, replyToCommentID) // <-- UBH DI SINI
+	_, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, text, senderID, replyToCommentID) // <-- UBAH DI SINI
 }
-// FUNGSI HELPER BRU ntk mengekstrak teks dari response Gemini
-fnc extractTextFromResponse(resp *genai.GenerateContentResponse) string {
-	if resp != nil && len(resp.Candidates) >  {
-		if content := resp.Candidates[].Content; content != nil && len(content.Parts) >  {
-			if txt, ok := content.Parts[].(genai.Text); ok {
-				retrn string(txt)
+// FUNGSI HELPER BARU untuk mengekstrak teks dari response Gemini
+func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
+	if resp != nil && len(resp.Candidates) > 0 {
+		if content := resp.Candidates[0].Content; content != nil && len(content.Parts) > 0 {
+			if txt, ok := content.Parts[0].(genai.Text); ok {
+				return string(txt)
 			}
 		}
 	}
-	retrn ""
+	return ""
 }
 var tools = []*genai.Tool{
 	{
-		FnctionDeclarations: []*genai.FnctionDeclaration{
+		FunctionDeclarations: []*genai.FunctionDeclaration{
 			{
-				Name:        "get_isse_explanation",
-				Description: "Memberikan penjelasan dan ringkasan tentang is yang sedang dibahas berdasarkan jdl dan deskripsinya.",
+				Name:        "get_issue_explanation",
+				Description: "Memberikan penjelasan dan ringkasan tentang isu yang sedang dibahas berdasarkan judul dan deskripsinya.",
 			},
 			{
-				Name:        "find_related_isses",
-				Description: "Mencari dan memberikan daftar is-is lain yang relevan di dalam panel yang sama.",
+				Name:        "find_related_issues",
+				Description: "Mencari dan memberikan daftar isu-isu lain yang relevan di dalam panel yang sama.",
 			},
 			{
-				Name:        "pdate_isse_stats",
-				Description: "Mengbah stats dari sebah is. Stats 'done' ata 'selesai' akan dianggap sebagai 'solved'.",
+				Name:        "update_issue_status",
+				Description: "Mengubah status dari sebuah isu. Status 'done' atau 'selesai' akan dianggap sebagai 'solved'.",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"new_stats": {
+						"new_status": {
 							Type:        genai.TypeString,
-							Description: "Stats bar ntk is ini. Pilihan: 'solved' ata 'nsolved'.",
-							Enm:        []string{"solved", "nsolved"},
+							Description: "Status baru untuk isu ini. Pilihan: 'solved' atau 'unsolved'.",
+							Enum:        []string{"solved", "unsolved"},
 						},
 					},
-					Reqired: []string{"new_stats"},
+					Required: []string{"new_status"},
 				},
 			},
 			{
 				Name:        "assign_vendor_to_panel",
-				Description: "Mengaskan (assign) sebah vendor/tim ke sebah kategori pekerjaan di panel ini.",
+				Description: "Menugaskan (assign) sebuah vendor/tim ke sebuah kategori pekerjaan di panel ini.",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
 						"vendor_name": {
 							Type:        genai.TypeString,
-							Description: "Nama vendor ata tim yang akan ditgaskan, contoh: 'GPE', 'DSM', 'Warehose'.",
+							Description: "Nama vendor atau tim yang akan ditugaskan, contoh: 'GPE', 'DSM', 'Warehouse'.",
 						},
 						"category": {
 							Type:        genai.TypeString,
-							Description: "Kategori pekerjaan yang akan ditgaskan. Pilihan: 'bsbar', 'component', 'palet', 'corepart'.",
-							Enm:        []string{"bsbar", "component", "palet", "corepart"},
+							Description: "Kategori pekerjaan yang akan ditugaskan. Pilihan: 'busbar', 'component', 'palet', 'corepart'.",
+							Enum:        []string{"busbar", "component", "palet", "corepart"},
 						},
 					},
-					Reqired: []string{"vendor_name", "category"},
+					Required: []string{"vendor_name", "category"},
 				},
 			},{
-				Name:        "pdate_bsbar_stats",
-				Description: "Mengbah stats ntk komponen Bsbar PCC ata Bsbar MCC.",
+				Name:        "update_busbar_status",
+				Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"bsbar_type": {
+						"busbar_type": {
 							Type:        genai.TypeString,
-							Description: "Tipe bsbar yang akan dibah.",
-							Enm:        []string{"pcc", "mcc"},
+							Description: "Tipe busbar yang akan diubah.",
+							Enum:        []string{"pcc", "mcc"},
 						},
-						"new_stats": {
+						"new_status": {
 							Type:        genai.TypeString,
-							Description: "Stats bar ntk bsbar.",
-							Enm:        []string{"Open", "Pnching/Bending","Plating/Epoxy","1% Siap Kirim", "Close"},
+							Description: "Status baru untuk busbar.",
+							Enum:        []string{"Open", "Punching/Bending","Plating/Epoxy","100% Siap Kirim", "Close"},
 						},
 					},
-					Reqired: []string{"bsbar_type", "new_stats"},
+					Required: []string{"busbar_type", "new_status"},
 				},
 			},
 
-			// 2. Fngsi khss ntk Component
+			// 2. Fungsi khusus untuk Component
 			{
-				Name:        "pdate_component_stats",
-				Description: "Mengbah stats ntk komponen tama (picking component).",
+				Name:        "update_component_status",
+				Description: "Mengubah status untuk komponen utama (picking component).",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"new_stats": {
+						"new_status": {
 							Type:        genai.TypeString,
-							Description: "Stats bar ntk komponen.",
-							Enm:        []string{"Open", "On Progress", "Done"},
+							Description: "Status baru untuk komponen.",
+							Enum:        []string{"Open", "On Progress", "Done"},
 						},
 					},
-					Reqired: []string{"new_stats"},
+					Required: []string{"new_status"},
 				},
 			},
 
-			// 3. Fngsi khss ntk Palet
+			// 3. Fungsi khusus untuk Palet
 			{
-				Name:        "pdate_palet_stats",
-				Description: "Mengbah stats ntk komponen Palet.",
+				Name:        "update_palet_status",
+				Description: "Mengubah status untuk komponen Palet.",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"new_stats": {
+						"new_status": {
 							Type:        genai.TypeString,
-							Description: "Stats bar ntk palet.",
-							Enm:        []string{"Open", "Close"},
+							Description: "Status baru untuk palet.",
+							Enum:        []string{"Open", "Close"},
 						},
 					},
-					Reqired: []string{"new_stats"},
+					Required: []string{"new_status"},
 				},
 			},
 
-			// 4. Fngsi khss ntk Corepart
+			// 4. Fungsi khusus untuk Corepart
 			{
-				Name:        "pdate_corepart_stats",
-				Description: "Mengbah stats ntk komponen Corepart.",
+				Name:        "update_corepart_status",
+				Description: "Mengubah status untuk komponen Corepart.",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"new_stats": {
+						"new_status": {
 							Type:        genai.TypeString,
-							Description: "Stats bar ntk corepart.",
-							Enm:        []string{"Open", "Close"},
+							Description: "Status baru untuk corepart.",
+							Enum:        []string{"Open", "Close"},
 						},
 					},
-					Reqired: []string{"new_stats"},
+					Required: []string{"new_status"},
 				},
 			},
 		},
 	},
 }
-type pdd strct {
-	NoPp               sql.NllString  `json:"no_pp"`
-	NoPanel            sql.NllString  `json:"no_panel"`
-	Project            sql.NllString  `json:"project"`
-	NoWbs              sql.NllString  `json:"no_wbs"`
-	PercentProgress    sql.NllFloat64 `json:"percent_progress"`
-	StatsBsbarPcc    sql.NllString  `json:"stats_bsbar_pcc"`
-	StatsBsbarMcc    sql.NllString  `json:"stats_bsbar_mcc"`
-	StatsComponent    sql.NllString  `json:"stats_component"`
-	StatsPalet        sql.NllString  `json:"stats_palet"`
-	StatsCorepart     sql.NllString  `json:"stats_corepart"`
-	PanelVendorName    sql.NllString  `json:"panel_vendor_name"`
-	BsbarVendorNames  sql.NllString  `json:"bsbar_vendor_names"`
+type pdd struct {
+	NoPp               sql.NullString  `json:"no_pp"`
+	NoPanel            sql.NullString  `json:"no_panel"`
+	Project            sql.NullString  `json:"project"`
+	NoWbs              sql.NullString  `json:"no_wbs"`
+	PercentProgress    sql.NullFloat64 `json:"percent_progress"`
+	StatusBusbarPcc    sql.NullString  `json:"status_busbar_pcc"`
+	StatusBusbarMcc    sql.NullString  `json:"status_busbar_mcc"`
+	StatusComponent    sql.NullString  `json:"status_component"`
+	StatusPalet        sql.NullString  `json:"status_palet"`
+	StatusCorepart     sql.NullString  `json:"status_corepart"`
+	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
+	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
 }
 // File: main.go
 
 // =============================================================================
-// FUNGSI I UTM (GNTI SEMU DI BWH INI)
+// FUNGSI AI UTAMA (GANTI SEMUA DI BAWAH INI)
 // =============================================================================
 
-// Salin dan ganti selrh fngsi askGeminibotPanelHandler nda dengan ini
-fnc (a *pp) askGeminibotPanelHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+// Salin dan ganti seluruh fungsi askGeminiAboutPanelHandler Anda dengan ini
+func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
 
-	var payload strct {
-		Qestion string  `json:"qestion"`
+	var payload struct {
+		Question string  `json:"question"`
 		SenderID string  `json:"sender_id"`
 		ImageB64 *string `json:"image_b64,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
 
 	var senderRole string
-	err := a.DB.QeryRow(`
-		SELECT c.role FROM pblic.companies c
-		JOIN pblic.company_acconts ca ON c.id = ca.company_id
-		WHERE ca.sername = $1`, payload.SenderID).Scan(&senderRole)
+	err := a.DB.QueryRow(`
+		SELECT c.role FROM public.companies c
+		JOIN public.company_accounts ca ON c.id = ca.company_id
+		WHERE ca.username = $1`, payload.SenderID).Scan(&senderRole)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal mendapatkan role ser: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mendapatkan role user: "+err.Error())
+		return
 	}
 
 	var panel pdd
-	err = a.DB.QeryRow(`
-		SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, p.stats_bsbar_pcc, p.stats_bsbar_mcc, p.stats_component, p.stats_palet, p.stats_corepart, p.name as panel_vendor_name, (SELECT STRING_GG(c.name, ', ') FROM pblic.companies c JOIN pblic.bsbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as bsbar_vendor_names
-		FROM pblic.panels p
-		LEFT JOIN pblic.companies p ON p.vendor_id = p.id
-		WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.NoPp, &panel.NoPanel, &panel.Project, &panel.NoWbs, &panel.PercentProgress, &panel.StatsBsbarPcc, &panel.StatsBsbarMcc, &panel.StatsComponent, &panel.StatsPalet, &panel.StatsCorepart, &panel.PanelVendorName, &panel.BsbarVendorNames)
+	err = a.DB.QueryRow(`
+		SELECT p.no_pp, p.no_panel, p.project, p.no_wbs, p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart, pu.name as panel_vendor_name, (SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names
+		FROM public.panels p
+		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
+		WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.NoPp, &panel.NoPanel, &panel.Project, &panel.NoWbs, &panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart, &panel.PanelVendorName, &panel.BusbarVendorNames)
 	if err != nil {
-		respondWithError(w, http.StatsNotFond, "Panel tidak ditemkan: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan: "+err.Error())
+		return
 	}
 	panelDetailsBytes, _ := json.MarshalIndent(panel, "", "  ")
     panelDetails := string(panelDetailsBytes)
 
-	rows, err := a.DB.Qery(`
-		SELECT i.id, i.title, i.description, i.stats, ic.sender_id, ic.text
-		FROM pblic.isses i
-		JOIN pblic.chats ch ON i.chat_id = ch.id
-		LEFT JOIN pblic.isse_comments ic ON i.id = ic.isse_id
+	rows, err := a.DB.Query(`
+		SELECT i.id, i.title, i.description, i.status, ic.sender_id, ic.text
+		FROM public.issues i
+		JOIN public.chats ch ON i.chat_id = ch.id
+		LEFT JOIN public.issue_comments ic ON i.id = ic.issue_id
 		WHERE ch.panel_no_pp = $1
 		ORDER BY i.created_at, ic.timestamp`, panelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Gagal mengambil histori is")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil histori isu")
+		return
 	}
 	defer rows.Close()
 
-	var issesHistory strings.Bilder
-	crrentIsseID := -1
+	var issuesHistory strings.Builder
+	currentIssueID := -1
 	for rows.Next() {
-		var isseID int
-		var isseTitle, isseDesc, isseStats, commentSender, commentText sql.NllString
-		if err := rows.Scan(&isseID, &isseTitle, &isseDesc, &isseStats, &commentSender, &commentText); err != nil { contine }
+		var issueID int
+		var issueTitle, issueDesc, issueStatus, commentSender, commentText sql.NullString
+		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil { continue }
 		
-		if isseID != crrentIsseID {
-			issesHistory.WriteString(fmt.Sprintf("\n--- ISU BRU (ID: %d) ---\nJdl: %s\nDeskripsi: %s\nStats: %s\n", isseID, isseTitle.String, isseDesc.String, isseStats.String))
-			crrentIsseID = isseID
+		if issueID != currentIssueID {
+			issuesHistory.WriteString(fmt.Sprintf("\n--- ISU BARU (ID: %d) ---\nJudul: %s\nDeskripsi: %s\nStatus: %s\n", issueID, issueTitle.String, issueDesc.String, issueStatus.String))
+			currentIssueID = issueID
 		}
 		if commentSender.Valid {
-			issesHistory.WriteString(fmt.Sprintf(" - Komentar dari %s: %s\n", commentSender.String, commentText.String))
+			issuesHistory.WriteString(fmt.Sprintf(" - Komentar dari %s: %s\n", commentSender.String, commentText.String))
 		}
 	}
 
-	ctx := context.Backgrond()
-	apiKey := "IzaSyDiMY2xYN_eOw5vUzk-J3sLVDb81TEfS8" // Pastikan PI Key nda benar
+	ctx := context.Background()
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" // Pastikan API Key Anda benar
 	if apiKey == "" {
-		respondWithError(w, http.StatsInternalServerError, "GEMINI_PI_KEY is not set")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
+		return
 	}
-	client, err := genai.NewClient(ctx, option.WithPIKey(apiKey))
-	if err != nil { respondWithError(w, http.StatsInternalServerError, "Failed to create Gemini client: "+err.Error()); retrn }
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error()); return }
 	defer client.Close()
 
 	model := client.GenerativeModel("gemini-1.5-flash")
@@ -5203,33 +5203,33 @@ fnc (a *pp) askGeminibotPanelHandler(w http.ResponseWriter, r *http.Reqest) {
 	cs := model.StartChat()
 	
 	var promptParts []genai.Part
-	fllPromptText := fmt.Sprintf(
-	"**Persona & tran:**\n"+
-			"1.  **Kam adalah asisten I yang cerdas dan kontekstal bernama Gemini.** Gnakan bahasa Indonesia yang profesional dan proaktif.\n"+
-			"2. Saat kam perl mengambil data ata melakkan sebah aksi, panggil fngsi yang sesai. Setelah fngsi berhasil diekseksi, rangkm hasilnya ntk ser dalam bahasa percakapan yang natral.\n"	+		
-			"3.  Gnakan format tebal (`**teks**`) ntk menekankan nama is ata item penting.\n"+
-			"4.  Kam bisa melakkan banyak hal: meringkas stats, mengbah progres panel, mengbah stats is, menambah komentar, mengbah stats komponen (Bsbar, Palet, dll), dan mengaskan vendor. Selal tawarkan bantan jika relevan.\n"+
-			"5.  Lakkan aksi HNY jika diizinkan oleh role ser: **%s**.\n\n"+
+	fullPromptText := fmt.Sprintf(
+	"**Persona & Aturan:**\n"+
+			"1.  **Kamu adalah asisten AI yang cerdas dan kontekstual bernama Gemini.** Gunakan bahasa Indonesia yang profesional dan proaktif.\n"+
+			"2. Saat kamu perlu mengambil data atau melakukan sebuah aksi, panggil fungsi yang sesuai. Setelah fungsi berhasil dieksekusi, rangkum hasilnya untuk user dalam bahasa percakapan yang natural.\n"	+		
+			"3.  Gunakan format tebal (`**teks**`) untuk menekankan nama isu atau item penting.\n"+
+			"4.  Kamu bisa melakukan banyak hal: meringkas status, mengubah progres panel, mengubah status isu, menambah komentar, mengubah status komponen (Busbar, Palet, dll), dan menugaskan vendor. Selalu tawarkan bantuan jika relevan.\n"+
+			"5.  Lakukan aksi HANYA jika diizinkan oleh role user: **%s**.\n\n"+
 			
-			"**tran Penting ntk Memberi 'Rekomendasi ksi' (`[SUGGESTION]`):**\n"+
-			"1.  **Sintesis Konteks Penh:** Rekomendasi HRUS relevan dengan topik tama dari keselrhan disksi (pertanyaan terakhir ser + histori komentar). Jangan membat rekomendasi acak tentang is lain yang tidak sedang dibicarakan.\n"+
-			"2.  **Logika Menentkan PIC:** PIC sebah is adalah **ser terakhir yang memberikan komentar** pada is tersebt (selain 'gemini_ai'). Jika belm ada komentar, PIC adalah pembat is.\n"+
+			"**Aturan Penting untuk Memberi 'Rekomendasi Aksi' (`[SUGGESTION]`):**\n"+
+			"1.  **Sintesis Konteks Penuh:** Rekomendasi HARUS relevan dengan topik utama dari keseluruhan diskusi (pertanyaan terakhir user + histori komentar). Jangan membuat rekomendasi acak tentang isu lain yang tidak sedang dibicarakan.\n"+
+			"2.  **Logika Menentukan PIC:** PIC sebuah isu adalah **user terakhir yang memberikan komentar** pada isu tersebut (selain 'gemini_ai'). Jika belum ada komentar, PIC adalah pembuat isu.\n"+
 			"3.  **Rekomendasi Bertahap & Logis:**\n"+
-			"    - **Prioritaskan Komnikasi:** Jika sebah is belm ada pdate, prioritaskan ntk merekomendasikan **penambahan komentar** ntk menanyakan progres ke PIC. Contoh: `[SUGGESTION: Tambah komentar 'bagaimana progresnya?' ke is 'Missing Metal Part']`.\n"+
-			"    - **JNGN** langsng menyarankan 'bah stats jadi solved' jika belm ada bkti penyelesaian di histori komentar.\n"+
+			"    - **Prioritaskan Komunikasi:** Jika sebuah isu belum ada update, prioritaskan untuk merekomendasikan **penambahan komentar** untuk menanyakan progres ke PIC. Contoh: `[SUGGESTION: Tambah komentar 'bagaimana progresnya?' ke isu 'Missing Metal Part']`.\n"+
+			"    - **JANGAN** langsung menyarankan 'ubah status jadi solved' jika belum ada bukti penyelesaian di histori komentar.\n"+
 			"4.  **Rekomendasi 'Solved' yang Cerdas:**\n"+
-			"    - Kam HNY boleh merekomendasikan `[SUGGESTION: Ubah stats 'Nama Is' menjadi solved]` jika **dari histori komentar sdah ada konfirmasi eksplisit** bahwa masalahnya telah teratasi.\n"+
+			"    - Kamu HANYA boleh merekomendasikan `[SUGGESTION: Ubah status 'Nama Isu' menjadi solved]` jika **dari histori komentar sudah ada konfirmasi eksplisit** bahwa masalahnya telah teratasi.\n"+
 
 			"**Konteks Data Proyek Saat Ini:**\n"+
-			"Gnakan `ID` is jika ingin melakkan aksi pada is tertent.\n"+
+			"Gunakan `ID` isu jika ingin melakukan aksi pada isu tertentu.\n"+
 			"```json\n%s\n```\n\n"+
-			"**Riwayat Is & Komentar di Panel Ini:**\n"+
+			"**Riwayat Isu & Komentar di Panel Ini:**\n"+
 			"```\n%s\n```\n\n"+
 			"**Permintaan User:**\n"+
 			"User '%s' bertanya: \"%s\"",
-		senderRole, panelDetails, issesHistory.String(), payload.SenderID, payload.Qestion,
+		senderRole, panelDetails, issuesHistory.String(), payload.SenderID, payload.Question,
 	)
-	promptParts = append(promptParts, genai.Text(fllPromptText))
+	promptParts = append(promptParts, genai.Text(fullPromptText))
 	
 	if payload.ImageB64 != nil && *payload.ImageB64 != "" {
 		if parts := strings.Split(*payload.ImageB64, ","); len(parts) == 2 {
@@ -5240,292 +5240,292 @@ fnc (a *pp) askGeminibotPanelHandler(w http.ResponseWriter, r *http.Reqest) {
 	}
 
 	resp, err := cs.SendMessage(ctx, promptParts...)
-	if err != nil { respondWithError(w, http.StatsInternalServerError, "Failed to generate content: "+err.Error()); retrn }
+	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
 
 	actionTaken := false
-	if resp.Candidates != nil && len(resp.Candidates) >  && resp.Candidates[].Content != nil {
-		part := resp.Candidates[].Content.Parts[]
-		if fc, ok := part.(genai.FnctionCall); ok {
-			actionTaken = tre
-			log.Printf("Gemini meminta pemanggilan fngsi: %s dengan argmen: %v", fc.Name, fc.rgs)
+	if resp.Candidates != nil && len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
+		part := resp.Candidates[0].Content.Parts[0]
+		if fc, ok := part.(genai.FunctionCall); ok {
+			actionTaken = true
+			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 
-			fnctionReslt, err := a.execteDatabaseFnction(fc, panelNoPp)
+			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
 			if err != nil { 
-				fnctionReslt = fmt.Sprintf("Error saat menjalankan fngsi: %v", err) 
+				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err) 
 			}
-			log.Printf("Hasil ekseksi fngsi: %s", fnctionReslt)
+			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
 			
-			resp, err = cs.SendMessage(ctx, genai.FnctionResponse{Name: fc.Name, Response: map[string]any{"reslt": fnctionReslt}})
-			if err != nil { respondWithError(w, http.StatsInternalServerError, "Failed to generate confirmation message: "+err.Error()); retrn }
+			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
+			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error()); return }
 		}
 	}
 	
 	finalResponseText := extractTextFromResponse(resp)
 	if finalResponseText == "" { finalResponseText = "Maaf, ada sedikit kendala. Boleh coba tanya lagi?" }
 
-	var sggestions []string
-	re := regexp.MstCompile(`\[SUGGESTION:\s*(.*?)\]`)
-	matches := re.FindllStringSbmatch(finalResponseText, -1)
+	var suggestions []string
+	re := regexp.MustCompile(`\[SUGGESTION:\s*(.*?)\]`)
+	matches := re.FindAllStringSubmatch(finalResponseText, -1)
 	for _, match := range matches {
 		if len(match) > 1 {
-			sggestions = append(sggestions, match[1])
+			suggestions = append(suggestions, match[1])
 		}
 	}
-	finalResponseText = re.ReplacellString(finalResponseText, "")
+	finalResponseText = re.ReplaceAllString(finalResponseText, "")
 	
-	respondWithJSON(w, http.StatsCreated, map[string]interface{}{
-		"id":   id.New().String(),
+	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
+		"id":   uuid.New().String(),
 		"text": strings.TrimSpace(finalResponseText),
 		"action_taken": actionTaken,
-		"sggested_actions": sggestions,
+		"suggested_actions": suggestions,
 	})
 }
 
-// Salin dan ganti selrh fngsi getToolsForRole nda dengan ini
-fnc getToolsForRole(role string) []*genai.Tool {
-	// Kmplan sema kemngkinan "alat"
-	var allTools []*genai.FnctionDeclaration
+// Salin dan ganti seluruh fungsi getToolsForRole Anda dengan ini
+func getToolsForRole(role string) []*genai.Tool {
+	// Kumpulan semua kemungkinan "alat"
+	var allTools []*genai.FunctionDeclaration
 
-	// --- lat ntk Sema Role ---
-	allTools = append(allTools, &genai.FnctionDeclaration{
-		Name: "get_panel_smmary",
-		Description: "Memberikan ringkasan stats dan progres terkini dari panel yang sedang dibahas.",
+	// --- Alat untuk Semua Role ---
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "get_panel_summary",
+		Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
 	})
-	allTools = append(allTools, &genai.FnctionDeclaration{
-		Name: "find_similar_past_isses",
-		Description: "Mencari di database ntk is-is historis yang mirip dengan is saat ini berdasarkan jdlnya.",
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "find_similar_past_issues",
+		Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya.",
 		Parameters: &genai.Schema{
 			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{ "isse_title": {Type: genai.TypeString, Description: "Jdl is yang ingin dicari kemiripannya."}, },
-			Reqired: []string{"isse_title"},
+			Properties: map[string]*genai.Schema{ "issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."}, },
+			Required: []string{"issue_title"},
 		},
 	})
-	allTools = append(allTools, &genai.FnctionDeclaration{
-		Name: "pdate_isse_stats",
-		Description: "Mengbah stats dari sebah is spesifik menggnakan ID niknya.",
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "update_issue_status",
+		Description: "Mengubah status dari sebuah isu spesifik menggunakan ID uniknya.",
 		Parameters: &genai.Schema{
 			Type: genai.TypeObject,
 			Properties: map[string]*genai.Schema{
-				"isse_id": { Type: genai.TypeNmber, Description: "ID nik dari is yang statsnya ingin dibah."},
-				"new_stats":  {Type: genai.TypeString, Enm: []string{"solved", "nsolved"}},
+				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang statusnya ingin diubah."},
+				"new_status":  {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
 			},
-			Reqired: []string{"isse_id", "new_stats"},
+			Required: []string{"issue_id", "new_status"},
 		},
 	})
-	allTools = append(allTools, &genai.FnctionDeclaration{
-		Name: "add_isse_comment",
-		Description: "Menambahkan komentar bar ke sebah is spesifik.",
+	allTools = append(allTools, &genai.FunctionDeclaration{
+		Name: "add_issue_comment",
+		Description: "Menambahkan komentar baru ke sebuah isu spesifik.",
 		Parameters: &genai.Schema{
 			Type: genai.TypeObject,
 			Properties: map[string]*genai.Schema{
-				"isse_id": { Type: genai.TypeNmber, Description: "ID nik dari is yang ingin dikomentari."},
+				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang ingin dikomentari."},
 				"comment_text": { Type: genai.TypeString, Description: "Isi teks dari komentar."},
 			},
-			Reqired: []string{"isse_id", "comment_text"},
+			Required: []string{"issue_id", "comment_text"},
 		},
 	})
 
-	// --- lat Khss dmin ---
-	if role == ppRoledmin {
-		allTools = append(allTools, &genai.FnctionDeclaration{
-			Name: "pdate_panel_progress",
-			Description: "DMIN ONLY: Mengbah persentase progres dari sebah panel.",
+	// --- Alat Khusus Admin ---
+	if role == AppRoleAdmin {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_panel_progress",
+			Description: "ADMIN ONLY: Mengubah persentase progres dari sebuah panel.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNmber, Description: "Nilai progres bar antara -1."}},
-				Reqired: []string{"new_progress"},
+				Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNumber, Description: "Nilai progres baru antara 0-100."}},
+				Required: []string{"new_progress"},
 			},
 		})
-		allTools = append(allTools, &genai.FnctionDeclaration{
-			Name: "pdate_panel_remark",
-			Description: "DMIN ONLY: Menambah ata mengbah catatan/remark tama pada panel.",
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_panel_remark",
+			Description: "ADMIN ONLY: Menambah atau mengubah catatan/remark utama pada panel.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_remark": {Type: genai.TypeString, Description: "Teks remark yang bar."}},
-				Reqired: []string{"new_remark"},
+				Properties: map[string]*genai.Schema{"new_remark": {Type: genai.TypeString, Description: "Teks remark yang baru."}},
+				Required: []string{"new_remark"},
 			},
 		})
-		allTools = append(allTools, &genai.FnctionDeclaration{
+		allTools = append(allTools, &genai.FunctionDeclaration{
 			Name: "assign_vendor",
-			Description: "DMIN ONLY: Mengaskan vendor ke sebah kategori pekerjaan di panel ini.",
+			Description: "ADMIN ONLY: Menugaskan vendor ke sebuah kategori pekerjaan di panel ini.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
 				Properties: map[string]*genai.Schema{
-					"vendor_name": { Type: genai.TypeString, Description: "Nama vendor yang akan ditgaskan, contoh: 'GPE', 'DSM', 'BCUS'." },
-					"category": { Type: genai.TypeString, Description: "Kategori pekerjaan.", Enm: []string{"bsbar", "component", "palet", "corepart"} },
+					"vendor_name": { Type: genai.TypeString, Description: "Nama vendor yang akan ditugaskan, contoh: 'GPE', 'DSM', 'ABACUS'." },
+					"category": { Type: genai.TypeString, Description: "Kategori pekerjaan.", Enum: []string{"busbar", "component", "palet", "corepart"} },
 				},
-				Reqired: []string{"vendor_name", "category"},
+				Required: []string{"vendor_name", "category"},
 			},
 		})
 	}
 
-	// --- lat Berdasarkan Role Spesifik (K3, K5, WHS) ---
-	if role == ppRoledmin || role == ppRoleK3 {
-		allTools = append(allTools, &genai.FnctionDeclaration{
-			Name: "pdate_palet_stats",
-			Description: "K3 & DMIN ONLY: Mengbah stats ntk komponen Palet.",
+	// --- Alat Berdasarkan Role Spesifik (K3, K5, WHS) ---
+	if role == AppRoleAdmin || role == AppRoleK3 {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_palet_status",
+			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Palet.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_stats": {Type: genai.TypeString, Enm: []string{"Open", "Close"}}},
-				Reqired: []string{"new_stats"},
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required: []string{"new_status"},
 			},
 		})
-		allTools = append(allTools, &genai.FnctionDeclaration{
-			Name: "pdate_corepart_stats",
-			Description: "K3 & DMIN ONLY: Mengbah stats ntk komponen Corepart.",
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_corepart_status",
+			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Corepart.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_stats": {Type: genai.TypeString, Enm: []string{"Open", "Close"}}},
-				Reqired: []string{"new_stats"},
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
+				Required: []string{"new_status"},
 			},
 		})
 	}
-	if role == ppRoledmin || role == ppRoleK5 {
-		allTools = append(allTools, &genai.FnctionDeclaration{
-			Name: "pdate_bsbar_stats",
-			Description: "K5 & DMIN ONLY: Mengbah stats ntk komponen Bsbar.",
+	if role == AppRoleAdmin || role == AppRoleK5 {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_busbar_status",
+			Description: "K5 & ADMIN ONLY: Mengubah status untuk komponen Busbar.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
 				Properties: map[string]*genai.Schema{
-					"bsbar_type": {Type: genai.TypeString, Enm: []string{"pcc", "mcc"}},
-					"new_stats":  {Type: genai.TypeString, Enm: []string{"Open", "Pnching/Bending", "Plating/Epoxy", "1% Siap Kirim", "Close"}},
+					"busbar_type": {Type: genai.TypeString, Enum: []string{"pcc", "mcc"}},
+					"new_status":  {Type: genai.TypeString, Enum: []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"}},
 				},
-				Reqired: []string{"bsbar_type", "new_stats"},
+				Required: []string{"busbar_type", "new_status"},
 			},
 		})
 	}
-	if role == ppRoledmin || role == ppRoleWarehose {
-		allTools = append(allTools, &genai.FnctionDeclaration{
-			Name: "pdate_component_stats",
-			Description: "WREHOUSE & DMIN ONLY: Mengbah stats ntk komponen tama.",
+	if role == AppRoleAdmin || role == AppRoleWarehouse {
+		allTools = append(allTools, &genai.FunctionDeclaration{
+			Name: "update_component_status",
+			Description: "WAREHOUSE & ADMIN ONLY: Mengubah status untuk komponen utama.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{"new_stats": {Type: genai.TypeString, Enm: []string{"Open", "On Progress", "Done"}}},
-				Reqired: []string{"new_stats"},
+				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
+				Required: []string{"new_status"},
 			},
 		})
 	}
 
-	retrn []*genai.Tool{{FnctionDeclarations: allTools}}
+	return []*genai.Tool{{FunctionDeclarations: allTools}}
 }
 
 
-// Salin dan ganti selrh fngsi execteDatabaseFnction nda dengan ini
-fnc (a *pp) execteDatabaseFnction(fc genai.FnctionCall, panelNoPp string) (string, error) {
-	execteUpdate := fnc(colmn string, vale interface{}) error {
-		qery := fmt.Sprintf("UPDTE panels SET %s = $1 WHERE no_pp = $2", colmn)
-		_, err := a.DB.Exec(qery, vale, panelNoPp)
-		retrn err
+// Salin dan ganti seluruh fungsi executeDatabaseFunction Anda dengan ini
+func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
+	executeUpdate := func(column string, value interface{}) error {
+		query := fmt.Sprintf("UPDATE panels SET %s = $1 WHERE no_pp = $2", column)
+		_, err := a.DB.Exec(query, value, panelNoPp)
+		return err
 	}
 
 	switch fc.Name {
-	case "get_panel_smmary":
+	case "get_panel_summary":
 		var panel pdd
-		err := a.DB.QeryRow(`SELECT p.percent_progress, p.stats_bsbar_pcc, p.stats_bsbar_mcc, p.stats_component, p.stats_palet, p.stats_corepart FROM pblic.panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatsBsbarPcc, &panel.StatsBsbarMcc, &panel.StatsComponent, &panel.StatsPalet, &panel.StatsCorepart)
-		if err != nil { retrn "", fmt.Errorf("gagal mendapatkan detail panel: %w", err) }
-		retrn fmt.Sprintf("Progres panel saat ini %.f%%. Stats Bsbar PCC: %s, Bsbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatsBsbarPcc.String, panel.StatsBsbarMcc.String, panel.StatsComponent.String, panel.StatsPalet.String, panel.StatsCorepart.String), nil
+		err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM public.panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
+		if err != nil { return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err) }
+		return fmt.Sprintf("Progres panel saat ini %.0f%%. Status Busbar PCC: %s, Busbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatusBusbarPcc.String, panel.StatusBusbarMcc.String, panel.StatusComponent.String, panel.StatusPalet.String, panel.StatusCorepart.String), nil
 
-	case "pdate_isse_stats":
+	case "update_issue_status":
 		tx, err := a.DB.Begin()
-		if err != nil { retrn "", fmt.Errorf("gagal memlai transaksi: %w", err) }
+		if err != nil { return "", fmt.Errorf("gagal memulai transaksi: %w", err) }
 		defer tx.Rollback()
 		
-		isseIDFloat, _ := fc.rgs["isse_id"].(float64)
-		newStats, _ := fc.rgs["new_stats"].(string)
-		isseID := int(isseIDFloat)
+		issueIDFloat, _ := fc.Args["issue_id"].(float64)
+		newStatus, _ := fc.Args["new_status"].(string)
+		issueID := int(issueIDFloat)
 
-		var crrentLogs Logs
-		var isseTitle string
-		err = tx.QeryRow(`SELECT title, logs FROM pblic.isses WHERE id = $1`, isseID).Scan(&isseTitle, &crrentLogs)
-		if err != nil { retrn "", fmt.Errorf("is dengan ID %d tidak ditemkan", isseID) }
+		var currentLogs Logs
+		var issueTitle string
+		err = tx.QueryRow(`SELECT title, logs FROM public.issues WHERE id = $1`, issueID).Scan(&issueTitle, &currentLogs)
+		if err != nil { return "", fmt.Errorf("isu dengan ID %d tidak ditemukan", issueID) }
 
-		newLogEntry := LogEntry{ction: "menandai " + newStats, User: "gemini_ai", Timestamp: time.Now()}
-		pdatedLogs := append(crrentLogs, newLogEntry)
+		newLogEntry := LogEntry{Action: "menandai " + newStatus, User: "gemini_ai", Timestamp: time.Now()}
+		updatedLogs := append(currentLogs, newLogEntry)
 		
-		reslt, err := tx.Exec("UPDTE isses SET stats = $1, logs = $2 WHERE id = $3", newStats, pdatedLogs, isseID)
-		if err != nil { retrn "", fmt.Errorf("gagal pdate is: %w", err) }
-		if rows, _ := reslt.Rowsffected(); rows ==  { retrn "", fmt.Errorf("tidak ada is yang dipdate") }
+		result, err := tx.Exec("UPDATE issues SET status = $1, logs = $2 WHERE id = $3", newStatus, updatedLogs, issueID)
+		if err != nil { return "", fmt.Errorf("gagal update isu: %w", err) }
+		if rows, _ := result.RowsAffected(); rows == 0 { return "", fmt.Errorf("tidak ada isu yang diupdate") }
 		
-		if err := tx.Commit(); err != nil { retrn "", fmt.Errorf("gagal commit: %w", err) }
+		if err := tx.Commit(); err != nil { return "", fmt.Errorf("gagal commit: %w", err) }
 		
-		log.Printf("SUCCESS & COMMITTED: Isse ID %d ('%s') stats changed to '%s'.", isseID, isseTitle, newStats)
-		retrn fmt.Sprintf("Stats ntk is '%s' berhasil dibah menjadi '%s'.", isseTitle, newStats), nil
+		log.Printf("SUCCESS & COMMITTED: Issue ID %d ('%s') status changed to '%s'.", issueID, issueTitle, newStatus)
+		return fmt.Sprintf("Status untuk isu '%s' berhasil diubah menjadi '%s'.", issueTitle, newStatus), nil
 
-	case "add_isse_comment":
-		isseIDFloat, _ := fc.rgs["isse_id"].(float64)
-		commentText, _ := fc.rgs["comment_text"].(string)
-		isseID := int(isseIDFloat)
+	case "add_issue_comment":
+		issueIDFloat, _ := fc.Args["issue_id"].(float64)
+		commentText, _ := fc.Args["comment_text"].(string)
+		issueID := int(issueIDFloat)
 
-		_, err := a.DB.Exec(`INSERT INTO isse_comments (id, isse_id, sender_id, text) VLUES ($1, $2, $3, $4)`, id.New().String(), isseID, "gemini_ai", commentText)
-		if err != nil { retrn "", fmt.Errorf("gagal menambah komentar: %w", err) }
+		_, err := a.DB.Exec(`INSERT INTO issue_comments (id, issue_id, sender_id, text) VALUES ($1, $2, $3, $4)`, uuid.New().String(), issueID, "gemini_ai", commentText)
+		if err != nil { return "", fmt.Errorf("gagal menambah komentar: %w", err) }
 		
-		log.Printf("SUCCESS: Comment added to Isse ID %d. Text: %s", isseID, commentText)
-		retrn fmt.Sprintf("Komentar '%s' berhasil ditambahkan ke is ID %d.", commentText, isseID), nil
+		log.Printf("SUCCESS: Comment added to Issue ID %d. Text: %s", issueID, commentText)
+		return fmt.Sprintf("Komentar '%s' berhasil ditambahkan ke isu ID %d.", commentText, issueID), nil
 
-	case "pdate_panel_progress":
-		progress, _ := fc.rgs["new_progress"].(float64)
-		if progress <  || progress > 1 { retrn "", fmt.Errorf("nilai progres hars antara  dan 1") }
-		if err := execteUpdate("percent_progress", progress); err != nil { retrn "", err }
-		retrn fmt.Sprintf("Progres panel berhasil dibah menjadi %.f%%.", progress), nil
+	case "update_panel_progress":
+		progress, _ := fc.Args["new_progress"].(float64)
+		if progress < 0 || progress > 100 { return "", fmt.Errorf("nilai progres harus antara 0 dan 100") }
+		if err := executeUpdate("percent_progress", progress); err != nil { return "", err }
+		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%.", progress), nil
 	
-	case "pdate_panel_remark":
-		newRemark, _ := fc.rgs["new_remark"].(string)
-		if err := execteUpdate("remarks", newRemark); err != nil { retrn "", err }
-		retrn fmt.Sprintf("Catatan panel berhasil dipdate menjadi: '%s'.", newRemark), nil
+	case "update_panel_remark":
+		newRemark, _ := fc.Args["new_remark"].(string)
+		if err := executeUpdate("remarks", newRemark); err != nil { return "", err }
+		return fmt.Sprintf("Catatan panel berhasil diupdate menjadi: '%s'.", newRemark), nil
 
-	case "pdate_bsbar_stats":
-		bsbarType, _ := fc.rgs["bsbar_type"].(string)
-		newStats, _ := fc.rgs["new_stats"].(string)
-		var dbColmn string
-		if bsbarType == "pcc" { dbColmn = "stats_bsbar_pcc" } else { dbColmn = "stats_bsbar_mcc" }
-		if err := execteUpdate(dbColmn, newStats); err != nil { retrn "", err }
-		retrn fmt.Sprintf("Stats Bsbar %s berhasil dibah menjadi '%s'.", strings.ToUpper(bsbarType), newStats), nil
+	case "update_busbar_status":
+		busbarType, _ := fc.Args["busbar_type"].(string)
+		newStatus, _ := fc.Args["new_status"].(string)
+		var dbColumn string
+		if busbarType == "pcc" { dbColumn = "status_busbar_pcc" } else { dbColumn = "status_busbar_mcc" }
+		if err := executeUpdate(dbColumn, newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Busbar %s berhasil diubah menjadi '%s'.", strings.ToUpper(busbarType), newStatus), nil
 
-	case "pdate_component_stats":
-		newStats, _ := fc.rgs["new_stats"].(string)
-		if err := execteUpdate("stats_component", newStats); err != nil { retrn "", err }
-		retrn fmt.Sprintf("Stats Komponen berhasil dibah menjadi '%s'.", newStats), nil
+	case "update_component_status":
+		newStatus, _ := fc.Args["new_status"].(string)
+		if err := executeUpdate("status_component", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Komponen berhasil diubah menjadi '%s'.", newStatus), nil
 
-	case "pdate_palet_stats":
-		newStats, _ := fc.rgs["new_stats"].(string)
-		if err := execteUpdate("stats_palet", newStats); err != nil { retrn "", err }
-		retrn fmt.Sprintf("Stats Palet berhasil dibah menjadi '%s'.", newStats), nil
+	case "update_palet_status":
+		newStatus, _ := fc.Args["new_status"].(string)
+		if err := executeUpdate("status_palet", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Palet berhasil diubah menjadi '%s'.", newStatus), nil
 
-	case "pdate_corepart_stats":
-		newStats, _ := fc.rgs["new_stats"].(string)
-		if err := execteUpdate("stats_corepart", newStats); err != nil { retrn "", err }
-		retrn fmt.Sprintf("Stats Corepart berhasil dibah menjadi '%s'.", newStats), nil
+	case "update_corepart_status":
+		newStatus, _ := fc.Args["new_status"].(string)
+		if err := executeUpdate("status_corepart", newStatus); err != nil { return "", err }
+		return fmt.Sprintf("Status Corepart berhasil diubah menjadi '%s'.", newStatus), nil
 
 	case "assign_vendor":
-		vendorName, _ := fc.rgs["vendor_name"].(string)
-		category, _ := fc.rgs["category"].(string)
+		vendorName, _ := fc.Args["vendor_name"].(string)
+		category, _ := fc.Args["category"].(string)
 
 		var vendorID string
-		err := a.DB.QeryRow("SELECT id FROM pblic.companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
-		if err != nil { retrn "", fmt.Errorf("vendor '%s' tidak ditemkan.", vendorName) }
+		err := a.DB.QueryRow("SELECT id FROM public.companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
+		if err != nil { return "", fmt.Errorf("vendor '%s' tidak ditemukan.", vendorName) }
 		
 		var tableName string
 		switch category {
-		case "bsbar": tableName = "bsbars"
+		case "busbar": tableName = "busbars"
 		case "component": tableName = "components"
 		case "palet": tableName = "palet"
 		case "corepart": tableName = "corepart"
-		defalt: retrn "", fmt.Errorf("kategori '%s' tidak valid", category)
+		default: return "", fmt.Errorf("kategori '%s' tidak valid", category)
 		}
 		
-		qery := fmt.Sprintf("INSERT INTO %s (panel_no_pp, vendor) VLUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING", tableName)
-		_, err = a.DB.Exec(qery, panelNoPp, vendorID)
-		if err != nil { retrn "", fmt.Errorf("gagal mengaskan vendor: %w", err) }
+		query := fmt.Sprintf("INSERT INTO %s (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING", tableName)
+		_, err = a.DB.Exec(query, panelNoPp, vendorID)
+		if err != nil { return "", fmt.Errorf("gagal menugaskan vendor: %w", err) }
 		
-		retrn fmt.Sprintf("Vendor '%s' berhasil ditgaskan ntk pekerjaan %s.", vendorName, category), nil
+		return fmt.Sprintf("Vendor '%s' berhasil ditugaskan untuk pekerjaan %s.", vendorName, category), nil
 
-	defalt:
-		retrn "", fmt.Errorf("fngsi tidak dikenal: %s", fc.Name)
+	default:
+		return "", fmt.Errorf("fungsi tidak dikenal: %s", fc.Name)
 	}
 }
 
-fnc sendNotificationEmail(recipients []string, sbject, htmlBody string) {
-	// Filter email kosong ata tidak valid
+func sendNotificationEmail(recipients []string, subject, htmlBody string) {
+	// Filter email kosong atau tidak valid
 	validRecipients := []string{}
 	for _, r := range recipients {
 		if strings.Contains(strings.TrimSpace(r), "@") {
@@ -5533,69 +5533,69 @@ fnc sendNotificationEmail(recipients []string, sbject, htmlBody string) {
 		}
 	}
 
-	if len(validRecipients) ==  {
+	if len(validRecipients) == 0 {
 		log.Println("Tidak ada penerima email yang valid, notifikasi dilewati.")
-		retrn
+		return
 	}
 
 	mailer := gomail.NewMessage()
-	mailer.SetHeader("From", fmt.Sprintf("SecPanel Notifikasi <%s>", CONFIG_SENDER_EMIL))
+	mailer.SetHeader("From", fmt.Sprintf("SecPanel Notifikasi <%s>", CONFIG_SENDER_EMAIL))
 	mailer.SetHeader("To", validRecipients...)
-	mailer.SetHeader("Sbject", sbject)
+	mailer.SetHeader("Subject", subject)
 	mailer.SetBody("text/html", htmlBody)
 
 	dialer := gomail.NewDialer(
 		CONFIG_SMTP_HOST,
 		CONFIG_SMTP_PORT,
-		CONFIG_SENDER_EMIL,
-		CONFIG_UTH_PSSWORD,
+		CONFIG_SENDER_EMAIL,
+		CONFIG_AUTH_PASSWORD,
 	)
 
 	log.Printf("Mengirim email notifikasi ke: %v", validRecipients)
-	if err := dialer.DialndSend(mailer); err != nil {
+	if err := dialer.DialAndSend(mailer); err != nil {
 		log.Printf("Gagal mengirim email: %v", err)
 	} else {
 		log.Println("Email notifikasi berhasil dikirim.")
 	}
 }
 
-fnc (a *pp) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Reqest) {
-    // mbil panel_no_pp dari qery parameter (?panel_no_pp=...)
-    panelNoPp := r.URL.Qery().Get("panel_no_pp")
+func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Request) {
+    // Ambil panel_no_pp dari query parameter (?panel_no_pp=...)
+    panelNoPp := r.URL.Query().Get("panel_no_pp")
 
     // Jika tidak ada panel_no_pp, tidak ada yang bisa direkomendasikan
     if panelNoPp == "" {
-        respondWithJSON(w, http.StatsOK, []string{})
-        retrn
+        respondWithJSON(w, http.StatusOK, []string{})
+        return
     }
 
-    // Qery ntk mengambil sema email nik dari sema is pada panel yang sama
-    qery := `
-        SELECT DISTINCT nnest(string_to_array(i.notify_email, ',')) as email
-        FROM pblic.isses i
-        JOIN pblic.chats c ON i.chat_id = c.id
-        WHERE c.panel_no_pp = $1 ND i.notify_email IS NOT NULL ND i.notify_email != ''
+    // Query untuk mengambil semua email unik dari semua isu pada panel yang sama
+    query := `
+        SELECT DISTINCT unnest(string_to_array(i.notify_email, ',')) as email
+        FROM public.issues i
+        JOIN public.chats c ON i.chat_id = c.id
+        WHERE c.panel_no_pp = $1 AND i.notify_email IS NOT NULL AND i.notify_email != ''
     `
 
-    rows, err := a.DB.Qery(qery, panelNoPp)
+    rows, err := a.DB.Query(query, panelNoPp)
     if err != nil {
-        respondWithError(w, http.StatsInternalServerError, "Gagal mengambil data email: "+err.Error())
-        retrn
+        respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data email: "+err.Error())
+        return
     }
     defer rows.Close()
 
     emailSet := make(map[string]bool)
     for rows.Next() {
-        var email sql.NllString
+        var email sql.NullString
         if err := rows.Scan(&email); err != nil {
             log.Printf("Gagal memindai email: %v", err)
-            contine
+            continue
         }
         // Pastikan email valid dan tidak kosong setelah dibersihkan
         if email.Valid {
             trimmedEmail := strings.TrimSpace(email.String)
             if trimmedEmail != "" {
-                emailSet[trimmedEmail] = tre
+                emailSet[trimmedEmail] = true
             }
         }
     }
@@ -5605,287 +5605,287 @@ fnc (a *pp) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Reqest
         recommendations = append(recommendations, email)
     }
 
-    respondWithJSON(w, http.StatsOK, recommendations)
+    respondWithJSON(w, http.StatusOK, recommendations)
 }
 
 
 
-fnc (a *pp) getdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
 	if !ok {
-		respondWithError(w, http.StatsBadReqest, "Panel No PP is reqired")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		return
 	}
 
-	qery := `
-		SELECT id, panel_no_pp, po_nmber, item, qantity, spplier, stats, remarks, created_at, received_date
+	query := `
+		SELECT id, panel_no_pp, po_number, item, quantity, supplier, status, remarks, created_at, received_date
 		FROM additional_sr
 		WHERE panel_no_pp = $1
 		ORDER BY created_at DESC`
-	rows, err := a.DB.Qery(qery, panelNoPp)
+	rows, err := a.DB.Query(query, panelNoPp)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var srs []dditionalSR
+	var srs []AdditionalSR
 	for rows.Next() {
-		var sr dditionalSR
-		// Perbari Scan
-		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNmber, &sr.Item, &sr.Qantity, &sr.Spplier, &sr.Stats, &sr.Remarks, &sr.Createdt, &sr.ReceivedDate); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to scan dditional SR: "+err.Error())
-			retrn
+		var sr AdditionalSR
+		// Perbarui Scan
+		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.ReceivedDate); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
+			return
 		}
 		srs = append(srs, sr)
 	}
 
-	respondWithJSON(w, http.StatsOK, srs)
+	respondWithJSON(w, http.StatusOK, srs)
 }
-fnc (a *pp) createdditionalSRHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	panelNoPp, ok := vars["no_pp"]
 	if !ok {
-		respondWithError(w, http.StatsBadReqest, "Panel No PP is reqired")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Panel No PP is required")
+		return
 	}
 
-	// Penting: Client hars mengirim field 'createdBy' dalam payload
-	var payload strct {
-		dditionalSR
+	// Penting: Client harus mengirim field 'createdBy' dalam payload
+	var payload struct {
+		AdditionalSR
 		CreatedBy string `json:"createdBy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 	payload.PanelNoPp = panelNoPp
 
-	// Qery INSERT ke database
-	qery := `
-		INSERT INTO additional_sr (panel_no_pp, po_nmber, item, qantity, spplier, stats, remarks, received_date)
-		VLUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	// Query INSERT ke database
+	query := `
+		INSERT INTO additional_sr (panel_no_pp, po_number, item, quantity, supplier, status, remarks, received_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at`
-	err := a.DB.QeryRow(
-		qery,
-		payload.PanelNoPp, payload.PoNmber, payload.Item, payload.Qantity, payload.Spplier, payload.Stats, payload.Remarks, payload.ReceivedDate,
-	).Scan(&payload.ID, &payload.Createdt)
+	err := a.DB.QueryRow(
+		query,
+		payload.PanelNoPp, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.ReceivedDate,
+	).Scan(&payload.ID, &payload.CreatedAt)
 
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to create dditional SR: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
+		return
 	}
 
 	// --- Logika Notifikasi ---
-	go fnc() {
+	go func() {
 		stakeholders, err := a.getPanelStakeholders(panelNoPp)
 		if err != nil {
 			log.Printf("Error getting stakeholders for panel %s: %v", panelNoPp, err)
-			retrn
+			return
 		}
 
 		finalRecipients := []string{}
-		for _, ser := range stakeholders {
-			if ser != payload.CreatedBy {
-				finalRecipients = append(finalRecipients, ser)
+		for _, user := range stakeholders {
+			if user != payload.CreatedBy {
+				finalRecipients = append(finalRecipients, user)
 			}
 		}
 
-		if len(finalRecipients) >  {
-			title := fmt.Sprintf("SR Bar di Panel %s", panelNoPp)
-			body := fmt.Sprintf("%s menambahkan SR bar: '%s'", payload.CreatedBy, payload.Item)
+		if len(finalRecipients) > 0 {
+			title := fmt.Sprintf("SR Baru di Panel %s", panelNoPp)
+			body := fmt.Sprintf("%s menambahkan SR baru: '%s'", payload.CreatedBy, payload.Item)
 			a.sendNotificationToUsers(finalRecipients, title, body)
 		}
 	}()
 
-	respondWithJSON(w, http.StatsCreated, payload.dditionalSR)
+	respondWithJSON(w, http.StatusCreated, payload.AdditionalSR)
 }
 
 
-fnc (a *pp) pdatedditionalSRHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	id, err := strconv.toi(vars["id"])
+func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid dditional SR ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid Additional SR ID")
+		return
 	}
 
-	// Penting: Client hars mengirim field 'pdatedBy' dalam payload
-	var payload strct {
-		dditionalSR
-		UpdatedBy string `json:"pdatedBy"`
+	// Penting: Client harus mengirim field 'updatedBy' dalam payload
+	var payload struct {
+		AdditionalSR
+		UpdatedBy string `json:"updatedBy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		return
 	}
 
-	// Dapatkan No PP dari database sebelm pdate, ntk notifikasi
+	// Dapatkan No PP dari database sebelum update, untuk notifikasi
 	var panelNoPp string
-	err = a.DB.QeryRow("SELECT panel_no_pp FROM additional_sr WHERE id = $1", id).Scan(&panelNoPp)
+	err = a.DB.QueryRow("SELECT panel_no_pp FROM additional_sr WHERE id = $1", id).Scan(&panelNoPp)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "dditional SR not fond")
+			respondWithError(w, http.StatusNotFound, "Additional SR not found")
 		} else {
-			respondWithError(w, http.StatsInternalServerError, "Failed to qery panel for SR: "+err.Error())
+			respondWithError(w, http.StatusInternalServerError, "Failed to query panel for SR: "+err.Error())
 		}
-		retrn
+		return
 	}
 
-	// Lakkan pdate ke database
-	qery := `
-		UPDTE additional_sr SET
-			po_nmber = $1, item = $2, qantity = $3, spplier = $4,
-			stats = $5, remarks = $6, received_date = $7
+	// Lakukan update ke database
+	query := `
+		UPDATE additional_sr SET
+			po_number = $1, item = $2, quantity = $3, supplier = $4,
+			status = $5, remarks = $6, received_date = $7
 		WHERE id = $8`
-	res, err := a.DB.Exec(qery, payload.PoNmber, payload.Item, payload.Qantity, payload.Spplier, payload.Stats, payload.Remarks, payload.ReceivedDate, id)
+	res, err := a.DB.Exec(query, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.ReceivedDate, id)
 
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to pdate dditional SR: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to update Additional SR: "+err.Error())
+		return
 	}
-	cont, _ := res.Rowsffected()
-	if cont ==  {
-		respondWithError(w, http.StatsNotFond, "dditional SR not fond dring pdate")
-		retrn
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Additional SR not found during update")
+		return
 	}
 
 	// --- Logika Notifikasi ---
-	go fnc() {
+	go func() {
 		stakeholders, err := a.getPanelStakeholders(panelNoPp)
 		if err != nil {
 			log.Printf("Error getting stakeholders for panel %s: %v", panelNoPp, err)
-			retrn
+			return
 		}
 
 		finalRecipients := []string{}
-		for _, ser := range stakeholders {
-			if ser != payload.UpdatedBy {
-				finalRecipients = append(finalRecipients, ser)
+		for _, user := range stakeholders {
+			if user != payload.UpdatedBy {
+				finalRecipients = append(finalRecipients, user)
 			}
 		}
 
-		if len(finalRecipients) >  {
+		if len(finalRecipients) > 0 {
 			title := fmt.Sprintf("SR Diedit di Panel %s", panelNoPp)
-			body := fmt.Sprintf("%s mengbah SR: '%s'", payload.UpdatedBy, payload.Item)
+			body := fmt.Sprintf("%s mengubah SR: '%s'", payload.UpdatedBy, payload.Item)
 			a.sendNotificationToUsers(finalRecipients, title, body)
 		}
 	}()
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
 
-fnc (a *pp) deletedditionalSRHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
-	id, err := strconv.toi(vars["id"])
+func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid dditional SR ID")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid Additional SR ID")
+		return
 	}
 
 	res, err := a.DB.Exec("DELETE FROM additional_sr WHERE id = $1", id)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	cont, _ := res.Rowsffected()
-	if cont ==  {
-		respondWithError(w, http.StatsNotFond, "dditional SR not fond")
-		retrn
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Additional SR not found")
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "deleted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-fnc (a *pp) getSppliersHandler(w http.ResponseWriter, r *http.Reqest) {
-	qery := `SELECT DISTINCT spplier FROM additional_sr WHERE spplier IS NOT NULL ND spplier != '' ORDER BY spplier SC`
+func (a *App) getSuppliersHandler(w http.ResponseWriter, r *http.Request) {
+	query := `SELECT DISTINCT supplier FROM additional_sr WHERE supplier IS NOT NULL AND supplier != '' ORDER BY supplier ASC`
 	
-	rows, err := a.DB.Qery(qery)
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to fetch sppliers: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch suppliers: "+err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var sppliers []string
+	var suppliers []string
 	for rows.Next() {
-		var spplier string
-		if err := rows.Scan(&spplier); err != nil {
-			log.Printf("Failed to scan spplier: %v", err)
-			contine
+		var supplier string
+		if err := rows.Scan(&supplier); err != nil {
+			log.Printf("Failed to scan supplier: %v", err)
+			continue
 		}
-		sppliers = append(sppliers, spplier)
+		suppliers = append(suppliers, supplier)
 	}
 
-	respondWithJSON(w, http.StatsOK, sppliers)
+	respondWithJSON(w, http.StatusOK, suppliers)
 }
-fnc (a *pp) transferPanelHandler(w http.ResponseWriter, r *http.Reqest) {
-	vars := mx.Vars(r)
+func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
 
-	var payload strct {
-		ction         string  `json:"action"`
+	var payload struct {
+		Action         string  `json:"action"`
 		Slot           string  `json:"slot,omitempty"`
-		ctor          string  `json:"actor"`
+		Actor          string  `json:"actor"`
 		VendorID       *string `json:"vendorId,omitempty"`
 		NewVendorRole  *string `json:"newVendorRole,omitempty"`
 		StartDate      *string `json:"start_date,omitempty"`
-		ProdctionDate *string `json:"prodction_date,omitempty"`
+		ProductionDate *string `json:"production_date,omitempty"`
 		FatDate        *string `json:"fat_date,omitempty"`
-		llDoneDate    *string `json:"all_done_date,omitempty"`
+		AllDoneDate    *string `json:"all_done_date,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
 
 	tx, err := a.DB.Begin()
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to start transaction")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to start transaction")
+		return
 	}
 	defer tx.Rollback()
 
-	var p strct {
-		StatsPenyelesaian *string
-		ProdctionSlot     *string
-		HistoryStack       []byte
+	var p struct {
+		StatusPenyelesaian *string
+		ProductionSlot     *string
+		HistoryStack       []byte
 	}
-	qery := `SELECT stats_penyelesaian, prodction_slot, history_stack FROM panels WHERE no_pp = $1 FOR UPDTE`
-	err = tx.QeryRow(qery, noPp).Scan(&p.StatsPenyelesaian, &p.ProdctionSlot, &p.HistoryStack)
+	query := `SELECT status_penyelesaian, production_slot, history_stack FROM panels WHERE no_pp = $1 FOR UPDATE`
+	err = tx.QueryRow(query, noPp).Scan(&p.StatusPenyelesaian, &p.ProductionSlot, &p.HistoryStack)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatsNotFond, "Panel not fond")
+			respondWithError(w, http.StatusNotFound, "Panel not found")
 		} else {
-			respondWithError(w, http.StatsInternalServerError, "Failed to fetch panel data")
+			respondWithError(w, http.StatusInternalServerError, "Failed to fetch panel data")
 		}
-		retrn
+		return
 	}
 
-	crrentStats := "VendorWarehose"
-	if p.StatsPenyelesaian != nil {
-		crrentStats = *p.StatsPenyelesaian
+	currentStatus := "VendorWarehouse"
+	if p.StatusPenyelesaian != nil {
+		currentStatus = *p.StatusPenyelesaian
 	}
 
-	createSnapshot := fnc(stats string, cstomTimestamp *time.Time) (map[string]interface{}, error) {
+	createSnapshot := func(status string, customTimestamp *time.Time) (map[string]interface{}, error) {
 		var panelState map[string]interface{}
 		var panelData []byte
-		err := tx.QeryRow("SELECT row_to_json(p) FROM panels p WHERE no_pp = $1", noPp).Scan(&panelData)
+		err := tx.QueryRow("SELECT row_to_json(p) FROM panels p WHERE no_pp = $1", noPp).Scan(&panelData)
 		if err != nil {
-			retrn nil, err
+			return nil, err
 		}
 		json.Unmarshal(panelData, &panelState)
 		timestampToUse := time.Now()
-		if cstomTimestamp != nil && !cstomTimestamp.IsZero() {
-			timestampToUse = *cstomTimestamp
+		if customTimestamp != nil && !customTimestamp.IsZero() {
+			timestampToUse = *customTimestamp
 		}
-		retrn map[string]interface{}{
+		return map[string]interface{}{
 			"timestamp":       timestampToUse.UTC().Format(time.RFC3339),
-			"snapshot_stats": stats,
+			"snapshot_status": status,
 			"state":           panelState,
 		}, nil
 	}
@@ -5895,64 +5895,64 @@ fnc (a *pp) transferPanelHandler(w http.ResponseWriter, r *http.Reqest) {
 		json.Unmarshal(p.HistoryStack, &historyStack)
 	}
 
-	switch payload.ction {
-	case "pdate_dates":
-		var pdates []string
+	switch payload.Action {
+	case "update_dates":
+		var updates []string
 		var args []interface{}
-		argConter := 1
+		argCounter := 1
 		if payload.StartDate != nil {
 			if parsedDate, err := time.Parse(time.RFC3339, *payload.StartDate); err == nil {
-				pdates = append(pdates, fmt.Sprintf("start_date = $%d", argConter))
+				updates = append(updates, fmt.Sprintf("start_date = $%d", argCounter))
 				args = append(args, parsedDate)
-				argConter++
+				argCounter++
 			}
 		}
 		historyChanged := false
 		for i, item := range historyStack {
-			stats, _ := item["snapshot_stats"].(string)
-			switch stats {
-			case "VendorWarehose":
-				if payload.ProdctionDate != nil {
-					if newDate, err := time.Parse(time.RFC3339, *payload.ProdctionDate); err == nil {
+			status, _ := item["snapshot_status"].(string)
+			switch status {
+			case "VendorWarehouse":
+				if payload.ProductionDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
 						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
-						historyChanged = tre
+						historyChanged = true
 					}
 				}
-			case "Prodction", "Sbcontractor":
+			case "Production", "Subcontractor":
 				if payload.FatDate != nil {
 					if newDate, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
 						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
-						historyChanged = tre
+						historyChanged = true
 					}
 				}
-			case "FT":
-				if payload.llDoneDate != nil {
-					if newDate, err := time.Parse(time.RFC3339, *payload.llDoneDate); err == nil {
+			case "FAT":
+				if payload.AllDoneDate != nil {
+					if newDate, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
 						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
-						historyChanged = tre
+						historyChanged = true
 					}
 				}
 			}
 		}
 		if historyChanged {
 			historyJson, _ := json.Marshal(historyStack)
-			pdates = append(pdates, fmt.Sprintf("history_stack = $%d", argConter))
+			updates = append(updates, fmt.Sprintf("history_stack = $%d", argCounter))
 			args = append(args, historyJson)
-			argConter++
+			argCounter++
 		}
-		if len(pdates) >  {
-			qery := fmt.Sprintf("UPDTE panels SET %s WHERE no_pp = $%d", strings.Join(pdates, ", "), argConter)
+		if len(updates) > 0 {
+			query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 			args = append(args, noPp)
-			if _, err := tx.Exec(qery, args...); err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Failed to pdate dates: "+err.Error())
-				retrn
+			if _, err := tx.Exec(query, args...); err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to update dates: "+err.Error())
+				return
 			}
 		}
 
 	case "rollback":
-		if len(historyStack) ==  {
-			respondWithError(w, http.StatsBadReqest, "No history to rollback to.")
-			retrn
+		if len(historyStack) == 0 {
+			respondWithError(w, http.StatusBadRequest, "No history to rollback to.")
+			return
 		}
 		lastStateWrapper := historyStack[len(historyStack)-1]
 		historyStack = historyStack[:len(historyStack)-1]
@@ -5960,260 +5960,229 @@ fnc (a *pp) transferPanelHandler(w http.ResponseWriter, r *http.Reqest) {
 		lastState, _ := lastStateWrapper["state"].(map[string]interface{})
 
 		delete(lastState, "history_stack")
-		delete(lastState, "snapshot_stats")
+		delete(lastState, "snapshot_status")
 
-		var colmns []string
-		var vales []interface{}
+		var columns []string
+		var values []interface{}
 		i := 1
 		for col, val := range lastState {
-			colmns = append(colmns, fmt.Sprintf("%s = $%d", col, i))
-			vales = append(vales, val)
+			columns = append(columns, fmt.Sprintf("%s = $%d", col, i))
+			values = append(values, val)
 			i++
 		}
-		colmns = append(colmns, fmt.Sprintf("history_stack = $%d", i))
-		vales = append(vales, historyJson)
+		columns = append(columns, fmt.Sprintf("history_stack = $%d", i))
+		values = append(values, historyJson)
 		i++
-		vales = append(vales, noPp)
+		values = append(values, noPp)
 
-		pdateQery := fmt.Sprintf("UPDTE panels SET %s WHERE no_pp = $%d", strings.Join(colmns, ", "), i)
-		_, err = tx.Exec(pdateQery, vales...)
+		updateQuery := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(columns, ", "), i)
+		_, err = tx.Exec(updateQuery, values...)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to restore panel from history")
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Failed to restore panel from history")
+			return
 		}
 
-		if p.ProdctionSlot != nil && *p.ProdctionSlot != "" {
-			_, err = tx.Exec("UPDTE prodction_slots SET is_occpied = false WHERE position_code = $1", *p.ProdctionSlot)
+		if p.ProductionSlot != nil && *p.ProductionSlot != "" {
+			_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *p.ProductionSlot)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Failed to free p slot on rollback")
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Failed to free up slot on rollback")
+				return
 			}
 		}
 
-	defalt:
+	default:
 		var snapshotDate *time.Time
-		var nextStats string
+		var nextStatus string
 
-		switch payload.ction {
-		case "to_prodction":
-			nextStats = "Prodction"
-			if payload.ProdctionDate != nil {
-				if t, err := time.Parse(time.RFC3339, *payload.ProdctionDate); err == nil {
+		switch payload.Action {
+		case "to_production":
+			nextStatus = "Production"
+			if payload.ProductionDate != nil {
+				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
 					snapshotDate = &t
 				}
 			}
-		case "to_sbcontractor":
-			nextStats = "Sbcontractor"
-			if payload.ProdctionDate != nil {
-				if t, err := time.Parse(time.RFC3339, *payload.ProdctionDate); err == nil {
+		case "to_subcontractor":
+			nextStatus = "Subcontractor"
+			if payload.ProductionDate != nil {
+				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
 					snapshotDate = &t
 				}
 			}
 		case "to_fat":
-			nextStats = "FT"
+			nextStatus = "FAT"
 			if payload.FatDate != nil {
 				if t, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
 					snapshotDate = &t
 				}
 			}
 		case "to_done":
-			nextStats = "Done"
-			if payload.llDoneDate != nil {
-				if t, err := time.Parse(time.RFC3339, *payload.llDoneDate); err == nil {
+			nextStatus = "Done"
+			if payload.AllDoneDate != nil {
+				if t, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
 					snapshotDate = &t
 				}
 			}
-		defalt:
-			respondWithError(w, http.StatsBadReqest, "Invalid action specified.")
-			retrn
+		default:
+			respondWithError(w, http.StatusBadRequest, "Invalid action specified.")
+			return
 		}
 
-		snapshot, err := createSnapshot(crrentStats, snapshotDate)
+		snapshot, err := createSnapshot(currentStatus, snapshotDate)
 		if err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to create snapshot")
-			retrn
+			respondWithError(w, http.StatusInternalServerError, "Failed to create snapshot")
+			return
 		}
 		historyStack = append(historyStack, snapshot)
 		historyJson, _ := json.Marshal(historyStack)
 
-		switch payload.ction {
+		switch payload.Action {
 
-		case "to_prodction":
+		case "to_production":
 			dateToUse := time.Now()
 			if snapshotDate != nil {
 				dateToUse = *snapshotDate
 			}
-			pdateQery := `UPDTE panels SET stats_component = 'Done', stats_palet = 'Close', stats_corepart = 'Close', percent_progress = 1, is_closed = tre, closed_date = COLESCE(closed_date, $1), stats_penyelesaian = $2, prodction_slot = $3, history_stack = $4 WHERE no_pp = $5`
-			_, err = tx.Exec(pdateQery, dateToUse, nextStats, payload.Slot, historyJson, noPp)
+			updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = COALESCE(closed_date, $1), status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
+			_, err = tx.Exec(updateQuery, dateToUse, nextStatus, payload.Slot, historyJson, noPp)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Failed to transfer to prodction: "+err.Error())
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Failed to transfer to production: "+err.Error())
+				return
 			}
-			_, err = tx.Exec("UPDTE prodction_slots SET is_occpied = tre WHERE position_code = $1", payload.Slot)
+			_, err = tx.Exec("UPDATE production_slots SET is_occupied = true WHERE position_code = $1", payload.Slot)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Failed to occpy slot")
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Failed to occupy slot")
+				return
 			}
 
-		case "to_sbcontractor":
+		case "to_subcontractor":
 			if payload.VendorID == nil || *payload.VendorID == "" {
-				respondWithError(w, http.StatsBadReqest, "Vendor ID/Name is reqired")
-				retrn
+				respondWithError(w, http.StatusBadRequest, "Vendor ID/Name is required")
+				return
 			}
 			var finalVendorId string
-			vendorInpt := *payload.VendorID
-			roleToUse := "g3"
-			if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
-				roleToUse = *payload.NewVendorRole
-			}
+			vendorInput := *payload.VendorID
 
-			err := tx.QeryRow("SELECT id FROM companies WHERE id = $1", vendorInpt).Scan(&finalVendorId)
+			err := tx.QueryRow("SELECT id FROM companies WHERE id = $1", vendorInput).Scan(&finalVendorId)
 			if err == nil {
 
 			} else if err == sql.ErrNoRows {
-				errName := tx.QeryRow("SELECT id FROM companies WHERE name = $1", vendorInpt).Scan(&finalVendorId)
+				errName := tx.QueryRow("SELECT id FROM companies WHERE name = $1", vendorInput).Scan(&finalVendorId)
 				if errName == nil {
 
 				} else if errName == sql.ErrNoRows {
-					newId := strings.ToLower(strings.Replacell(vendorInpt, " ", "_"))
+					newId := strings.ToLower(strings.ReplaceAll(vendorInput, " ", "_"))
 
 					var existingId string
-					errCheck := tx.QeryRow("SELECT id FROM companies WHERE id = $1", newId).Scan(&existingId)
+					errCheck := tx.QueryRow("SELECT id FROM companies WHERE id = $1", newId).Scan(&existingId)
 					if errCheck != nil && errCheck != sql.ErrNoRows {
-						respondWithError(w, http.StatsInternalServerError, "Gagal mengecek ID vendor bar: "+errCheck.Error())
-						retrn
+						respondWithError(w, http.StatusInternalServerError, "Gagal mengecek ID vendor baru: "+errCheck.Error())
+						return
 					}
 
 					if errCheck == sql.ErrNoRows {
-						_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VLUES ($1, $2, $3)", newId, vendorInpt, roleToUse)
+						roleToUse := "g3"
+						if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
+							roleToUse = *payload.NewVendorRole
+						}
+
+						_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", newId, vendorInput, roleToUse)
 						if errInsert != nil {
-							respondWithError(w, http.StatsInternalServerError, "Gagal membat vendor bar: "+errInsert.Error())
-							retrn
+							respondWithError(w, http.StatusInternalServerError, "Gagal membuat vendor baru: "+errInsert.Error())
+							return
 						}
 					}
 					finalVendorId = newId
 				} else {
-					respondWithError(w, http.StatsInternalServerError, "Gagal memvalidasi vendor by name: "+errName.Error())
-					retrn
+					respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi vendor by name: "+errName.Error())
+					return
 				}
 			} else {
-				respondWithError(w, http.StatsInternalServerError, "Gagal memvalidasi vendor by id: "+err.Error())
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi vendor by id: "+err.Error())
+				return
 			}
 
-			if roleToUse == "g3" {
-				qeryG3 := `INSERT INTO g3_vendors (panel_no_pp, vendor) VLUES ($1, $2) ON CONFLICT DO NOTHING`
-				_, errG3 := tx.Exec(qeryG3, noPp, finalVendorId)
-				if errG3 != nil {
-					respondWithError(w, http.StatsInternalServerError, "Gagal assign G3 vendor: "+errG3.Error())
-					retrn
-				}
-
-				pdateQery := `UPDTE panels SET 
-                                  stats_penyelesaian = 'Sbcontractor', 
-                                  stats_component = 'Done', 
-                                  stats_palet = 'Close', 
-                                  stats_corepart = 'Close', 
-                                  percent_progress = 1, 
-                                  is_closed = tre, 
-                                  closed_date = COLESCE(closed_date, NOW()), 
-                                  history_stack = $1 
-                                WHERE no_pp = $2`
-				_, err = tx.Exec(pdateQery, historyJson, noPp)
-
-			} else {
-				pdateQery := `UPDTE panels SET 
-                                  stats_penyelesaian = 'Sbcontractor', 
-                                  vendor_id = $1, 
-                                  stats_component = 'Done', 
-                                  stats_palet = 'Close', 
-                                  stats_corepart = 'Close', 
-                                  percent_progress = 1, 
-                                  is_closed = tre, 
-                                  closed_date = COLESCE(closed_date, NOW()), 
-                                  history_stack = $2 
-                                WHERE no_pp = $3`
-				_, err = tx.Exec(pdateQery, finalVendorId, historyJson, noPp)
-			}
+			updateQuery := `UPDATE panels SET status_penyelesaian = 'Subcontractor', vendor_id = $1, status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = COALESCE(closed_date, NOW()), history_stack = $2 WHERE no_pp = $3`
+			_, err = tx.Exec(updateQuery, finalVendorId, historyJson, noPp)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Gagal transfer ke sbkontraktor: "+err.Error())
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Gagal transfer ke subkontraktor")
+				return
 			}
 		case "to_fat":
-			occpiedSlot := p.ProdctionSlot
-			_, err = tx.Exec("UPDTE panels SET stats_penyelesaian = $1, prodction_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStats, historyJson, noPp)
+			occupiedSlot := p.ProductionSlot
+			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Failed to transfer to FT")
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Failed to transfer to FAT")
+				return
 			}
-			if occpiedSlot != nil {
-				_, err = tx.Exec("UPDTE prodction_slots SET is_occpied = false WHERE position_code = $1", *occpiedSlot)
+			if occupiedSlot != nil {
+				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
 				if err != nil {
-					respondWithError(w, http.StatsInternalServerError, "Failed to free p slot")
-					retrn
+					respondWithError(w, http.StatusInternalServerError, "Failed to free up slot")
+					return
 				}
 			}
 		case "to_done":
-			_, err = tx.Exec("UPDTE panels SET stats_penyelesaian = $1, history_stack = $2 WHERE no_pp = $3", nextStats, historyJson, noPp)
+			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
 			if err != nil {
-				respondWithError(w, http.StatsInternalServerError, "Failed to transfer to Done")
-				retrn
+				respondWithError(w, http.StatusInternalServerError, "Failed to transfer to Done")
+				return
 			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Transaction commit failed")
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed")
+		return
 	}
 
-	var pdatedPanel PanelDisplayData
-	panelQery := `
+	var updatedPanel PanelDisplayData
+	panelQuery := `
 		SELECT
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
-			p.stats_bsbar_pcc, p.stats_bsbar_mcc, p.stats_component, p.stats_palet,
-			p.stats_corepart, p.ao_bsbar_pcc, p.ao_bsbar_mcc, p.created_by, p.vendor_id,
+			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
+			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
 			p.is_closed, p.closed_date, p.panel_type, p.remarks,
-			p.close_date_bsbar_pcc, p.close_date_bsbar_mcc, p.stats_penyelesaian, p.prodction_slot,
+			p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
 			p.history_stack,
-			p.name as panel_vendor_name,
-			(SELECT STRING_GG(c.name, ', ') FROM pblic.companies c JOIN pblic.bsbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as bsbar_vendor_names,
-			(SELECT STRING_GG(c.name, ', ') FROM pblic.companies c JOIN pblic.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names
-		FROM pblic.panels p
-		LEFT JOIN pblic.companies p ON p.vendor_id = p.id
+			pu.name as panel_vendor_name,
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names
+		FROM public.panels p
+		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp = $1`
 	var historyStackJSON []byte
-	err = a.DB.QeryRow(panelQery, noPp).Scan(
-		&pdatedPanel.Panel.NoPp, &pdatedPanel.Panel.NoPanel, &pdatedPanel.Panel.NoWbs, &pdatedPanel.Panel.Project, &pdatedPanel.Panel.PercentProgress, &pdatedPanel.Panel.StartDate, &pdatedPanel.Panel.TargetDelivery,
-		&pdatedPanel.Panel.StatsBsbarPcc, &pdatedPanel.Panel.StatsBsbarMcc, &pdatedPanel.Panel.StatsComponent, &pdatedPanel.Panel.StatsPalet, &pdatedPanel.Panel.StatsCorepart,
-		&pdatedPanel.Panel.oBsbarPcc, &pdatedPanel.Panel.oBsbarMcc, &pdatedPanel.Panel.CreatedBy, &pdatedPanel.Panel.VendorID, &pdatedPanel.Panel.IsClosed,
-		&pdatedPanel.Panel.ClosedDate, &pdatedPanel.Panel.PanelType, &pdatedPanel.Panel.Remarks, &pdatedPanel.Panel.CloseDateBsbarPcc, &pdatedPanel.Panel.CloseDateBsbarMcc,
-		&pdatedPanel.Panel.StatsPenyelesaian, &pdatedPanel.Panel.ProdctionSlot,
+	err = a.DB.QueryRow(panelQuery, noPp).Scan(
+		&updatedPanel.Panel.NoPp, &updatedPanel.Panel.NoPanel, &updatedPanel.Panel.NoWbs, &updatedPanel.Panel.Project, &updatedPanel.Panel.PercentProgress, &updatedPanel.Panel.StartDate, &updatedPanel.Panel.TargetDelivery,
+		&updatedPanel.Panel.StatusBusbarPcc, &updatedPanel.Panel.StatusBusbarMcc, &updatedPanel.Panel.StatusComponent, &updatedPanel.Panel.StatusPalet, &updatedPanel.Panel.StatusCorepart,
+		&updatedPanel.Panel.AoBusbarPcc, &updatedPanel.Panel.AoBusbarMcc, &updatedPanel.Panel.CreatedBy, &updatedPanel.Panel.VendorID, &updatedPanel.Panel.IsClosed,
+		&updatedPanel.Panel.ClosedDate, &updatedPanel.Panel.PanelType, &updatedPanel.Panel.Remarks, &updatedPanel.Panel.CloseDateBusbarPcc, &updatedPanel.Panel.CloseDateBusbarMcc,
+		&updatedPanel.Panel.StatusPenyelesaian, &updatedPanel.Panel.ProductionSlot,
 		&historyStackJSON,
-		&pdatedPanel.PanelVendorName, &pdatedPanel.BsbarVendorNames, &pdatedPanel.ComponentVendorNames,
+		&updatedPanel.PanelVendorName, &updatedPanel.BusbarVendorNames, &updatedPanel.ComponentVendorNames,
 	)
 	if err != nil {
-		log.Printf("Warning: cold not fetch pdated panel data for %s after transfer: %v", noPp, err)
-		respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
-		retrn
+		log.Printf("Warning: could not fetch updated panel data for %s after transfer: %v", noPp, err)
+		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+		return
 	}
 
 	var historyStackData []map[string]interface{}
-	var prodctionDate, fatDate, allDoneDate *time.Time
+	var productionDate, fatDate, allDoneDate *time.Time
 
 	if historyStackJSON != nil {
 		json.Unmarshal(historyStackJSON, &historyStackData)
 		for _, item := range historyStackData {
-			if stats, ok := item["snapshot_stats"].(string); ok {
+			if status, ok := item["snapshot_status"].(string); ok {
 				if timestampStr, ok := item["timestamp"].(string); ok {
 					ts, err := time.Parse(time.RFC3339, timestampStr)
 					if err == nil {
-						if stats == "VendorWarehose" && prodctionDate == nil {
-							prodctionDate = &ts
+						if status == "VendorWarehouse" && productionDate == nil {
+							productionDate = &ts
 						}
-						if (stats == "Prodction" || stats == "Sbcontractor") && fatDate == nil {
+						if status == "Production" && fatDate == nil {
 							fatDate = &ts
 						}
-						if stats == "FT" && allDoneDate == nil {
+						if status == "FAT" && allDoneDate == nil {
 							allDoneDate = &ts
 						}
 					}
@@ -6223,97 +6192,95 @@ fnc (a *pp) transferPanelHandler(w http.ResponseWriter, r *http.Reqest) {
 	}
 
 	finalResponse := map[string]interface{}{
-		"panel":                  pdatedPanel.Panel,
-		"panel_vendor_name":      pdatedPanel.PanelVendorName,
-		"bsbar_vendor_names":    pdatedPanel.BsbarVendorNames,
-		"component_vendor_names": pdatedPanel.ComponentVendorNames,
-		"prodction_date":        prodctionDate,
+		"panel":                  updatedPanel.Panel,
+		"panel_vendor_name":      updatedPanel.PanelVendorName,
+		"busbar_vendor_names":    updatedPanel.BusbarVendorNames,
+		"component_vendor_names": updatedPanel.ComponentVendorNames,
+		"production_date":        productionDate,
 		"fat_date":               fatDate,
 		"all_done_date":          allDoneDate,
 	}
 
-	go fnc() {
+	go func() {
 		stakeholders, err := a.getPanelStakeholders(noPp)
 		if err != nil {
-			retrn
+			return
 		}
 
 		finalRecipients := []string{}
-		for _, ser := range stakeholders {
-			if ser != payload.ctor {
-				finalRecipients = append(finalRecipients, ser)
+		for _, user := range stakeholders {
+			if user != payload.Actor {
+				finalRecipients = append(finalRecipients, user)
 			}
 		}
 
 		var actionText string
-		switch payload.ction {
-		case "to_prodction":
-			actionText = "mask ke tahap Prodksi"
-		case "to_sbcontractor":
-			actionText = "diserahkan ke Sbcontractor"
+		switch payload.Action {
+		case "to_production":
+			actionText = "masuk ke tahap Produksi"
 		case "to_fat":
-			actionText = "mask ke tahap FT"
+			actionText = "masuk ke tahap FAT"
 		case "to_done":
 			actionText = "dinyatakan Selesai"
 		case "rollback":
-			actionText = "dikembalikan ke tahap sebelmnya"
-		defalt:
-			retrn
+			actionText = "dikembalikan ke tahap sebelumnya"
+		default:
+			return
 		}
 
-		if len(finalRecipients) >  {
+		if len(finalRecipients) > 0 {
 			title := fmt.Sprintf("Transfer Panel: %s", noPp)
-			body := fmt.Sprintf("%s memindahkan panel %s, kini %s.", payload.ctor, noPp, actionText)
+			body := fmt.Sprintf("%s memindahkan panel %s, kini %s.", payload.Actor, noPp, actionText)
 			a.sendNotificationToUsers(finalRecipients, title, body)
 		}
 	}()
-
-	respondWithJSON(w, http.StatsOK, finalResponse)
+	
+	respondWithJSON(w, http.StatusOK, finalResponse)
 }
-fnc (a *pp) getProdctionSlotsHandler(w http.ResponseWriter, r *http.Reqest) {
-	// UBH QUERY INI ntk menyertakan p.no_panel
-	qery := `
+func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
+	// UBAH QUERY INI untuk menyertakan p.no_panel
+	query := `
 		SELECT
 			ps.position_code,
-			ps.is_occpied,
-			p.no_pp S panel_no_pp,
-			p.no_panel S panel_no_panel -- TMBHKN KOLOM INI
-		FROM prodction_slots ps
-		LEFT JOIN panels p ON ps.position_code = p.prodction_slot
+			ps.is_occupied,
+			p.no_pp AS panel_no_pp,
+			p.no_panel AS panel_no_panel -- TAMBAHKAN KOLOM INI
+		FROM production_slots ps
+		LEFT JOIN panels p ON ps.position_code = p.production_slot
 		ORDER BY ps.position_code;
 	`
-	rows, err := a.DB.Qery(qery)
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to fetch prodction slots: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch production slots: "+err.Error())
+		return
 	}
 	defer rows.Close()
 
-	var slots []ProdctionSlot
+	var slots []ProductionSlot
 	for rows.Next() {
-		var slot ProdctionSlot
-		// TMBHKN &slot.PanelNoPanel di sini
-		if err := rows.Scan(&slot.PositionCode, &slot.IsOccpied, &slot.PanelNoPp, &slot.PanelNoPanel); err != nil {
-			respondWithError(w, http.StatsInternalServerError, "Failed to scan slot: "+err.Error())
-			retrn
+		var slot ProductionSlot
+		// TAMBAHKAN &slot.PanelNoPanel di sini
+		if err := rows.Scan(&slot.PositionCode, &slot.IsOccupied, &slot.PanelNoPp, &slot.PanelNoPanel); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan slot: "+err.Error())
+			return
 		}
 		slots = append(slots, slot)
 	}
 
-	respondWithJSON(w, http.StatsOK, slots)
+	respondWithJSON(w, http.StatusOK, slots)
 }
-// sendNotificationToUsers mengirim notifikasi ke banyak penggna.
-fnc (a *pp) sendNotificationToUsers(sernames []string, title string, body string) {
-	if len(sernames) ==  {
-		retrn // Tidak ada target, hentikan
+// sendNotificationToUsers mengirim notifikasi ke banyak pengguna.
+func (a *App) sendNotificationToUsers(usernames []string, title string, body string) {
+	if len(usernames) == 0 {
+		return // Tidak ada target, hentikan
 	}
 
-	// 1. mbil sema token nik dari daftar sername
-	qery := "SELECT DISTINCT fcm_token FROM ser_devices WHERE sername = NY($1)"
-	rows, err := a.DB.Qery(qery, pq.rray(sernames))
+	// 1. Ambil semua token unik dari daftar username
+	query := "SELECT DISTINCT fcm_token FROM user_devices WHERE username = ANY($1)"
+	rows, err := a.DB.Query(query, pq.Array(usernames))
 	if err != nil {
-		log.Printf("Error qerying tokens for sers %v: %v", sernames, err)
-		retrn
+		log.Printf("Error querying tokens for users %v: %v", usernames, err)
+		return
 	}
 	defer rows.Close()
 
@@ -6322,144 +6289,144 @@ fnc (a *pp) sendNotificationToUsers(sernames []string, title string, body string
 		var token string
 		if err := rows.Scan(&token); err != nil {
 			log.Printf("Error scanning token: %v", err)
-			contine
+			continue
 		}
 		tokens = append(tokens, token)
 	}
 
-	if len(tokens) ==  {
-		log.Printf("No devices fond for sers %v, skipping notification.", sernames)
-		retrn
+	if len(tokens) == 0 {
+		log.Printf("No devices found for users %v, skipping notification.", usernames)
+		return
 	}
 
-	// 2. Bat dan kirim pesan notifikasi
-	message := &messaging.MlticastMessage{
+	// 2. Buat dan kirim pesan notifikasi
+	message := &messaging.MulticastMessage{
 		Notification: &messaging.Notification{
 			Title: title,
 			Body:  body,
 		},
 		Tokens: tokens,
-		ndroid: &messaging.ndroidConfig{
+		Android: &messaging.AndroidConfig{
 			Priority: "high",
-			Notification: &messaging.ndroidNotification{
+			Notification: &messaging.AndroidNotification{
 				ChannelID: "high_importance_channel",
-				Sond:     "defalt",
+				Sound:     "default",
 			},
 		},
 	}
 
-	br, err := a.FCMClient.SendMlticast(context.Backgrond(), message)
+	br, err := a.FCMClient.SendMulticast(context.Background(), message)
 	if err != nil {
-		log.Printf("Error sending FCM message to sers %v: %v", sernames, err)
-		retrn
+		log.Printf("Error sending FCM message to users %v: %v", usernames, err)
+		return
 	}
 
-	log.Printf("Sccessflly sent %d notifications to %d devices for sers %v. Failres: %d", br.SccessCont, len(tokens), sernames, br.FailreCont)
+	log.Printf("Successfully sent %d notifications to %d devices for users %v. Failures: %d", br.SuccessCount, len(tokens), usernames, br.FailureCount)
 }
 
-// getdminUsernames mengambil sema sername dengan role 'admin'.
-fnc (a *pp) getdminUsernames() ([]string, error) {
-	qery := `
-		SELECT ca.sername FROM company_acconts ca
+// getAdminUsernames mengambil semua username dengan role 'admin'.
+func (a *App) getAdminUsernames() ([]string, error) {
+	query := `
+		SELECT ca.username FROM company_accounts ca
 		JOIN companies c ON ca.company_id = c.id
 		WHERE c.role = 'admin'
 	`
-	rows, err := a.DB.Qery(qery)
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		retrn nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
 	var admins []string
 	for rows.Next() {
-		var sername string
-		if err := rows.Scan(&sername); err == nil {
-			admins = append(admins, sername)
+		var username string
+		if err := rows.Scan(&username); err == nil {
+			admins = append(admins, username)
 		}
 	}
-	retrn admins, nil
+	return admins, nil
 }
 
-// getPanelStakeholders mengambil sema ser yang terkait dengan sebah panel.
-fnc (a *pp) getPanelStakeholders(panelNoPp string) ([]string, error) {
-	qery := `
-		SELECT DISTINCT ca.sername
-		FROM company_acconts ca
+// getPanelStakeholders mengambil semua user yang terkait dengan sebuah panel.
+func (a *App) getPanelStakeholders(panelNoPp string) ([]string, error) {
+	query := `
+		SELECT DISTINCT ca.username
+		FROM company_accounts ca
 		JOIN companies c ON ca.company_id = c.id
-		WHERE c.role = 'admin' -- Sema admin
+		WHERE c.role = 'admin' -- Semua admin
 		UNION
-		SELECT p.created_by FROM panels p WHERE p.no_pp = $1 ND p.created_by IS NOT NULL -- Pembat panel
+		SELECT p.created_by FROM panels p WHERE p.no_pp = $1 AND p.created_by IS NOT NULL -- Pembuat panel
 		UNION
-		-- Sema ser dari vendor panel tama
-		SELECT ca.sername
-		FROM company_acconts ca
+		-- Semua user dari vendor panel utama
+		SELECT ca.username
+		FROM company_accounts ca
 		WHERE ca.company_id = (SELECT vendor_id FROM panels WHERE no_pp = $1)
 	`
-	rows, err := a.DB.Qery(qery, panelNoPp)
+	rows, err := a.DB.Query(query, panelNoPp)
 	if err != nil {
-		retrn nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
 	stakeholderSet := make(map[string]bool)
 	for rows.Next() {
-		var sername string
-		if err := rows.Scan(&sername); err == nil {
-			stakeholderSet[sername] = tre
+		var username string
+		if err := rows.Scan(&username); err == nil {
+			stakeholderSet[username] = true
 		}
 	}
 
 	var stakeholders []string
-	for ser := range stakeholderSet {
-		stakeholders = append(stakeholders, ser)
+	for user := range stakeholderSet {
+		stakeholders = append(stakeholders, user)
 	}
-	retrn stakeholders, nil
+	return stakeholders, nil
 }
 
-// startNotificationSchedler adalah worker tama yang berjalan di backgrond.
-fnc (a *pp) startNotificationSchedler() {
-	log.Println("⏰ Starting notification schedler...")
-	// Untk testing, ganti menjadi `time.NewTicker(1 * time.Minte)`
-	// Untk prodksi, jalankan setiap jam
-	ticker := time.NewTicker(1 * time.Hor)
+// startNotificationScheduler adalah worker utama yang berjalan di background.
+func (a *App) startNotificationScheduler() {
+	log.Println("⏰ Starting notification scheduler...")
+	// Untuk testing, ganti menjadi `time.NewTicker(1 * time.Minute)`
+	// Untuk produksi, jalankan setiap jam
+	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	// Jalankan sekali saat startp
-	a.rnSchedledChecks()
+	// Jalankan sekali saat startup
+	a.runScheduledChecks()
 
 	for range ticker.C {
-		// Cek apakah sdah waktnya (misal: jam 8 pagi)
-		if time.Now().Hor() == 8 {
-			a.rnSchedledChecks()
+		// Cek apakah sudah waktunya (misal: jam 8 pagi)
+		if time.Now().Hour() == 8 {
+			a.runScheduledChecks()
 		}
 	}
 }
 
-// rnSchedledChecks menjalankan sema pemeriksaan terjadwal.
-fnc (a *pp) rnSchedledChecks() {
-	log.Println("Rnning schedled checks for notifications...")
-	a.checkPanelsDeToday()
-	a.checkOverdePanels()
+// runScheduledChecks menjalankan semua pemeriksaan terjadwal.
+func (a *App) runScheduledChecks() {
+	log.Println("Running scheduled checks for notifications...")
+	a.checkPanelsDueToday()
+	a.checkOverduePanels()
 }
 
-// checkPanelsDeToday mengirim notifikasi ntk panel yang hars dikirim hari ini.
-fnc (a *pp) checkPanelsDeToday() {
-	qery := `SELECT no_pp FROM panels WHERE target_delivery::date = CURRENT_DTE ND is_closed = false`
-	rows, err := a.DB.Qery(qery)
+// checkPanelsDueToday mengirim notifikasi untuk panel yang harus dikirim hari ini.
+func (a *App) checkPanelsDueToday() {
+	query := `SELECT no_pp FROM panels WHERE target_delivery::date = CURRENT_DATE AND is_closed = false`
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		log.Printf("Error checking de panels: %v", err)
-		retrn
+		log.Printf("Error checking due panels: %v", err)
+		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var noPp string
 		if err := rows.Scan(&noPp); err == nil {
-			go fnc(panelId string) {
+			go func(panelId string) {
 				stakeholders, _ := a.getPanelStakeholders(panelId)
-				if len(stakeholders) >  {
+				if len(stakeholders) > 0 {
 					title := "🔔 Pengingat Pengiriman"
-					body := fmt.Sprintf("Panel %s dijadwalkan ntk pengiriman hari ini.", panelId)
+					body := fmt.Sprintf("Panel %s dijadwalkan untuk pengiriman hari ini.", panelId)
 					a.sendNotificationToUsers(stakeholders, title, body)
 				}
 			}(noPp)
@@ -6467,24 +6434,24 @@ fnc (a *pp) checkPanelsDeToday() {
 	}
 }
 
-// checkOverdePanels mengirim notifikasi ntk panel yang telat.
-fnc (a *pp) checkOverdePanels() {
-	qery := `SELECT no_pp FROM panels WHERE target_delivery::date < CURRENT_DTE ND is_closed = false`
-	rows, err := a.DB.Qery(qery)
+// checkOverduePanels mengirim notifikasi untuk panel yang telat.
+func (a *App) checkOverduePanels() {
+	query := `SELECT no_pp FROM panels WHERE target_delivery::date < CURRENT_DATE AND is_closed = false`
+	rows, err := a.DB.Query(query)
 	if err != nil {
-		log.Printf("Error checking overde panels: %v", err)
-		retrn
+		log.Printf("Error checking overdue panels: %v", err)
+		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var noPp string
 		if err := rows.Scan(&noPp); err == nil {
-			go fnc(panelId string) {
+			go func(panelId string) {
 				stakeholders, _ := a.getPanelStakeholders(panelId)
-				if len(stakeholders) >  {
+				if len(stakeholders) > 0 {
 					title := "⚠️ Peringatan Keterlambatan"
-					body := fmt.Sprintf("Pengiriman ntk panel %s telah melewati jadwal.", panelId)
+					body := fmt.Sprintf("Pengiriman untuk panel %s telah melewati jadwal.", panelId)
 					a.sendNotificationToUsers(stakeholders, title, body)
 				}
 			}(noPp)
@@ -6493,31 +6460,31 @@ fnc (a *pp) checkOverdePanels() {
 }
 
 // registerDeviceHandler menerima dan menyimpan FCM token dari client.
-fnc (a *pp) registerDeviceHandler(w http.ResponseWriter, r *http.Reqest) {
-	var payload strct {
-		Username string `json:"sername"`
+func (a *App) registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Username string `json:"username"`
 		Token    string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatsBadReqest, "Invalid payload")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
 	}
 
 	if payload.Username == "" || payload.Token == "" {
-		respondWithError(w, http.StatsBadReqest, "Username and token are reqired")
-		retrn
+		respondWithError(w, http.StatusBadRequest, "Username and token are required")
+		return
 	}
 
-	qery := `
-        INSERT INTO ser_devices (sername, fcm_token)
-        VLUES ($1, $2)
-        ON CONFLICT (sername, fcm_token) DO UPDTE SET last_login = CURRENT_TIMESTMP
+	query := `
+        INSERT INTO user_devices (username, fcm_token)
+        VALUES ($1, $2)
+        ON CONFLICT (username, fcm_token) DO UPDATE SET last_login = CURRENT_TIMESTAMP
     `
-	_, err := a.DB.Exec(qery, payload.Username, payload.Token)
+	_, err := a.DB.Exec(query, payload.Username, payload.Token)
 	if err != nil {
-		respondWithError(w, http.StatsInternalServerError, "Failed to register device: "+err.Error())
-		retrn
+		respondWithError(w, http.StatusInternalServerError, "Failed to register device: "+err.Error())
+		return
 	}
 
-	respondWithJSON(w, http.StatsOK, map[string]string{"stats": "sccess"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
