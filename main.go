@@ -319,6 +319,7 @@ type PanelDisplayData struct {
 	PaletVendorIds       []string        `json:"palet_vendor_ids"`
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
+	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
 	IssueCount           int             `json:"issue_count"`
 	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
 }
@@ -334,6 +335,7 @@ type PanelDisplayDataWithTimeline struct {
 	PaletVendorIds       []string        `json:"palet_vendor_ids"`
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
+	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
 	IssueCount           int             `json:"issue_count"`
 	AdditionalSRCount    int             `json:"additional_sr_count"`
 	ProductionDate       *time.Time      `json:"production_date,omitempty"` 
