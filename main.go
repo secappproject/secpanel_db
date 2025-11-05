@@ -6218,7 +6218,8 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			p.history_stack,
 			pu.name as panel_vendor_name,
 			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
+			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.g3_vendors g3 ON c.id = g3.vendor WHERE g3.panel_no_pp = p.no_pp) as g3_vendor_names
 		FROM public.panels p
 		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
 		WHERE p.no_pp = $1`
