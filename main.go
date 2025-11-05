@@ -294,17 +294,17 @@ type Corepart struct {
 }
 
 type AdditionalSR struct {
-	ID        int       `json:"id"`
-	PanelNoPp string    `json:"panel_no_pp"`
-	PoNumber  string    `json:"po_number"`
-	Item      string    `json:"item"`
-	Quantity  int       `json:"quantity"`
-	Supplier  string    `json:"supplier"`
-	Status    string    `json:"status"` 
-	Remarks   string    `json:"remarks"` 
+	ID        int       `json:"id"`
+	PanelNoPp string    `json:"panel_no_pp"`
+	PoNumber  string    `json:"po_number"`
+	Item      string    `json:"item"`
+	Quantity  int       `json:"quantity"`
+	Supplier  string    `json:"supplier"`
+	Status    string    `json:"status"` 
+	Remarks   string    `json:"remarks"` 
 	CreatedAt time.Time `json:"created_at"`
-	CloseDate    *time.Time `json:"close_date,omitempty" db:"close_date"`    
-	ReceivedDate *time.Time `json:"received_date,omitempty" db:"received_date"` 
+	CloseDate    *customTime `json:"close_date,omitempty" db:"close_date"`    
+	ReceivedDate *customTime `json:"received_date,omitempty" db:"received_date"` 
 }
 
 type PanelDisplayData struct {
