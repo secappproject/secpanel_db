@@ -5842,7 +5842,8 @@ func (a *App) getSuppliersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, suppliers)
-}func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
+}
+func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	noPp := vars["no_pp"]
 
