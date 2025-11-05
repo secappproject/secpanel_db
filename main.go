@@ -5676,8 +5676,7 @@ func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Requ
 	for rows.Next() {
 		var sr AdditionalSR
 		// Perbarui Scan
-		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.ReceivedDate); err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
+		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.CloseDate, &sr.ReceivedDate); err != nil {			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
 			return
 		}
 		srs = append(srs, sr)
