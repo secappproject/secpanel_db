@@ -5827,15 +5827,15 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := vars["no_pp"]
 
 	var payload struct {
-		Action         string  `json:"action"`
-		Slot           string  `json:"slot,omitempty"`
-		Actor          string  `json:"actor"`
-		VendorID       *string `json:"vendorId,omitempty"`
+		Action         string  `json:"action"`
+		Slot           string  `json:"slot,omitempty"`
+		Actor          string  `json:"actor"`
+		VendorID       *string `json:"vendorId,omitempty"`
 		NewVendorRole  *string `json:"newVendorRole,omitempty"`
-		StartDate      *string `json:"start_date,omitempty"`
+		StartDate      *string `json:"start_date,omitempty"`
 		ProductionDate *string `json:"production_date,omitempty"`
-		FatDate        *string `json:"fat_date,omitempty"`
-		AllDoneDate    *string `json:"all_done_date,omitempty"`
+		FatDate        *string `json:"fat_date,omitempty"`
+		AllDoneDate    *string `json:"all_done_date,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -5884,9 +5884,9 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			timestampToUse = *customTimestamp
 		}
 		return map[string]interface{}{
-			"timestamp":       timestampToUse.UTC().Format(time.RFC3339),
+			"timestamp":       timestampToUse.UTC().Format(time.RFC3339),
 			"snapshot_status": status,
-			"state":           panelState,
+			"state":           panelState,
 		}, nil
 	}
 
@@ -6062,6 +6062,10 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			var finalVendorId string
 			vendorInput := *payload.VendorID
+			roleToUse := "g3"
+			if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
+				roleToUse = *payload.NewVendorRole
+			}
 
 			err := tx.QueryRow("SELECT id FROM companies WHERE id = $1", vendorInput).Scan(&finalVendorId)
 			if err == nil {
@@ -6081,11 +6085,6 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 					}
 
 					if errCheck == sql.ErrNoRows {
-						roleToUse := "g3"
-						if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
-							roleToUse = *payload.NewVendorRole
-						}
-
 						_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", newId, vendorInput, roleToUse)
 						if errInsert != nil {
 							respondWithError(w, http.StatusInternalServerError, "Gagal membuat vendor baru: "+errInsert.Error())
@@ -6102,10 +6101,42 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			updateQuery := `UPDATE panels SET status_penyelesaian = 'Subcontractor', vendor_id = $1, status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = COALESCE(closed_date, NOW()), history_stack = $2 WHERE no_pp = $3`
-			_, err = tx.Exec(updateQuery, finalVendorId, historyJson, noPp)
+			if roleToUse == "g3" {
+				queryG3 := `INSERT INTO g3_vendors (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+				_, errG3 := tx.Exec(queryG3, noPp, finalVendorId)
+				if errG3 != nil {
+					respondWithError(w, http.StatusInternalServerError, "Gagal assign G3 vendor: "+errG3.Error())
+					return
+				}
+
+				updateQuery := `UPDATE panels SET 
+                                  status_penyelesaian = 'Subcontractor', 
+                                  status_component = 'Done', 
+                                  status_palet = 'Close', 
+                                  status_corepart = 'Close', 
+                                  percent_progress = 100, 
+                                  is_closed = true, 
+                                  closed_date = COALESCE(closed_date, NOW()), 
+                                  history_stack = $1 
+                                WHERE no_pp = $2`
+				_, err = tx.Exec(updateQuery, historyJson, noPp)
+
+			} else {
+				updateQuery := `UPDATE panels SET 
+                                  status_penyelesaian = 'Subcontractor', 
+                                  vendor_id = $1, 
+                                  status_component = 'Done', 
+                                  status_palet = 'Close', 
+                                  status_corepart = 'Close', 
+                                  percent_progress = 100, 
+                                  is_closed = true, 
+                                  closed_date = COALESCE(closed_date, NOW()), 
+                                  history_stack = $2 
+                                WHERE no_pp = $3`
+				_, err = tx.Exec(updateQuery, finalVendorId, historyJson, noPp)
+			}
 			if err != nil {
-				respondWithError(w, http.StatusInternalServerError, "Gagal transfer ke subkontraktor")
+				respondWithError(w, http.StatusInternalServerError, "Gagal transfer ke subkontraktor: "+err.Error())
 				return
 			}
 		case "to_fat":
@@ -6179,7 +6210,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 						if status == "VendorWarehouse" && productionDate == nil {
 							productionDate = &ts
 						}
-						if status == "Production" && fatDate == nil {
+						if (status == "Production" || status == "Subcontractor") && fatDate == nil {
 							fatDate = &ts
 						}
 						if status == "FAT" && allDoneDate == nil {
@@ -6192,13 +6223,13 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	finalResponse := map[string]interface{}{
-		"panel":                  updatedPanel.Panel,
-		"panel_vendor_name":      updatedPanel.PanelVendorName,
-		"busbar_vendor_names":    updatedPanel.BusbarVendorNames,
+		"panel":                  updatedPanel.Panel,
+		"panel_vendor_name":      updatedPanel.PanelVendorName,
+		"busbar_vendor_names":    updatedPanel.BusbarVendorNames,
 		"component_vendor_names": updatedPanel.ComponentVendorNames,
-		"production_date":        productionDate,
-		"fat_date":               fatDate,
-		"all_done_date":          allDoneDate,
+		"production_date":        productionDate,
+		"fat_date":               fatDate,
+		"all_done_date":          allDoneDate,
 	}
 
 	go func() {
@@ -6218,6 +6249,8 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		switch payload.Action {
 		case "to_production":
 			actionText = "masuk ke tahap Produksi"
+		case "to_subcontractor":
+			actionText = "diserahkan ke Subcontractor"
 		case "to_fat":
 			actionText = "masuk ke tahap FAT"
 		case "to_done":
@@ -6234,7 +6267,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			a.sendNotificationToUsers(finalRecipients, title, body)
 		}
 	}()
-	
+
 	respondWithJSON(w, http.StatusOK, finalResponse)
 }
 func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
