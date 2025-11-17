@@ -6102,13 +6102,10 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 
 			err := tx.QueryRow("SELECT id, role FROM companies WHERE id = $1", vendorInput).Scan(&finalVendorId, &roleToUse)
 			if err == nil {
-				// Ditemukan berdasarkan ID
 			} else if err == sql.ErrNoRows {
 				errName := tx.QueryRow("SELECT id, role FROM companies WHERE name = $1", vendorInput).Scan(&finalVendorId, &roleToUse)
 				if errName == nil {
-					// Ditemukan berdasarkan NAMA
 				} else if errName == sql.ErrNoRows {
-					// Vendor baru
 					newId := strings.ToLower(strings.ReplaceAll(vendorInput, " ", "_"))
 
 					var existingId string
@@ -6122,7 +6119,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 						if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
 							roleToUse = *payload.NewVendorRole
 						} else {
-							roleToUse = "g3" // Default
+							roleToUse = "g3"
 						}
 
 						_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", newId, vendorInput, roleToUse)
@@ -6141,19 +6138,12 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// --- [PERBAIKAN LOGIKA UTAMA] ---
-			// Alur ini HANYA untuk G3. K3 dan K5 diatur di tempat lain.
-			// Kita TIDAK mengubah panels.vendor_id (K3)
-			// Kita TIDAK mengubah busbars (K5)
-
-			// 1. Hapus entri G3 lama (jika ada) untuk diganti baru
 			_, errDelG3 := tx.Exec(`DELETE FROM g3_vendors WHERE panel_no_pp = $1`, noPp)
 			if errDelG3 != nil {
 				respondWithError(w, http.StatusInternalServerError, "Gagal clear G3 vendor lama: "+errDelG3.Error())
 				return
 			}
 
-			// 2. Masukkan vendor G3 yang baru.
 			queryG3 := `INSERT INTO g3_vendors (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT DO NOTHING`
 			_, errG3 := tx.Exec(queryG3, noPp, finalVendorId)
 			if errG3 != nil {
@@ -6161,8 +6151,6 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// 3. Update status panel.
-			// Perhatikan 'vendor_id' TIDAK ADA di query ini.
 			updateQuery := `UPDATE panels SET 
                               status_penyelesaian = 'Subcontractor', 
                               status_component = 'Done', 
@@ -6207,37 +6195,89 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var updatedPanel PanelDisplayData
-	panelQuery := `
-		SELECT
-			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
-			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
-			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
-			p.is_closed, p.closed_date, p.panel_type, p.remarks,
-			p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
-			p.history_stack,
-			pu.name as panel_vendor_name,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.busbars b ON c.id = b.vendor WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.components co ON c.id = co.vendor WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
-			(SELECT STRING_AGG(c.name, ', ') FROM public.companies c JOIN public.g3_vendors g3 ON c.id = g3.vendor WHERE g3.panel_no_pp = p.no_pp) as g3_vendor_names
-		FROM public.panels p
-		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
-		WHERE p.no_pp = $1`
+	var pdd PanelDisplayDataWithTimeline
+	var panel Panel
 	var historyStackJSON []byte
+	var g3VendorNames, busbarVendorNames, componentVendorNames, paletVendorNames, corepartVendorNames sql.NullString
+	var busbarRemarksJSON json.RawMessage
+
+	panelQuery := `
+	    SELECT
+	        p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
+	        p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
+	        p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
+	        p.is_closed, p.closed_date, p.panel_type, p.remarks,
+	        p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
+	        p.history_stack,
+	        pu.name as panel_vendor_name,
+	        (SELECT STRING_AGG(c.name, ', ') 
+	         FROM public.companies c 
+	         JOIN public.busbars b ON c.id = b.vendor 
+	         WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
+	        (SELECT json_agg(json_build_object('vendor_name', c.name, 'remark', b.remarks, 'vendor_id', c.id))
+	         FROM public.busbars b
+	         JOIN public.companies c ON b.vendor = c.id
+	         WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != '') as busbar_remarks,
+	        (SELECT STRING_AGG(c.name, ', ') 
+	         FROM public.companies c 
+	         JOIN public.components co ON c.id = co.vendor 
+	         WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
+	        (SELECT STRING_AGG(c.name, ', ') 
+	         FROM public.companies c 
+	         JOIN public.palet pa ON c.id = pa.vendor 
+	         WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
+	        (SELECT STRING_AGG(c.name, ', ') 
+	         FROM public.companies c 
+	         JOIN public.corepart cp ON c.id = cp.vendor 
+	         WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
+	        (SELECT STRING_AGG(c.name, ', ') 
+	         FROM public.companies c 
+	         JOIN public.g3_vendors g3 ON c.id = g3.vendor 
+	         WHERE g3.panel_no_pp = p.no_pp) as g3_vendor_names
+	    FROM public.panels p
+	    LEFT JOIN public.companies pu ON p.vendor_id = pu.id
+	    WHERE p.no_pp = $1`
+
 	err = a.DB.QueryRow(panelQuery, noPp).Scan(
-		&updatedPanel.Panel.NoPp, &updatedPanel.Panel.NoPanel, &updatedPanel.Panel.NoWbs, &updatedPanel.Panel.Project, &updatedPanel.Panel.PercentProgress, &updatedPanel.Panel.StartDate, &updatedPanel.Panel.TargetDelivery,
-		&updatedPanel.Panel.StatusBusbarPcc, &updatedPanel.Panel.StatusBusbarMcc, &updatedPanel.Panel.StatusComponent, &updatedPanel.Panel.StatusPalet, &updatedPanel.Panel.StatusCorepart,
-		&updatedPanel.Panel.AoBusbarPcc, &updatedPanel.Panel.AoBusbarMcc, &updatedPanel.Panel.CreatedBy, &updatedPanel.Panel.VendorID, &updatedPanel.Panel.IsClosed,
-		&updatedPanel.Panel.ClosedDate, &updatedPanel.Panel.PanelType, &updatedPanel.Panel.Remarks, &updatedPanel.Panel.CloseDateBusbarPcc, &updatedPanel.Panel.CloseDateBusbarMcc,
-		&updatedPanel.Panel.StatusPenyelesaian, &updatedPanel.Panel.ProductionSlot,
+		&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project, &panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
+		&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart,
+		&panel.AoBusbarPcc, &panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID, &panel.IsClosed, &panel.ClosedDate,
+		&panel.PanelType, &panel.Remarks, &panel.CloseDateBusbarPcc, &panel.CloseDateBusbarMcc,
+		&panel.StatusPenyelesaian, &panel.ProductionSlot,
 		&historyStackJSON,
-		&updatedPanel.PanelVendorName, &updatedPanel.BusbarVendorNames, &updatedPanel.ComponentVendorNames,
-		&updatedPanel.G3VendorNames,
+		&pdd.PanelVendorName,
+		&busbarVendorNames,
+		&busbarRemarksJSON,
+		&componentVendorNames,
+		&paletVendorNames,
+		&corepartVendorNames,
+		&g3VendorNames,
 	)
+
 	if err != nil {
-		log.Printf("Warning: could not fetch updated panel data for %s after transfer: %v", noPp, err)
-		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+		log.Printf("FATAL: Gagal mengambil data panel %s setelah transfer: %v", noPp, err)
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data panel yang telah diupdate: "+err.Error())
 		return
+	}
+
+	pdd.Panel = panel
+	if busbarVendorNames.Valid {
+		pdd.BusbarVendorNames = &busbarVendorNames.String
+	}
+	if busbarRemarksJSON != nil {
+		pdd.BusbarRemarks = busbarRemarksJSON
+	}
+	if componentVendorNames.Valid {
+		pdd.ComponentVendorNames = &componentVendorNames.String
+	}
+	if paletVendorNames.Valid {
+		pdd.PaletVendorNames = &paletVendorNames.String
+	}
+	if corepartVendorNames.Valid {
+		pdd.CorepartVendorNames = &corepartVendorNames.String
+	}
+	if g3VendorNames.Valid {
+		pdd.G3VendorNames = &g3VendorNames.String
 	}
 
 	var historyStackData []map[string]interface{}
@@ -6266,10 +6306,10 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	finalResponse := map[string]interface{}{
-		"panel":                  updatedPanel.Panel,
-		"panel_vendor_name":      updatedPanel.PanelVendorName,
-		"busbar_vendor_names":    updatedPanel.BusbarVendorNames,
-		"component_vendor_names": updatedPanel.ComponentVendorNames,
+		"panel":                  pdd.Panel,
+		"panel_vendor_name":      pdd.PanelVendorName,
+		"busbar_vendor_names":    pdd.BusbarVendorNames,
+		"component_vendor_names": pdd.ComponentVendorNames,
 		"production_date":        productionDate,
 		"fat_date":               fatDate,
 		"all_done_date":          allDoneDate,
