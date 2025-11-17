@@ -5651,15 +5651,15 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
         noPp := vars["no_pp"]
 
         var payload struct {
-                Action         string  `json:"action"`
-                Slot           string  `json:"slot,omitempty"`
-                Actor          string  `json:"actor"`
-                VendorID       *string `json:"vendorId,omitempty"`
-                NewVendorRole  *string `json:"newVendorRole,omitempty"`
-                StartDate      *string `json:"start_date,omitempty"`
+                Action         string  `json:"action"`
+                Slot           string  `json:"slot,omitempty"`
+                Actor          string  `json:"actor"`
+                VendorID       *string `json:"vendorId,omitempty"`
+                NewVendorRole  *string `json:"newVendorRole,omitempty"`
+                StartDate      *string `json:"start_date,omitempty"`
                 ProductionDate *string `json:"production_date,omitempty"`
-                FatDate        *string `json:"fat_date,omitempty"`
-                AllDoneDate    *string `json:"all_done_date,omitempty"`
+                FatDate        *string `json:"fat_date,omitempty"`
+                AllDoneDate    *string `json:"all_done_date,omitempty"`
         }
 
         if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -5676,8 +5676,8 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 
         var p struct {
                 StatusPenyelesaian *string
-                ProductionSlot     *string
-                HistoryStack       []byte
+                ProductionSlot     *string
+                HistoryStack       []byte
         }
         query := `SELECT status_penyelesaian, production_slot, history_stack FROM panels WHERE no_pp = $1 FOR UPDATE`
         err = tx.QueryRow(query, noPp).Scan(&p.StatusPenyelesaian, &p.ProductionSlot, &p.HistoryStack)
@@ -5708,9 +5708,9 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
                         timestampToUse = *customTimestamp
                 }
                 return map[string]interface{}{
-                        "timestamp":       timestampToUse.UTC().Format(time.RFC3339),
+                        "timestamp":       timestampToUse.UTC().Format(time.RFC3339),
                         "snapshot_status": status,
-                        "state":           panelState,
+                        "state":           panelState,
                 }, nil
         }
 
@@ -5939,16 +5939,16 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
                                 return
                         }
 
-                        updateQuery := `UPDATE panels SET 
-                              status_penyelesaian = 'Subcontractor', 
-                              status_component = 'Done', 
-                              status_palet = 'Close', 
-                              status_corepart = 'Close', 
-                              percent_progress = 100, 
-                              is_closed = true, 
-                              closed_date = COALESCE(closed_date, NOW()), 
-                              history_stack = $1 
-                            WHERE no_pp = $2`
+                        updateQuery := `UPDATE panels SET 
+                              status_penyelesaian = 'Subcontractor', 
+                              status_component = 'Done', 
+                              status_palet = 'Close', 
+                              status_corepart = 'Close', 
+                              percent_progress = 100, 
+                              is_closed = true, 
+                              closed_date = COALESCE(closed_date, NOW()), 
+                              history_stack = $1 
+                            WHERE no_pp = $2`
                         _, err = tx.Exec(updateQuery, historyJson, noPp)
 
                         if err != nil {
@@ -6094,13 +6094,13 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
         }
 
         finalResponse := map[string]interface{}{
-                "panel":                  pdd.Panel,
-                "panel_vendor_name":      pdd.PanelVendorName,
-                "busbar_vendor_names":    pdd.BusbarVendorNames,
+                "panel":                  pdd.Panel,
+                "panel_vendor_name":      pdd.PanelVendorName,
+                "busbar_vendor_names":    pdd.BusbarVendorNames,
                 "component_vendor_names": pdd.ComponentVendorNames,
-                "production_date":        productionDate,
-                "fat_date":               fatDate,
-                "all_done_date":          allDoneDate,
+                "production_date":        productionDate,
+                "fat_date":               fatDate,
+                "all_done_date":          allDoneDate,
         }
 
         go func() {
