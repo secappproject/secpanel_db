@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"firebase.google.com/go/v4"
+	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
+	"github.com/google/uuid"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/gorilla/handlers"
@@ -46,16 +46,16 @@ const (
 )
 
 type LogEntry struct {
-	Action    string    `json:"action"`    
-	User      string    `json:"user"`      
-	Timestamp time.Time `json:"timestamp"` 
+	Action    string    `json:"action"`
+	User      string    `json:"user"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 type Logs []LogEntry
 
 func (l Logs) Value() (driver.Value, error) {
 	if len(l) == 0 {
-		return json.Marshal([]LogEntry{}) 
+		return json.Marshal([]LogEntry{})
 	}
 	return json.Marshal(l)
 }
@@ -71,6 +71,7 @@ func (l *Logs) Scan(value interface{}) error {
 	}
 	return json.Unmarshal(b, &l)
 }
+
 type User struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -104,41 +105,41 @@ type Chat struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type ChatMessage struct {
-	ID            int        `json:"id"`
-	ChatID        int        `json:"chat_id"`
+	ID             int       `json:"id"`
+	ChatID         int       `json:"chat_id"`
 	SenderUsername string    `json:"sender_username"`
-	Text          *string    `json:"text"` 
-	ImageData     *string    `json:"image_data,omitempty"` 
-	RepliedIssueID *int       `json:"replied_issue_id,omitempty"` 
-	CreatedAt     time.Time `json:"created_at"`
+	Text           *string   `json:"text"`
+	ImageData      *string   `json:"image_data,omitempty"`
+	RepliedIssueID *int      `json:"replied_issue_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 type IssueForExport struct {
 	PanelNoPp    string     `json:"panel_no_pp"`
-	PanelNoWbs   *string    `json:"panel_no_wbs"`  
-	PanelNoPanel *string    `json:"panel_no_panel"` 
+	PanelNoWbs   *string    `json:"panel_no_wbs"`
+	PanelNoPanel *string    `json:"panel_no_panel"`
 	IssueID      int        `json:"issue_id"`
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
 	Status       string     `json:"status"`
 	CreatedBy    string     `json:"created_by"`
-	CreatedAt    *time.Time `json:"created_at"` 
+	CreatedAt    *time.Time `json:"created_at"`
 }
 
 type CommentForExport struct {
 	IssueID          int            `json:"issue_id"`
 	Text             string         `json:"text"`
 	SenderID         string         `json:"sender_id"`
-	ReplyToCommentID sql.NullString `json:"reply_to_comment_id"` 
+	ReplyToCommentID sql.NullString `json:"reply_to_comment_id"`
 }
 
 type AdditionalSRForExport struct {
 	PanelNoPp    string  `json:"panel_no_pp"`
-	PanelNoWbs   *string `json:"panel_no_wbs"`   
-	PanelNoPanel *string `json:"panel_no_panel"` 
+	PanelNoWbs   *string `json:"panel_no_wbs"`
+	PanelNoPanel *string `json:"panel_no_panel"`
 	PoNumber     string  `json:"po_number"`
 	Item         string  `json:"item"`
 	Quantity     int     `json:"quantity"`
-	Supplier     *string `json:"supplier"` 
+	Supplier     *string `json:"supplier"`
 	Status       string  `json:"status"`
 	Remarks      string  `json:"remarks"`
 }
@@ -146,22 +147,21 @@ type AdditionalSRForExport struct {
 type Issue struct {
 	ID          int       `json:"issue_id"`
 	ChatID      int       `json:"chat_id"`
-	Title       string    `json:"issue_title"` 
+	Title       string    `json:"issue_title"`
 	Description string    `json:"issue_description"`
-	Type      string    `json:"issue_type,omitempty"`
-	Status    string    `json:"issue_status"`
-	Logs      Logs      `json:"logs"`
-	CreatedBy string    `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Type        string    `json:"issue_type,omitempty"`
+	Status      string    `json:"issue_status"`
+	Logs        Logs      `json:"logs"`
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 	NotifyEmail *string   `json:"notify_email,omitempty"`
-
 }
 
 type Photo struct {
 	ID        int    `json:"photo_id"`
 	IssueID   int    `json:"issue_id"`
-	PhotoData string `json:"photo"` 
+	PhotoData string `json:"photo"`
 }
 
 type IssueWithPhotos struct {
@@ -178,6 +178,7 @@ type PanelKeyInfo struct {
 	Project string `json:"project"`
 	NoWbs   string `json:"no_wbs"`
 }
+
 const ctLayout = "2006-01-02T15:04:05.999999"
 
 func (ct *customTime) UnmarshalJSON(b []byte) (err error) {
@@ -234,31 +235,31 @@ type CompanyAccount struct {
 	CompanyID string `json:"company_id"`
 }
 type Panel struct {
-	NoPp            string      `json:"no_pp"`
-	NoPanel         *string     `json:"no_panel"`
-	NoWbs           *string     `json:"no_wbs"`
-	Project         *string     `json:"project"`
-	PercentProgress *float64    `json:"percent_progress"`
-	StartDate       *customTime `json:"start_date"`
-	TargetDelivery  *customTime `json:"target_delivery"`
-	StatusBusbarPcc *string     `json:"status_busbar_pcc"`
-	StatusBusbarMcc *string     `json:"status_busbar_mcc"`
-	StatusComponent *string     `json:"status_component"`
-	StatusPalet     *string     `json:"status_palet"`
-	StatusCorepart  *string     `json:"status_corepart"`
-	AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
-	AoBusbarMcc     *customTime `json:"ao_busbar_mcc"`
-	CreatedBy       *string     `json:"created_by"`
-	VendorID        *string     `json:"vendor_id"`
-	IsClosed        bool        `json:"is_closed"`
-	ClosedDate      *customTime `json:"closed_date"`
-	PanelType       *string     `json:"panel_type,omitempty"`
-	Remarks         *string     `json:"remarks,omitempty"`
+	NoPp               string      `json:"no_pp"`
+	NoPanel            *string     `json:"no_panel"`
+	NoWbs              *string     `json:"no_wbs"`
+	Project            *string     `json:"project"`
+	PercentProgress    *float64    `json:"percent_progress"`
+	StartDate          *customTime `json:"start_date"`
+	TargetDelivery     *customTime `json:"target_delivery"`
+	StatusBusbarPcc    *string     `json:"status_busbar_pcc"`
+	StatusBusbarMcc    *string     `json:"status_busbar_mcc"`
+	StatusComponent    *string     `json:"status_component"`
+	StatusPalet        *string     `json:"status_palet"`
+	StatusCorepart     *string     `json:"status_corepart"`
+	AoBusbarPcc        *customTime `json:"ao_busbar_pcc"`
+	AoBusbarMcc        *customTime `json:"ao_busbar_mcc"`
+	CreatedBy          *string     `json:"created_by"`
+	VendorID           *string     `json:"vendor_id"`
+	IsClosed           bool        `json:"is_closed"`
+	ClosedDate         *customTime `json:"closed_date"`
+	PanelType          *string     `json:"panel_type,omitempty"`
+	Remarks            *string     `json:"remarks,omitempty"`
 	CloseDateBusbarPcc *customTime `json:"close_date_busbar_pcc,omitempty"`
 	CloseDateBusbarMcc *customTime `json:"close_date_busbar_mcc,omitempty"`
-	
-    StatusPenyelesaian *string `json:"status_penyelesaian,omitempty"`
-    ProductionSlot     *string `json:"production_slot,omitempty"`
+
+	StatusPenyelesaian *string `json:"status_penyelesaian,omitempty"`
+	ProductionSlot     *string `json:"production_slot,omitempty"`
 }
 
 type ProductionSlot struct {
@@ -291,17 +292,17 @@ type Corepart struct {
 }
 
 type AdditionalSR struct {
-	ID        int       `json:"id"`
-	PanelNoPp string    `json:"panel_no_pp"`
-	PoNumber  string    `json:"po_number"`
-	Item      string    `json:"item"`
-	Quantity  int       `json:"quantity"`
-	Supplier  string    `json:"supplier"`
-	Status    string    `json:"status"` 
-	Remarks   string    `json:"remarks"` 
-	CreatedAt time.Time `json:"created_at"`
-	CloseDate    *customTime `json:"close_date,omitempty" db:"close_date"`    
-	ReceivedDate *customTime `json:"received_date,omitempty" db:"received_date"` 
+	ID           int         `json:"id"`
+	PanelNoPp    string      `json:"panel_no_pp"`
+	PoNumber     string      `json:"po_number"`
+	Item         string      `json:"item"`
+	Quantity     int         `json:"quantity"`
+	Supplier     string      `json:"supplier"`
+	Status       string      `json:"status"`
+	Remarks      string      `json:"remarks"`
+	CreatedAt    time.Time   `json:"created_at"`
+	CloseDate    *customTime `json:"close_date,omitempty" db:"close_date"`
+	ReceivedDate *customTime `json:"received_date,omitempty" db:"received_date"`
 }
 
 type PanelDisplayData struct {
@@ -310,7 +311,7 @@ type PanelDisplayData struct {
 	PanelRemarks         *string         `json:"panel_remarks"`
 	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
 	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
-	BusbarRemarks        json.RawMessage `json:"busbar_remarks"` 
+	BusbarRemarks        json.RawMessage `json:"busbar_remarks"`
 	ComponentVendorNames *string         `json:"component_vendor_names"`
 	ComponentVendorIds   []string        `json:"component_vendor_ids"`
 	PaletVendorNames     *string         `json:"palet_vendor_names"`
@@ -319,7 +320,7 @@ type PanelDisplayData struct {
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
 	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
 	IssueCount           int             `json:"issue_count"`
-	AdditionalSRCount 	 int 			 `json:"additional_sr_count"` 
+	AdditionalSRCount    int             `json:"additional_sr_count"`
 }
 type PanelDisplayDataWithTimeline struct {
 	Panel                Panel           `json:"panel"`
@@ -336,13 +337,10 @@ type PanelDisplayDataWithTimeline struct {
 	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
 	IssueCount           int             `json:"issue_count"`
 	AdditionalSRCount    int             `json:"additional_sr_count"`
-	ProductionDate       *time.Time      `json:"production_date,omitempty"` 
-	FatDate              *time.Time      `json:"fat_date,omitempty"`      
-	AllDoneDate          *time.Time      `json:"all_done_date,omitempty"`  
+	ProductionDate       *time.Time      `json:"production_date,omitempty"`
+	FatDate              *time.Time      `json:"fat_date,omitempty"`
+	AllDoneDate          *time.Time      `json:"all_done_date,omitempty"`
 }
-
-
-
 
 type DBTX interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
@@ -350,12 +348,9 @@ type DBTX interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
-
-
-
 type App struct {
-	Router *mux.Router
-	DB     *sql.DB
+	Router    *mux.Router
+	DB        *sql.DB
 	FCMClient *messaging.Client
 }
 
@@ -388,20 +383,15 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 }
 
 func (a *App) Run(addr string) {
-	
-	
-	
-	
+
 	allowedOrigins := handlers.AllowedOrigins([]string{"*"})
-	
-	
+
 	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
-	
-	
+
 	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization"})
 
 	log.Printf("Server berjalan di %s", addr)
-	
+
 	log.Fatal(http.ListenAndServe(addr, handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(a.Router)))
 }
 func main() {
@@ -416,7 +406,7 @@ func main() {
 
 	ctx := context.Background()
 
-	firebaseApp, err := firebase.NewApp(ctx, nil) 
+	firebaseApp, err := firebase.NewApp(ctx, nil)
 	if err != nil {
 		log.Fatalf("error initializing Firebase app: %v\n", err)
 	}
@@ -434,127 +424,112 @@ func main() {
 
 	app.Run(":8080")
 }
-
-
-
 func (a *App) initializeRoutes() {
-	
-	a.Router.HandleFunc("/login", a.loginHandler).Methods("POST")
-	a.Router.HandleFunc("/user/register-device", a.registerDeviceHandler).Methods("POST")
+
+	// Auth & User Management
+	a.Router.HandleFunc("/login", a.loginHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/user/register-device", a.registerDeviceHandler).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/company-by-username/{username}", a.getCompanyByUsernameHandler).Methods("GET")
-	a.Router.HandleFunc("/user/{username}/password", a.updatePasswordHandler).Methods("PUT")
-	a.Router.HandleFunc("/company-with-account", a.insertCompanyWithAccountHandler).Methods("POST")
-	a.Router.HandleFunc("/company-with-account/{username}", a.updateCompanyAndAccountHandler).Methods("PUT")
-	a.Router.HandleFunc("/account/{username}", a.deleteCompanyAccountHandler).Methods("DELETE")
+	a.Router.HandleFunc("/user/{username}/password", a.updatePasswordHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/company-with-account", a.insertCompanyWithAccountHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/company-with-account/{username}", a.updateCompanyAndAccountHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/account/{username}", a.deleteCompanyAccountHandler).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/accounts", a.getAllCompanyAccountsHandler).Methods("GET")
 	a.Router.HandleFunc("/account/exists/{username}", a.isUsernameTakenHandler).Methods("GET")
 	a.Router.HandleFunc("/users/display", a.getAllUserAccountsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/users/colleagues/display", a.getColleagueAccountsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/accounts/search", a.searchUsernamesHandler).Methods("GET")
 
-
-	
-	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST")
+	// Company Management
+	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/company/{id}", a.getCompanyByIdHandler).Methods("GET")
-	a.Router.HandleFunc("/company/{id}", a.updateCompanyHandler).Methods("PUT")
+	a.Router.HandleFunc("/company/{id}", a.updateCompanyHandler).Methods("PUT", "OPTIONS")
 	a.Router.HandleFunc("/companies", a.getAllCompaniesHandler).Methods("GET")
 	a.Router.HandleFunc("/company-by-name/{name}", a.getCompanyByNameHandler).Methods("GET")
 	a.Router.HandleFunc("/vendors", a.getCompaniesByRoleHandler).Methods("GET")
 	a.Router.HandleFunc("/companies/form-data", a.getUniqueCompanyDataForFormHandler).Methods("GET")
 
-
-	
+	// Panel Management
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
-	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
-	a.Router.HandleFunc("/panel/status-ao-k5", a.upsertStatusAOK5).Methods("POST")
-	a.Router.HandleFunc("/panel/status-whs", a.upsertStatusWHS).Methods("POST")
+	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/panel/status-ao-k5", a.upsertStatusAOK5).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/panel/status-whs", a.upsertStatusWHS).Methods("POST", "OPTIONS")
 
-	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE")
-	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE")
+	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE", "OPTIONS")
+	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/panels/all", a.getAllPanelsHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/keys", a.getPanelKeysHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}", a.getPanelByNoPpHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/exists/no-pp/{no_pp}", a.isNoPpTakenHandler).Methods("GET")
-	a.Router.HandleFunc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT")
-	a.Router.HandleFunc("/panel/remark-vendor", a.upsertPanelRemarkHandler).Methods("POST")
+	a.Router.HandleFunc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/panel/remark-vendor", a.upsertPanelRemarkHandler).Methods("POST", "OPTIONS")
 
-	
-	
+	// Sub-Panel Parts Management
+	a.Router.HandleFunc("/busbar", a.upsertGenericHandler("busbars", &Busbar{})).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/component", a.upsertGenericHandler("components", &Component{})).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/palet", a.upsertGenericHandler("palet", &Palet{})).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/corepart", a.upsertGenericHandler("corepart", &Corepart{})).Methods("POST", "OPTIONS")
 
-	
-	
-	a.Router.HandleFunc("/busbar", a.upsertGenericHandler("busbars", &Busbar{})).Methods("POST")
-	a.Router.HandleFunc("/component", a.upsertGenericHandler("components", &Component{})).Methods("POST")
-	a.Router.HandleFunc("/palet", a.upsertGenericHandler("palet", &Palet{})).Methods("POST")
-	a.Router.HandleFunc("/corepart", a.upsertGenericHandler("corepart", &Corepart{})).Methods("POST")
+	a.Router.HandleFunc("/busbar", a.deleteGenericRelationHandler("busbars")).Methods("DELETE", "OPTIONS")
+	a.Router.HandleFunc("/palet", a.deleteGenericRelationHandler("palet")).Methods("DELETE", "OPTIONS")
+	a.Router.HandleFunc("/corepart", a.deleteGenericRelationHandler("corepart")).Methods("DELETE", "OPTIONS")
 
-	
-	a.Router.HandleFunc("/busbar", a.deleteGenericRelationHandler("busbars")).Methods("DELETE")
-	a.Router.HandleFunc("/palet", a.deleteGenericRelationHandler("palet")).Methods("DELETE")
-	a.Router.HandleFunc("/corepart", a.deleteGenericRelationHandler("corepart")).Methods("DELETE")
-	
-	a.Router.HandleFunc("/busbar/remark-vendor", a.upsertBusbarRemarkandVendorHandler).Methods("POST")
+	a.Router.HandleFunc("/busbar/remark-vendor", a.upsertBusbarRemarkandVendorHandler).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/busbars", a.getAllGenericHandler("busbars", func() interface{} { return &Busbar{} })).Methods("GET")
 	a.Router.HandleFunc("/components", a.getAllGenericHandler("components", func() interface{} { return &Component{} })).Methods("GET")
 	a.Router.HandleFunc("/palets", a.getAllGenericHandler("palet", func() interface{} { return &Palet{} })).Methods("GET")
 	a.Router.HandleFunc("/coreparts", a.getAllGenericHandler("corepart", func() interface{} { return &Corepart{} })).Methods("GET")
 
-	
+	// Export & Import
 	a.Router.HandleFunc("/export/filtered-data", a.getFilteredDataForExportHandler).Methods("GET")
 	a.Router.HandleFunc("/export/custom", a.generateCustomExportJsonHandler).Methods("GET")
 	a.Router.HandleFunc("/export/database", a.generateFilteredDatabaseJsonHandler).Methods("GET")
-	a.Router.HandleFunc("/import/database", a.importDataHandler).Methods("POST")
+	a.Router.HandleFunc("/import/database", a.importDataHandler).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/import/template", a.generateImportTemplateHandler).Methods("GET")
-	a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST")
+	a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST", "OPTIONS")
 
-	
+	// Issue Management Routes
 	a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{no_pp}/issues", a.getIssuesByPanelHandler).Methods("GET")
-	a.Router.HandleFunc("/panels/{no_pp}/issues", a.createIssueForPanelHandler).Methods("POST")
+	a.Router.HandleFunc("/panels/{no_pp}/issues", a.createIssueForPanelHandler).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/issues/{id}", a.getIssueByIDHandler).Methods("GET")
-	a.Router.HandleFunc("/issues/{id}", a.updateIssueHandler).Methods("PUT")
-	a.Router.HandleFunc("/issues/{id}", a.deleteIssueHandler).Methods("DELETE")
+	a.Router.HandleFunc("/issues/{id}", a.updateIssueHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/issues/{id}", a.deleteIssueHandler).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/issue-titles", a.getAllIssueTitlesHandler).Methods("GET")
-	a.Router.HandleFunc("/issue-titles", a.createIssueTitleHandler).Methods("POST")
-	a.Router.HandleFunc("/issue-titles/{id}", a.updateIssueTitleHandler).Methods("PUT")
-	a.Router.HandleFunc("/issue-titles/{id}", a.deleteIssueTitleHandler).Methods("DELETE")
+	a.Router.HandleFunc("/issue-titles", a.createIssueTitleHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/issue-titles/{id}", a.updateIssueTitleHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/issue-titles/{id}", a.deleteIssueTitleHandler).Methods("DELETE", "OPTIONS")
 
-	
-	a.Router.HandleFunc("/issues/{issue_id}/photos", a.addPhotoToIssueHandler).Methods("POST")
-	a.Router.HandleFunc("/photos/{id}", a.deletePhotoHandler).Methods("DELETE")
+	// Photo Management Routes
+	a.Router.HandleFunc("/issues/{issue_id}/photos", a.addPhotoToIssueHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/photos/{id}", a.deletePhotoHandler).Methods("DELETE", "OPTIONS")
 
-	
+	// Chat Message Routes
 	a.Router.HandleFunc("/chats/{chat_id}/messages", a.getMessagesByChatIDHandler).Methods("GET")
-	a.Router.HandleFunc("/chats/{chat_id}/messages", a.createMessageHandler).Methods("POST")
+	a.Router.HandleFunc("/chats/{chat_id}/messages", a.createMessageHandler).Methods("POST", "OPTIONS")
 
-	
+	// Issue Comment Routes
 	a.Router.HandleFunc("/issues/{issue_id}/comments", a.getCommentsByIssueHandler).Methods("GET")
-	a.Router.HandleFunc("/issues/{issue_id}/comments", a.createCommentHandler).Methods("POST")
-	a.Router.HandleFunc("/issues/{issue_id}/ask-gemini", a.askGeminiHandler).Methods("POST")
-	a.Router.HandleFunc("/panels/{no_pp}/ask-gemini", a.askGeminiAboutPanelHandler).Methods("POST") 
+	a.Router.HandleFunc("/issues/{issue_id}/comments", a.createCommentHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/issues/{issue_id}/ask-gemini", a.askGeminiHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/panels/{no_pp}/ask-gemini", a.askGeminiAboutPanelHandler).Methods("POST", "OPTIONS")
 
-
-	a.Router.HandleFunc("/comments/{id}", a.updateCommentHandler).Methods("PUT")
-	a.Router.HandleFunc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE")
+	a.Router.HandleFunc("/comments/{id}", a.updateCommentHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/comments/{id}", a.deleteCommentHandler).Methods("DELETE", "OPTIONS")
 	fs := http.FileServer(http.Dir("./uploads/"))
 	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 
-	
+	// Additional SR
 	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.getAdditionalSRsByPanelHandler).Methods("GET")
-	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
-	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT")
-	a.Router.HandleFunc("/additional-sr/{id}", a.deleteAdditionalSRHandler).Methods("DELETE")
+	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/additional-sr/{id}", a.deleteAdditionalSRHandler).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/suppliers", a.getSuppliersHandler).Methods("GET")
 
-
-	 
-    a.Router.HandleFunc("/production-slots", a.getProductionSlotsHandler).Methods("GET")
-    a.Router.HandleFunc("/panels/{no_pp}/transfer", a.transferPanelHandler).Methods("POST")
+	// Workflow Transfer
+	a.Router.HandleFunc("/production-slots", a.getProductionSlotsHandler).Methods("GET")
+	a.Router.HandleFunc("/panels/{no_pp}/transfer", a.transferPanelHandler).Methods("POST", "OPTIONS")
 }
-
-
-
-
 
 func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	var c Company
@@ -599,7 +574,6 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT (no_pp) DO UPDATE SET
 		no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
 
-
 	_, err = a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
@@ -617,14 +591,14 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		actor := "seseorang" 
+		actor := "seseorang"
 		if p.CreatedBy != nil {
 			actor = *p.CreatedBy
 		}
 
 		finalRecipients := []string{}
 		for _, user := range stakeholders {
-			
+
 			if user != actor {
 				finalRecipients = append(finalRecipients, user)
 			}
@@ -634,7 +608,7 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 			if isNewPanel {
 				title := "Panel Baru Ditambahkan"
 				body := fmt.Sprintf("%s menambahkan panel baru: %s", actor, p.NoPp)
-				
+
 				if p.VendorID == nil || *p.VendorID == "" {
 					body = fmt.Sprintf("%s menambahkan panel baru TANPA VENDOR: %s", actor, p.NoPp)
 				}
@@ -651,7 +625,7 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
-	
+
 	vars := mux.Vars(r)
 	noPp, ok := vars["no_pp"]
 	if !ok {
@@ -659,7 +633,6 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	var payload struct {
 		StatusBusbarPcc *string     `json:"status_busbar_pcc"`
 		StatusBusbarMcc *string     `json:"status_busbar_mcc"`
@@ -673,7 +646,6 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	var updates []string
 	var args []interface{}
 	argCounter := 1
@@ -704,70 +676,62 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 		argCounter++
 	}
 
-	
 	if len(updates) == 0 {
 		respondWithJSON(w, http.StatusOK, map[string]string{"message": "Tidak ada field yang diupdate"})
 		return
 	}
 
-	
 	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 	args = append(args, noPp)
 
-	
 	result, err := a.DB.Exec(query, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal mengupdate status: "+err.Error())
 		return
 	}
 
-	
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		respondWithError(w, http.StatusNotFound, "Panel dengan No. PP tersebut tidak ditemukan")
 		return
 	}
 
-	
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
-    username := mux.Vars(r)["username"]
-    
-    if username == "" {
-        respondWithError(w, http.StatusBadRequest, "Username is required")
-        return
-    }
+	username := mux.Vars(r)["username"]
 
-    var company Company
+	if username == "" {
+		respondWithError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
 
-    
-    query := `
+	var company Company
+
+	query := `
         SELECT c.id, c.name, c.role
         FROM public.companies c
         JOIN public.company_accounts ca ON c.id = ca.company_id
         WHERE ca.username = $1
     `
 
-    err := a.DB.QueryRowContext(r.Context(), query, username).
-        Scan(&company.ID, &company.Name, &company.Role)
+	err := a.DB.QueryRowContext(r.Context(), query, username).
+		Scan(&company.ID, &company.Name, &company.Role)
 
-    if err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            log.Printf("No company found for username: %s", username)
-            respondWithError(w, http.StatusNotFound, "User not found")
-            return
-        }
-        log.Printf("Database error in getCompanyByUsername for %s: %v", username, err)
-        respondWithError(w, http.StatusInternalServerError, "Database error")
-        return
-    }
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			log.Printf("No company found for username: %s", username)
+			respondWithError(w, http.StatusNotFound, "User not found")
+			return
+		}
+		log.Printf("Database error in getCompanyByUsername for %s: %v", username, err)
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
 
-    log.Printf("Successfully found company for username %s: %s", username, company.Name)
-    respondWithJSON(w, http.StatusOK, company)
+	log.Printf("Successfully found company for username %s: %s", username, company.Name)
+	respondWithJSON(w, http.StatusOK, company)
 }
-
-
 
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct{ Username, Password string }
@@ -776,8 +740,7 @@ func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var account CompanyAccount
-    
-    
+
 	err := a.DB.QueryRow("SELECT password, company_id FROM public.company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
@@ -785,7 +748,7 @@ func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if account.Password == payload.Password {
 		var company Company
-        
+
 		err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
@@ -798,7 +761,9 @@ func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) updatePasswordHandler(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["username"]
-	var payload struct{ Password string `json:"password"` }
+	var payload struct {
+		Password string `json:"password"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload")
 		return
@@ -947,9 +912,6 @@ func (a *App) isUsernameTakenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
-	
-	
 	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
 func (a *App) getAllUserAccountsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
@@ -993,12 +955,10 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 		WHERE c.name = $1 AND ca.username != $2
 		ORDER BY ca.username`
 
-	
-	
-	rows, err := a.DB.Query(query, companyName, currentUsername) 
-    
+	rows, err := a.DB.Query(query, companyName, currentUsername)
+
 	if err != nil {
-		
+
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1022,19 +982,16 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 }
 
 func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
-	
+
 	query := r.URL.Query().Get("q")
 	if query == "" {
-		
+
 		respondWithJSON(w, http.StatusOK, []string{})
 		return
 	}
 
-	
-	
 	sqlQuery := "SELECT username FROM public.company_accounts WHERE username ILIKE $1 LIMIT 10"
 
-	
 	rows, err := a.DB.Query(sqlQuery, query+"%")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1042,19 +999,17 @@ func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	
 	var usernames []string
 	for rows.Next() {
 		var username string
 		if err := rows.Scan(&username); err != nil {
-			
+
 			log.Printf("Error scanning username: %v", err)
 			continue
 		}
 		usernames = append(usernames, username)
 	}
 
-	
 	respondWithJSON(w, http.StatusOK, usernames)
 }
 func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.Request) {
@@ -1125,17 +1080,15 @@ func (a *App) getCompanyByNameHandler(w http.ResponseWriter, r *http.Request) {
 	err = a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE name = $1", name).Scan(&c.ID, &c.Name, &c.Role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			
-			
-			
+
 			respondWithJSON(w, http.StatusOK, nil)
 			return
 		}
-		
+
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	
+
 	respondWithJSON(w, http.StatusOK, c)
 }
 func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) {
@@ -1456,7 +1409,6 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
@@ -1464,14 +1416,13 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	
 	querySlots := "SELECT production_slot FROM panels WHERE no_pp = ANY($1) AND production_slot IS NOT NULL"
 	rows, err := tx.Query(querySlots, pq.Array(payload.NoPps))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal mencari slot yang ditempati: "+err.Error())
 		return
 	}
-	
+
 	var slotsToFree []string
 	for rows.Next() {
 		var slot string
@@ -1479,9 +1430,8 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 			slotsToFree = append(slotsToFree, slot)
 		}
 	}
-	rows.Close() 
+	rows.Close()
 
-	
 	queryDelete := "DELETE FROM public.panels WHERE no_pp = ANY($1)"
 	result, err := tx.Exec(queryDelete, pq.Array(payload.NoPps))
 	if err != nil {
@@ -1489,7 +1439,6 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	if len(slotsToFree) > 0 {
 		queryFreeSlots := "UPDATE production_slots SET is_occupied = false WHERE position_code = ANY($1)"
 		_, err = tx.Exec(queryFreeSlots, pq.Array(slotsToFree))
@@ -1499,7 +1448,6 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
 		return
@@ -1512,15 +1460,13 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 
-	
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
 		return
 	}
-	defer tx.Rollback() 
+	defer tx.Rollback()
 
-	
 	var occupiedSlot sql.NullString
 	err = tx.QueryRow("SELECT production_slot FROM panels WHERE no_pp = $1", noPp).Scan(&occupiedSlot)
 	if err != nil {
@@ -1532,7 +1478,6 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	result, err := tx.Exec("DELETE FROM public.panels WHERE no_pp = $1", noPp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
@@ -1540,12 +1485,11 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		
+
 		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan saat proses hapus")
 		return
 	}
 
-	
 	if occupiedSlot.Valid && occupiedSlot.String != "" {
 		_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", occupiedSlot.String)
 		if err != nil {
@@ -1554,7 +1498,6 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
 		return
@@ -1625,8 +1568,7 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	
-	
+
 	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
 
@@ -1655,7 +1597,6 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	
 	var existingPanel Panel
 	querySelect := `
 		SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
@@ -1681,32 +1622,62 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
-	if payloadData.NoPanel != nil { existingPanel.NoPanel = payloadData.NoPanel }
-	if payloadData.NoWbs != nil { existingPanel.NoWbs = payloadData.NoWbs }
-	if payloadData.Project != nil { existingPanel.Project = payloadData.Project }
-	if payloadData.PercentProgress != nil { existingPanel.PercentProgress = payloadData.PercentProgress }
-	if payloadData.StartDate != nil { existingPanel.StartDate = payloadData.StartDate }
-	if payloadData.TargetDelivery != nil { existingPanel.TargetDelivery = payloadData.TargetDelivery }
-	if payloadData.StatusBusbarPcc != nil { existingPanel.StatusBusbarPcc = payloadData.StatusBusbarPcc }
-	if payloadData.StatusBusbarMcc != nil { existingPanel.StatusBusbarMcc = payloadData.StatusBusbarMcc }
-	if payloadData.StatusComponent != nil { existingPanel.StatusComponent = payloadData.StatusComponent }
-	if payloadData.StatusPalet != nil { existingPanel.StatusPalet = payloadData.StatusPalet }
-	if payloadData.StatusCorepart != nil { existingPanel.StatusCorepart = payloadData.StatusCorepart }
-	if payloadData.AoBusbarPcc != nil { existingPanel.AoBusbarPcc = payloadData.AoBusbarPcc }
-	if payloadData.AoBusbarMcc != nil { existingPanel.AoBusbarMcc = payloadData.AoBusbarMcc }
-	if payloadData.VendorID != nil { existingPanel.VendorID = payloadData.VendorID }
-	if payloadData.PanelType != nil { existingPanel.PanelType = payloadData.PanelType }
-	if payloadData.Remarks != nil { existingPanel.Remarks = payloadData.Remarks } 
+	if payloadData.NoPanel != nil {
+		existingPanel.NoPanel = payloadData.NoPanel
+	}
+	if payloadData.NoWbs != nil {
+		existingPanel.NoWbs = payloadData.NoWbs
+	}
+	if payloadData.Project != nil {
+		existingPanel.Project = payloadData.Project
+	}
+	if payloadData.PercentProgress != nil {
+		existingPanel.PercentProgress = payloadData.PercentProgress
+	}
+	if payloadData.StartDate != nil {
+		existingPanel.StartDate = payloadData.StartDate
+	}
+	if payloadData.TargetDelivery != nil {
+		existingPanel.TargetDelivery = payloadData.TargetDelivery
+	}
+	if payloadData.StatusBusbarPcc != nil {
+		existingPanel.StatusBusbarPcc = payloadData.StatusBusbarPcc
+	}
+	if payloadData.StatusBusbarMcc != nil {
+		existingPanel.StatusBusbarMcc = payloadData.StatusBusbarMcc
+	}
+	if payloadData.StatusComponent != nil {
+		existingPanel.StatusComponent = payloadData.StatusComponent
+	}
+	if payloadData.StatusPalet != nil {
+		existingPanel.StatusPalet = payloadData.StatusPalet
+	}
+	if payloadData.StatusCorepart != nil {
+		existingPanel.StatusCorepart = payloadData.StatusCorepart
+	}
+	if payloadData.AoBusbarPcc != nil {
+		existingPanel.AoBusbarPcc = payloadData.AoBusbarPcc
+	}
+	if payloadData.AoBusbarMcc != nil {
+		existingPanel.AoBusbarMcc = payloadData.AoBusbarMcc
+	}
+	if payloadData.VendorID != nil {
+		existingPanel.VendorID = payloadData.VendorID
+	}
+	if payloadData.PanelType != nil {
+		existingPanel.PanelType = payloadData.PanelType
+	}
+	if payloadData.Remarks != nil {
+		existingPanel.Remarks = payloadData.Remarks
+	}
 	existingPanel.CloseDateBusbarPcc = payloadData.CloseDateBusbarPcc
 	existingPanel.CloseDateBusbarMcc = payloadData.CloseDateBusbarMcc
 	existingPanel.IsClosed = payloadData.IsClosed
 	existingPanel.ClosedDate = payloadData.ClosedDate
 	existingPanel.NoPp = payloadData.NoPp
 
-	
 	newNoPp := existingPanel.NoPp
-	pkToUpdateWith := oldNoPp 
+	pkToUpdateWith := oldNoPp
 
 	if newNoPp != oldNoPp {
 		if newNoPp == "" && !strings.HasPrefix(oldNoPp, "TEMP_PP_") {
@@ -1732,7 +1703,6 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	
 	updateQuery := `
 		UPDATE panels SET
 			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
@@ -1749,7 +1719,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		existingPanel.StatusBusbarMcc, existingPanel.StatusComponent, existingPanel.StatusPalet,
 		existingPanel.StatusCorepart, existingPanel.AoBusbarPcc, existingPanel.AoBusbarMcc,
 		existingPanel.VendorID, existingPanel.IsClosed, existingPanel.ClosedDate, existingPanel.PanelType,
-		existingPanel.Remarks, 
+		existingPanel.Remarks,
 		existingPanel.CloseDateBusbarPcc, existingPanel.CloseDateBusbarMcc,
 		pkToUpdateWith,
 	)
@@ -1762,7 +1732,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi: "+err.Error())
 		return
 	}
-	
+
 	existingPanel.NoPp = pkToUpdateWith
 	respondWithJSON(w, http.StatusOK, existingPanel)
 }
@@ -1810,7 +1780,6 @@ func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-
 func (a *App) deleteGenericRelationHandler(tableName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
@@ -1827,7 +1796,6 @@ func (a *App) deleteGenericRelationHandler(tableName string) http.HandlerFunc {
 			return
 		}
 
-		
 		query := fmt.Sprintf("DELETE FROM %s WHERE panel_no_pp = $1 AND vendor = $2", tableName)
 		result, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor)
 		if err != nil {
@@ -1902,7 +1870,7 @@ func (a *App) deleteBusbarHandler(w http.ResponseWriter, r *http.Request) {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		
+
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "No matching busbar relation found to delete"})
 		return
 	}
@@ -1931,40 +1899,30 @@ func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.
 	respondWithJSON(w, http.StatusCreated, payload)
 }
 func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
-	
+
 	var payload struct {
 		PanelNoPp       string      `json:"panel_no_pp"`
-		VendorID        string      `json:"vendor"` 
+		VendorID        string      `json:"vendor"`
 		AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
 		AoBusbarMcc     *customTime `json:"ao_busbar_mcc"`
 		StatusBusbarPcc *string     `json:"status_busbar_pcc"`
 		StatusBusbarMcc *string     `json:"status_busbar_mcc"`
 	}
 
-	
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
 
-	
 	if payload.PanelNoPp == "" {
 		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
 		return
 	}
 
-	
 	var updates []string
 	var args []interface{}
 	argCounter := 1
 
-	
-	
-	
-	
-	
-	
-	
 	if payload.StatusBusbarPcc != nil {
 		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
 		args = append(args, *payload.StatusBusbarPcc)
@@ -1986,13 +1944,11 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 		argCounter++
 	}
 
-	
 	if len(updates) == 0 {
 		respondWithJSON(w, http.StatusOK, map[string]string{"message": "No fields to update."})
 		return
 	}
 
-	
 	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 	args = append(args, payload.PanelNoPp)
 
@@ -2002,7 +1958,6 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
@@ -2013,20 +1968,18 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
-	
+
 	var payload struct {
 		PanelNoPp       string  `json:"panel_no_pp"`
-		VendorID        string  `json:"vendor"` 
+		VendorID        string  `json:"vendor"`
 		StatusComponent *string `json:"status_component"`
 	}
 
-	
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
 
-	
 	if payload.PanelNoPp == "" {
 		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
 		return
@@ -2036,7 +1989,6 @@ func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	query := `UPDATE panels SET status_component = $1 WHERE no_pp = $2`
 
 	result, err := a.DB.Exec(query, *payload.StatusComponent, payload.PanelNoPp)
@@ -2045,7 +1997,6 @@ func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
@@ -2120,7 +2071,7 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	query := `UPDATE companies SET name = $1, role = $2 WHERE id = $3`
 	_, err := a.DB.Exec(query, payload.Name, payload.Role, id)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" { 
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			respondWithError(w, http.StatusConflict, "Nama perusahaan '"+payload.Name+"' sudah digunakan.")
 			return
 		}
@@ -2138,9 +2089,8 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback() 
+	defer tx.Rollback()
 
-	
 	panelQuery := `
 		SELECT DISTINCT 
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress,
@@ -2159,7 +2109,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	args := []interface{}{}
 	argCounter := 1
 
-	
 	addDateFilter := func(query, col, start, end string) (string, []interface{}) {
 		localArgs := []interface{}{}
 		if start != "" {
@@ -2196,7 +2145,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 							filteredList = append(filteredList, item)
 						}
 					}
-					
+
 					var condition string
 					if len(filteredList) > 0 {
 						condition = fmt.Sprintf("%s = ANY($%d)", col, argCounter)
@@ -2217,7 +2166,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 		return query, localArgs
 	}
-	
+
 	addVendorFilter := func(query, col, values string) (string, []interface{}) {
 		localArgs := []interface{}{}
 		if values != "" {
@@ -2242,7 +2191,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 				if hasNoVendor {
 					conditions = append(conditions, fmt.Sprintf("(%s IS NULL OR %s = '')", col, col))
 				}
-				
+
 				if len(conditions) > 0 {
 					query += " AND (" + strings.Join(conditions, " OR ") + ")"
 				}
@@ -2309,8 +2258,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
 		panelQuery += " AND (p.is_closed = false)"
 	}
-	
-	
+
 	rows, err := tx.Query(panelQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("gagal query panel: %w", err)
@@ -2326,7 +2274,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			&p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc,
 			&p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate,
 			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc,
-			&p.StatusPenyelesaian, &p.ProductionSlot, 
+			&p.StatusPenyelesaian, &p.ProductionSlot,
 		); err != nil {
 			log.Printf("Peringatan: Gagal scan panel row: %v", err)
 			continue
@@ -2341,15 +2289,14 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	for id := range panelIdSet {
 		relevantPanelIds = append(relevantPanelIds, id)
 	}
-	
-	
+
 	if len(relevantPanelIds) > 0 {
 		log.Printf("DEBUG: Fetching related data for panel IDs: %v", relevantPanelIds)
 		result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
 		result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
 		result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
 		result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
-		
+
 		issueQuery := `
             SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.status, i.created_by, i.created_at
             FROM issues i
@@ -2359,15 +2306,15 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
             ORDER BY p.no_pp, i.created_at`
 		issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			
+
 			log.Printf("Error querying issues for export: %v", err)
-			result["issues"] = []IssueForExport{} 
+			result["issues"] = []IssueForExport{}
 		} else {
-			defer issueRows.Close() 
+			defer issueRows.Close()
 			var issues []IssueForExport
 			for issueRows.Next() {
 				var issue IssueForExport
-				
+
 				if err := issueRows.Scan(
 					&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel,
 					&issue.IssueID, &issue.Title, &issue.Description, &issue.Status,
@@ -2378,21 +2325,20 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 					log.Printf("Warning: Failed to scan issue row: %v", err)
 				}
 			}
-            if err = issueRows.Err(); err != nil { 
-               log.Printf("Error during issue rows iteration: %v", err)
-            }
-			result["issues"] = issues 
-			log.Printf("DEBUG: Found %d issues", len(issues)) 
+			if err = issueRows.Err(); err != nil {
+				log.Printf("Error during issue rows iteration: %v", err)
+			}
+			result["issues"] = issues
+			log.Printf("DEBUG: Found %d issues", len(issues))
 		}
 
-		
 		commentQuery := `
             SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
             FROM issue_comments ic
             JOIN issues i ON ic.issue_id = i.id
             JOIN chats ch ON i.chat_id = ch.id
             WHERE ch.panel_no_pp = ANY($1)
-            ORDER BY ic.issue_id, ic.timestamp` 
+            ORDER BY ic.issue_id, ic.timestamp`
 		commentRows, err := tx.Query(commentQuery, pq.Array(relevantPanelIds))
 		if err != nil {
 			log.Printf("Error querying comments for export: %v", err)
@@ -2402,7 +2348,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			var comments []CommentForExport
 			for commentRows.Next() {
 				var comment CommentForExport
-				
+
 				if err := commentRows.Scan(
 					&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID,
 				); err == nil {
@@ -2411,11 +2357,11 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 					log.Printf("Warning: Failed to scan comment row: %v", err)
 				}
 			}
-            if err = commentRows.Err(); err != nil {
-               log.Printf("Error during comment rows iteration: %v", err)
-            }
-			result["comments"] = comments 
-			log.Printf("DEBUG: Found %d comments", len(comments)) 
+			if err = commentRows.Err(); err != nil {
+				log.Printf("Error during comment rows iteration: %v", err)
+			}
+			result["comments"] = comments
+			log.Printf("DEBUG: Found %d comments", len(comments))
 		}
 
 		srQuery := `
@@ -2423,7 +2369,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
             FROM additional_sr asr
             JOIN panels p ON asr.panel_no_pp = p.no_pp
             WHERE p.no_pp = ANY($1)
-            ORDER BY p.no_pp, asr.id` 
+            ORDER BY p.no_pp, asr.id`
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
 		if err != nil {
 			log.Printf("Error querying additional SRs for export: %v", err)
@@ -2433,7 +2379,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			var srs []AdditionalSRForExport
 			for srRows.Next() {
 				var sr AdditionalSRForExport
-				
+
 				if err := srRows.Scan(
 					&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel,
 					&sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier,
@@ -2444,18 +2390,18 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 					log.Printf("Warning: Failed to scan additional SR row: %v", err)
 				}
 			}
-            if err = srRows.Err(); err != nil {
-               log.Printf("Error during additional SR rows iteration: %v", err)
-            }
-			result["additional_srs"] = srs 
-			log.Printf("DEBUG: Found %d additional SRs", len(srs)) 
+			if err = srRows.Err(); err != nil {
+				log.Printf("Error during additional SR rows iteration: %v", err)
+			}
+			result["additional_srs"] = srs
+			log.Printf("DEBUG: Found %d additional SRs", len(srs))
 		}
 	} else {
 		log.Printf("DEBUG: No relevant panels found, initializing related data to empty slices.")
-		result["busbars"] = []Busbar{} 
-		result["components"] = []Component{} 
-		result["palet"] = []Palet{} 
-		result["corepart"] = []Corepart{} 
+		result["busbars"] = []Busbar{}
+		result["components"] = []Component{}
+		result["palet"] = []Palet{}
+		result["corepart"] = []Corepart{}
 		result["issues"] = []IssueForExport{}
 		result["comments"] = []CommentForExport{}
 		result["additional_srs"] = []AdditionalSRForExport{}
@@ -2467,7 +2413,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 }
 
 func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Request) {
-	data, err := a.getFilteredDataForExport(r) 
+	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2475,23 +2421,17 @@ func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Req
 	respondWithJSON(w, http.StatusOK, data)
 }
 
-
 func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Request) {
-	
+
 	includePanels, _ := strconv.ParseBool(r.URL.Query().Get("panels"))
 	includeUsers, _ := strconv.ParseBool(r.URL.Query().Get("users"))
 
-	
-	
-	
 	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	
-	
 	allCompaniesResult, err := fetchAllAs(a.DB, "companies", func() interface{} { return &Company{} })
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
@@ -2505,13 +2445,10 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 		companyMap[company.ID] = *company
 	}
 
-	
 	jsonData := make(map[string]interface{})
 
-	
-	
 	if includePanels {
-		panels := data["panels"].([]Panel) 
+		panels := data["panels"].([]Panel)
 		busbars := data["busbars"].([]interface{})
 		panelBusbarMap := make(map[string]string)
 		for _, b := range busbars {
@@ -2526,7 +2463,7 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 		}
 
 		var panelData []map[string]interface{}
-		for _, panel := range panels { 
+		for _, panel := range panels {
 			panelVendorName := ""
 			if panel.VendorID != nil {
 				if company, ok := companyMap[*panel.VendorID]; ok {
@@ -2534,21 +2471,21 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 				}
 			}
 			panelData = append(panelData, map[string]interface{}{
-				"PP Panel":                 panel.NoPp,
-				"Panel No":                 panel.NoPanel,
-				"WBS":                      panel.NoWbs,
-				"PROJECT":                  panel.Project,
-				"Plan Start":               panel.StartDate,
-				"Actual Delivery ke SEC":   panel.TargetDelivery,
-				"Panel":                    panelVendorName,
-				"Busbar":                   panelBusbarMap[panel.NoPp],
-				"Progres Panel":            panel.PercentProgress,
-				"Status Corepart":          panel.StatusCorepart,
-				"Status Palet":             panel.StatusPalet,
-				"Status Busbar PCC":        panel.StatusBusbarPcc,
-				"Status Busbar MCC":        panel.StatusBusbarMcc,
-				"AO Busbar PCC":            panel.AoBusbarPcc,
-				"AO Busbar MCC":            panel.AoBusbarMcc,
+				"PP Panel":               panel.NoPp,
+				"Panel No":               panel.NoPanel,
+				"WBS":                    panel.NoWbs,
+				"PROJECT":                panel.Project,
+				"Plan Start":             panel.StartDate,
+				"Actual Delivery ke SEC": panel.TargetDelivery,
+				"Panel":                  panelVendorName,
+				"Busbar":                 panelBusbarMap[panel.NoPp],
+				"Progres Panel":          panel.PercentProgress,
+				"Status Corepart":        panel.StatusCorepart,
+				"Status Palet":           panel.StatusPalet,
+				"Status Busbar PCC":      panel.StatusBusbarPcc,
+				"Status Busbar MCC":      panel.StatusBusbarMcc,
+				"AO Busbar PCC":          panel.AoBusbarPcc,
+				"AO Busbar MCC":          panel.AoBusbarMcc,
 			})
 		}
 		jsonData["panel_data"] = panelData
@@ -2578,35 +2515,27 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 	respondWithJSON(w, http.StatusOK, jsonData)
 }
 
-
 func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http.Request) {
-	
+
 	tablesParam := r.URL.Query().Get("tables")
 	tablesToInclude := strings.Split(tablesParam, ",")
 
-	
-	
-	
-	
 	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	
 	jsonData := make(map[string]interface{})
-	
-	
-	
+
 	for _, table := range tablesToInclude {
-		
+
 		normalizedTable := strings.ToLower(strings.ReplaceAll(table, " ", ""))
 		switch normalizedTable {
 		case "companies":
 			jsonData["companies"] = data["companies"]
 		case "companyaccounts":
-			
+
 			jsonData["company_accounts"] = data["companyAccounts"]
 		case "panels":
 			jsonData["panels"] = data["panels"]
@@ -2620,7 +2549,7 @@ func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http
 			jsonData["corepart"] = data["corepart"]
 		}
 	}
-	
+
 	respondWithJSON(w, http.StatusOK, jsonData)
 }
 func (a *App) importDataHandler(w http.ResponseWriter, r *http.Request) {
@@ -2691,11 +2620,8 @@ func (a *App) generateImportTemplateHandler(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-
-
-
 func normalizeVendorName(name string) string {
-	
+
 	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
 	tempName := strings.ToUpper(name)
 	for _, prefix := range prefixes {
@@ -2705,7 +2631,6 @@ func normalizeVendorName(name string) string {
 		}
 	}
 
-	
 	var result strings.Builder
 	for _, r := range tempName {
 		if r >= 'A' && r <= 'Z' {
@@ -2715,10 +2640,8 @@ func normalizeVendorName(name string) string {
 	return result.String()
 }
 
-
-
 func generateAcronym(name string) string {
-	
+
 	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
 	tempName := strings.ToUpper(name)
 	for _, prefix := range prefixes {
@@ -2728,10 +2651,9 @@ func generateAcronym(name string) string {
 		}
 	}
 
-	
-	parts := strings.Fields(tempName) 
+	parts := strings.Fields(tempName)
 	if len(parts) <= 1 {
-		return "" 
+		return ""
 	}
 	var acronym strings.Builder
 	for _, part := range parts {
@@ -2740,7 +2662,6 @@ func generateAcronym(name string) string {
 		}
 	}
 
-	
 	if acronym.Len() > 1 {
 		return acronym.String()
 	}
@@ -2750,7 +2671,7 @@ func generateAcronym(name string) string {
 func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Data             map[string][]map[string]interface{} `json:"data"`
-		LoggedInUsername *string                           `json:"loggedInUsername"`
+		LoggedInUsername *string                             `json:"loggedInUsername"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -2764,14 +2685,13 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
-	
 	var loggedInUserCompanyId string
 	var loggedInUserRole string
 	if payload.LoggedInUsername != nil && *payload.LoggedInUsername != "" {
 		query := `SELECT c.id, c.role FROM public.companies c JOIN public.company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
 		err := tx.QueryRow(query, *payload.LoggedInUsername).Scan(&loggedInUserCompanyId, &loggedInUserRole)
 		if err != nil && err != sql.ErrNoRows {
-			
+
 			respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data user: "+err.Error())
 			return
 		}
@@ -2780,7 +2700,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	var errors []string
 	dataProcessed := false
 
-	
 	vendorIdMap := make(map[string]bool)
 	normalizedNameToIdMap := make(map[string]string)
 	acronymToIdMap := make(map[string]string)
@@ -2874,12 +2793,12 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if panelSheetData, ok := payload.Data["panel"]; ok {
-		
+
 		var warehouseCompanyId string
 		err := tx.QueryRow("SELECT id FROM public.companies WHERE name = 'Warehouse'").Scan(&warehouseCompanyId)
 		if err == sql.ErrNoRows {
-			
-			warehouseCompanyId = "warehouse" 
+
+			warehouseCompanyId = "warehouse"
 			_, errInsert := tx.Exec(
 				"INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING",
 				warehouseCompanyId,
@@ -2931,16 +2850,14 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
 			}
 
-			
 			var panelVendorId, busbarVendorId sql.NullString
 
 			if loggedInUserRole == AppRoleK3 {
-				
-				
+
 				panelVendorId = sql.NullString{String: loggedInUserCompanyId, Valid: true}
-				
+
 			} else {
-				
+
 				panelVendorInput := getValueCaseInsensitive(row, "Panel")
 				busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
 
@@ -2962,7 +2879,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 					}
 				}
 			}
-			
 
 			lastErrorIndex := len(errors) - 1
 			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
@@ -2971,7 +2887,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 			actualDeliveryDate := parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC"))
 			var progress float64 = 0.0
-			
+
 			if actualDeliveryDate != nil {
 				progress = 100.0
 			}
@@ -2983,10 +2899,10 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				"project":           getValueCaseInsensitive(row, "PROJECT"),
 				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")),
 				"closed_date":       actualDeliveryDate,
-				"is_closed":         actualDeliveryDate != nil, 
+				"is_closed":         actualDeliveryDate != nil,
 				"vendor_id":         panelVendorId,
 				"created_by":        "import",
-				"percent_progress":  progress, 
+				"percent_progress":  progress,
 				"status_busbar_pcc": "On Progress",
 				"status_busbar_mcc": "On Progress",
 				"status_component":  "Open",
@@ -3044,13 +2960,12 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
 }
 
-
 func getOrCreateChatByPanel(tx *sql.Tx, panelNoPp string) (int, error) {
 	var chatID int
-	
+
 	err := tx.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
-		
+
 		err = tx.QueryRow("INSERT INTO chats (panel_no_pp) VALUES ($1) RETURNING id", panelNoPp).Scan(&chatID)
 		if err != nil {
 			return 0, fmt.Errorf("failed to create chat: %w", err)
@@ -3118,7 +3033,6 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-
 	commentText := fmt.Sprintf(payload.Title)
 	if payload.Description != "" {
 		commentText = fmt.Sprintf("%s: %s", payload.Title, payload.Description)
@@ -3127,31 +3041,33 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	var imageUrls []string
 	for _, photoBase64 := range payload.Photos {
 		parts := strings.Split(photoBase64, ",")
-		if len(parts) != 2 { continue }
+		if len(parts) != 2 {
+			continue
+		}
 		imgData, err := base64.StdEncoding.DecodeString(parts[1])
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
 		filepath := fmt.Sprintf("uploads/%s", filename)
 		err = os.WriteFile(filepath, imgData, 0644)
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		imageUrls = append(imageUrls, "/"+filepath)
 	}
 	imageUrlsJSON, _ := json.Marshal(imageUrls)
 	newCommentID := uuid.New().String()
 
-	
-	
 	commentQuery := `
 		INSERT INTO issue_comments (id, issue_id, sender_id, text, image_urls, is_system_comment)
-		VALUES ($1, $2, $3, $4, $5, TRUE)` 
+		VALUES ($1, $2, $3, $4, $5, TRUE)`
 	_, err = tx.Exec(commentQuery, newCommentID, issueID, payload.CreatedBy, commentText, imageUrlsJSON)
-	
-	
+
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create initial comment: "+err.Error())
 		return
 	}
-
 
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to commit transaction")
@@ -3159,7 +3075,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	go func() {
-		
+
 		if payload.NotifyEmail == "" {
 			return
 		}
@@ -3167,20 +3083,18 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		finalRecipients := []string{}
 		for _, r := range allRecipients {
 			trimmed := strings.TrimSpace(r)
-			
+
 			if trimmed != "" && trimmed != payload.CreatedBy {
 				finalRecipients = append(finalRecipients, trimmed)
 			}
 		}
 
-		
 		if len(finalRecipients) > 0 {
-			
+
 			title := fmt.Sprintf("Isu Baru di Panel %s", panelNoPp)
 			body := fmt.Sprintf("%s membuat isu baru: '%s'", payload.CreatedBy, payload.Title)
 			a.sendNotificationToUsers(finalRecipients, title, body)
 
-			
 			subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
 			htmlBody := fmt.Sprintf(
 				`<h3>Isu Baru Telah Dibuat pada Panel %s</h3>
@@ -3205,7 +3119,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var chatID int
 	err := a.DB.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
-		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{}) 
+		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{})
 		return
 	}
 	if err != nil {
@@ -3213,7 +3127,6 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at, notify_email FROM public.issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -3221,7 +3134,6 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	
 	issueMap := make(map[int]*IssueWithPhotos)
 	var issueIDs []int
 
@@ -3232,15 +3144,14 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		issueIDs = append(issueIDs, issue.ID)
-		issueMap[issue.ID] = &IssueWithPhotos{Issue: issue, Photos: []Photo{}} 
+		issueMap[issue.ID] = &IssueWithPhotos{Issue: issue, Photos: []Photo{}}
 	}
-	
+
 	if len(issueIDs) == 0 {
 		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{})
 		return
 	}
 
-	
 	photoRows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM public.photos WHERE issue_id = ANY($1)", pq.Array(issueIDs))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve photos: "+err.Error())
@@ -3248,7 +3159,6 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer photoRows.Close()
 
-	
 	for photoRows.Next() {
 		var p Photo
 		if err := photoRows.Scan(&p.ID, &p.IssueID, &p.PhotoData); err != nil {
@@ -3260,12 +3170,11 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	
 	var issuesWithPhotos []IssueWithPhotos
-	for _, id := range issueIDs { 
+	for _, id := range issueIDs {
 		issuesWithPhotos = append(issuesWithPhotos, *issueMap[id])
 	}
-	
+
 	respondWithJSON(w, http.StatusOK, issuesWithPhotos)
 }
 
@@ -3278,7 +3187,7 @@ func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var issue Issue
-	
+
 	err = a.DB.QueryRow("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM public.issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -3317,13 +3226,12 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	var payload struct {
 		Description string  `json:"issue_description"`
 		Title       string  `json:"issue_title"`
 		Status      string  `json:"issue_status"`
 		UpdatedBy   string  `json:"updated_by"`
-		NotifyEmail *string `json:"notify_email,omitempty"` 
+		NotifyEmail *string `json:"notify_email,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -3341,7 +3249,6 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	
 	var currentLogs Logs
 	var currentStatus, notifyEmail, panelNoPp string
 	err = tx.QueryRow(`
@@ -3365,16 +3272,14 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	newLogEntry := LogEntry{Action: logAction, User: payload.UpdatedBy, Timestamp: time.Now()}
 	updatedLogs := append(currentLogs, newLogEntry)
 
-	
-	finalNotifyEmail := notifyEmail 
+	finalNotifyEmail := notifyEmail
 	if payload.NotifyEmail != nil {
-		finalNotifyEmail = *payload.NotifyEmail 
+		finalNotifyEmail = *payload.NotifyEmail
 		if logAction == "mengubah issue" {
-			logAction = "mengubah daftar notifikasi" 
+			logAction = "mengubah daftar notifikasi"
 		}
 	}
-	
-	
+
 	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4, notify_email = $5 WHERE id = $6`
 	res, err := tx.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, finalNotifyEmail, issueID)
 	if err != nil {
@@ -3387,34 +3292,30 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	updatedCommentText := fmt.Sprintf("**%s**", payload.Title)
 	if payload.Description != "" {
 		updatedCommentText = fmt.Sprintf("**%s**: %s", payload.Title, payload.Description)
 	}
 
-	
-	
 	commentQuery := `
 		UPDATE issue_comments 
 		SET text = $1, is_edited = TRUE
 		WHERE issue_id = $2 AND is_system_comment = TRUE`
 	_, err = tx.Exec(commentQuery, updatedCommentText, issueID)
 	if err != nil {
-		
+
 		respondWithError(w, http.StatusInternalServerError, "Failed to update system comment: "+err.Error())
 		return
 	}
 
-	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
 		return
 	}
-	
-		go func() {
+
+	go func() {
 		if currentStatus != payload.Status {
-			
+
 			allRecipients := strings.Split(finalNotifyEmail, ",")
 			finalRecipients := []string{}
 			for _, recipient := range allRecipients {
@@ -3425,12 +3326,11 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(finalRecipients) > 0 {
-				
+
 				notifTitle := fmt.Sprintf("Update Isu di Panel %s", panelNoPp)
 				notifBody := fmt.Sprintf("%s mengubah status isu '%s' menjadi %s.", payload.UpdatedBy, payload.Title, payload.Status)
 				a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
-				
 				subject := fmt.Sprintf("[SecPanel] Update Status Isu: %s", payload.Title)
 				htmlBody := fmt.Sprintf(
 					`<h3>Status Isu pada Panel %s Telah Diubah</h3>
@@ -3443,13 +3343,11 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 				)
 				sendNotificationEmail(finalRecipients, subject, htmlBody)
 			}
-			return 
+			return
 		}
 
-		
-		
 		if payload.NotifyEmail != nil {
-			
+
 			oldEmails := make(map[string]bool)
 			for _, email := range strings.Split(notifyEmail, ",") {
 				if strings.TrimSpace(email) != "" {
@@ -3460,18 +3358,17 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 			var addedEmails []string
 			for _, emailStr := range strings.Split(finalNotifyEmail, ",") {
 				email := strings.TrimSpace(emailStr)
-				if email != "" && !oldEmails[email] { 
+				if email != "" && !oldEmails[email] {
 					addedEmails = append(addedEmails, email)
 				}
 			}
-			
+
 			if len(addedEmails) > 0 {
-				
+
 				notifTitle := fmt.Sprintf("Anda ditambahkan ke Isu di Panel %s", panelNoPp)
 				notifBody := fmt.Sprintf("%s menambahkan Anda ke notifikasi isu '%s'.", payload.UpdatedBy, payload.Title)
 				a.sendNotificationToUsers(addedEmails, notifTitle, notifBody)
 
-				
 				subject := fmt.Sprintf("[SecPanel] Anda Ditambahkan ke Notifikasi Isu: %s", payload.Title)
 				htmlBody := fmt.Sprintf(
 					`<h3>Anda Telah Ditambahkan ke Notifikasi Isu</h3>
@@ -3511,7 +3408,6 @@ func (a *App) deleteIssueHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-
 func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	issueID, err := strconv.Atoi(vars["issue_id"])
@@ -3521,7 +3417,7 @@ func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		PhotoData string `json:"photo"` 
+		PhotoData string `json:"photo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -3536,7 +3432,6 @@ func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusCreated, map[string]int{"photo_id": photoID})
 }
-
 
 func (a *App) deletePhotoHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -3562,14 +3457,14 @@ func (a *App) deletePhotoHandler(w http.ResponseWriter, r *http.Request) {
 
 func cleanMapData(data map[string]interface{}) {
 	for key, value := range data {
-		
+
 		if s, ok := value.(string); ok {
 			trimmedS := strings.TrimSpace(s)
 			if trimmedS == "" {
-				
+
 				delete(data, key)
 			} else {
-				
+
 				data[key] = trimmedS
 			}
 		}
@@ -3598,14 +3493,14 @@ func splitIds(ns sql.NullString) []string {
 }
 
 func toColumnName(n int) string {
-    result := ""
-    for n >= 0 {
-        
-        remainder := n % 26
-        result = string('A'+remainder) + result
-        n = (n / 26) - 1
-    }
-    return result
+	result := ""
+	for n >= 0 {
+
+		remainder := n % 26
+		result = string('A'+remainder) + result
+		n = (n / 26) - 1
+	}
+	return result
 }
 func initDB(db *sql.DB) {
 	createTablesSQL := `
@@ -3670,9 +3565,9 @@ func initDB(db *sql.DB) {
         remarks TEXT,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     );`
-    if _, err := db.Exec(createAdditionalSRTableSQL); err != nil {
-        log.Fatalf("Gagal membuat tabel additional_sr: %v", err)
-    }
+	if _, err := db.Exec(createAdditionalSRTableSQL); err != nil {
+		log.Fatalf("Gagal membuat tabel additional_sr: %v", err)
+	}
 
 	alterTableAdditionalSRSQL := `
 	DO $$
@@ -3696,11 +3591,11 @@ func initDB(db *sql.DB) {
 	END;
 	$$;
 	`
-    if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
-        log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
-    }
+	if _, err := db.Exec(alterTableAdditionalSRSQL); err != nil {
+		log.Fatalf("Gagal mengubah tabel additional_sr: %v", err)
+	}
 
-	createTablesSQLChats:= `
+	createTablesSQLChats := `
 	CREATE TABLE IF NOT EXISTS chats (
 		id SERIAL PRIMARY KEY,
 		panel_no_pp VARCHAR(255) UNIQUE NOT NULL REFERENCES panels(no_pp) ON DELETE CASCADE,
@@ -3748,7 +3643,6 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel issue_titles: %v", err)
 	}
 
-	
 	var count_titles int
 	if err := db.QueryRow("SELECT COUNT(*) FROM public.issue_titles").Scan(&count_titles); err == nil && count_titles == 0 {
 		log.Println("Tabel issue_titles kosong, menambahkan data awal...")
@@ -3775,7 +3669,6 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel issue_comments: %v", err)
 	}
 
-	
 	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
 		os.Mkdir("uploads", 0755)
 		log.Println("Folder 'uploads' berhasil dibuat.")
@@ -3819,10 +3712,8 @@ func initDB(db *sql.DB) {
 	if _, err := db.Exec(alterCommentsTableSQL); err != nil {
 		log.Fatalf("Gagal menjalankan migrasi untuk kolom is_system_comment: %v", err)
 	}
-	
 
-
-	createTablesSQLPhotos:= `
+	createTablesSQLPhotos := `
 	CREATE TABLE IF NOT EXISTS photos (
 		id SERIAL PRIMARY KEY,
 		issue_id INT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
@@ -3832,7 +3723,7 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel photos: %v", err)
 	}
 
-	updateIssuesTrigger:= `
+	updateIssuesTrigger := `
 	CREATE OR REPLACE FUNCTION update_updated_at_column()
 	RETURNS TRIGGER AS $$
 	BEGIN
@@ -3941,7 +3832,6 @@ func initDB(db *sql.DB) {
 		insertDummyData(db)
 	}
 
-	
 	alterPanelsForTransferSQL := `
 	DO $$
 	BEGIN
@@ -3958,7 +3848,6 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal menjalankan migrasi untuk workflow transfer: %v", err)
 	}
 
-	
 	createProductionSlotsTableSQL := `
 	CREATE TABLE IF NOT EXISTS production_slots (
 		position_code TEXT PRIMARY KEY,
@@ -4000,7 +3889,7 @@ func initDB(db *sql.DB) {
 	if _, err := db.Exec(migrateHistoryStackSQL); err != nil {
 		log.Fatalf("Gagal menjalankan migrasi untuk kolom history_stack: %v", err)
 	}
-	
+
 	var slotCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM production_slots").Scan(&slotCount); err == nil && slotCount == 0 {
 		log.Println("Tabel production_slots kosong, menambahkan data slot awal...")
@@ -4015,31 +3904,25 @@ func initDB(db *sql.DB) {
 		}
 		defer stmt.Close()
 
-		        
-        
-        
-        
-        
-        const slotsPerCell = 702 
+		const slotsPerCell = 702
 		for row := 1; row <= 7; row++ {
-            
-            for i := 0; i < slotsPerCell; i++ {
-                
-                colName := toColumnName(i)
-                
-                slotCode := fmt.Sprintf("Cell %d-%s", row, colName)
-                if _, err := stmt.Exec(slotCode); err != nil {
-                    tx.Rollback()
-                    log.Fatalf("Gagal insert slot %s: %v", slotCode, err)
-                }
-            }
-        }
-		
+
+			for i := 0; i < slotsPerCell; i++ {
+
+				colName := toColumnName(i)
+
+				slotCode := fmt.Sprintf("Cell %d-%s", row, colName)
+				if _, err := stmt.Exec(slotCode); err != nil {
+					tx.Rollback()
+					log.Fatalf("Gagal insert slot %s: %v", slotCode, err)
+				}
+			}
+		}
 
 		tx.Commit()
 		log.Println("Berhasil menambahkan 28 slot produksi dalam format baris.")
 	}
-	
+
 	addForeignKeyConstraintSQL := `
 	DO $$
 	BEGIN
@@ -4058,7 +3941,7 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal menambahkan foreign key constraint untuk production_slot: %v", err)
 	}
 
-    alterTableAddSupplierSQL := `
+	alterTableAddSupplierSQL := `
     DO $$
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'additional_sr' AND column_name = 'supplier') THEN
@@ -4067,9 +3950,9 @@ func initDB(db *sql.DB) {
     END;
     $$;
     `
-    if _, err := db.Exec(alterTableAddSupplierSQL); err != nil {
-        log.Fatalf("Gagal menjalankan migrasi untuk kolom additional_sr.supplier: %v", err)
-    }
+	if _, err := db.Exec(alterTableAddSupplierSQL); err != nil {
+		log.Fatalf("Gagal menjalankan migrasi untuk kolom additional_sr.supplier: %v", err)
+	}
 
 	fixChatsForeignKeySQL := `
     DO $$
@@ -4091,9 +3974,9 @@ func initDB(db *sql.DB) {
     END
     $$;
     `
-    if _, err := db.Exec(fixChatsForeignKeySQL); err != nil {
-        log.Fatalf("Gagal memperbaiki foreign key untuk tabel chats: %v", err)
-    }
+	if _, err := db.Exec(fixChatsForeignKeySQL); err != nil {
+		log.Fatalf("Gagal memperbaiki foreign key untuk tabel chats: %v", err)
+	}
 
 }
 
@@ -4354,27 +4237,26 @@ func parseDate(dateStr string) *string {
 	if dateStr == "" {
 		return nil
 	}
-	
+
 	layouts := []string{
-		time.RFC3339Nano,              
-		time.RFC3339,                   
-		"2006-01-02T15:04:05Z07:00",     
-		"02-Jan-2006",                  
-		"02-Jan-06",                    
-		"1/2/2006",                     
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"02-Jan-2006",
+		"02-Jan-06",
+		"1/2/2006",
 	}
 	for _, layout := range layouts {
 		t, err := time.Parse(layout, dateStr)
 		if err == nil {
-			
+
 			s := t.Format(time.RFC3339)
 			return &s
 		}
 	}
-	
+
 	return nil
 }
-
 
 func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -4408,7 +4290,6 @@ func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request)
 	respondWithJSON(w, http.StatusOK, messages)
 }
 
-
 func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	chatID, err := strconv.Atoi(vars["chat_id"])
@@ -4420,7 +4301,7 @@ func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		SenderUsername string  `json:"sender_username"`
 		Text           *string `json:"text"`
-		ImageData      *string `json:"image_data"` 
+		ImageData      *string `json:"image_data"`
 		RepliedIssueID *int    `json:"replied_issue_id"`
 	}
 
@@ -4533,7 +4414,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	var imageUrls []string
 	for _, base64Image := range payload.Images {
-		
+
 		parts := strings.Split(base64Image, ",")
 		if len(parts) != 2 {
 			log.Println("Invalid base64 image format")
@@ -4545,7 +4426,6 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		
 		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
 		filepath := fmt.Sprintf("uploads/%s", filename)
 		err = os.WriteFile(filepath, imgData, 0644)
@@ -4553,11 +4433,11 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Failed to save image file: %v", err)
 			continue
 		}
-		
+
 		imageUrls = append(imageUrls, "/"+filepath)
 	}
 
-	imageUrlsJSON, _ := json.Marshal(imageUrls) 
+	imageUrlsJSON, _ := json.Marshal(imageUrls)
 	newCommentID := uuid.New().String()
 
 	query := `
@@ -4570,7 +4450,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		
+
 		var notifyList, issueTitle, panelNoPp string
 		err := a.DB.QueryRow(`
 			SELECT COALESCE(i.notify_email, ''), i.title, c.panel_no_pp
@@ -4581,28 +4461,25 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if notifyList == "" {
-			return 
+			return
 		}
 
-		
 		allRecipients := strings.Split(notifyList, ",")
 		finalRecipients := []string{}
 		for _, recipient := range allRecipients {
 			trimmedRecipient := strings.TrimSpace(recipient)
-			
+
 			if trimmedRecipient != "" && trimmedRecipient != payload.SenderID {
 				finalRecipients = append(finalRecipients, trimmedRecipient)
 			}
 		}
 
-		
 		if len(finalRecipients) > 0 {
-			
+
 			notifTitle := fmt.Sprintf("Komentar baru di Panel %s", panelNoPp)
 			notifBody := fmt.Sprintf("%s: \"%s\"", payload.SenderID, payload.Text)
 			a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
-			
 			emailSubject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
 			emailHtmlBody := fmt.Sprintf(
 				`<h3>Komentar Baru pada Isu di Panel %s</h3>
@@ -4654,12 +4531,13 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	var finalImageUrls []string
 	for _, img := range payload.Images {
 		if strings.HasPrefix(img, "data:image") {
 			parts := strings.Split(img, ",")
-			if len(parts) < 2 { continue }
+			if len(parts) < 2 {
+				continue
+			}
 			imgData, _ := base64.StdEncoding.DecodeString(parts[1])
 			filename := fmt.Sprintf("%s.jpg", uuid.New().String())
 			filepath := fmt.Sprintf("uploads/%s", filename)
@@ -4670,7 +4548,7 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	imageUrlsJSON, _ := json.Marshal(finalImageUrls)
-	
+
 	updateCommentQuery := `UPDATE issue_comments SET text = $1, is_edited = true, image_urls = $2, is_system_comment = false WHERE id = $3`
 	_, err = tx.Exec(updateCommentQuery, payload.Text, imageUrlsJSON, commentID)
 	if err != nil {
@@ -4678,27 +4556,22 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	if isSystemComment.Valid && isSystemComment.Bool {
-		
-		
+
 		var newTitle, newDescription string
-		
-		
+
 		parts := strings.SplitN(payload.Text, ": ", 2)
 
 		if len(parts) == 2 {
-			
-			newTitle = strings.Trim(parts[0], "* ") 
+
+			newTitle = strings.Trim(parts[0], "* ")
 			newDescription = strings.TrimSpace(parts[1])
 		} else {
-			
-			newTitle = strings.Trim(payload.Text, "* ")
-			newDescription = "" 
-		}
-		
 
-		
+			newTitle = strings.Trim(payload.Text, "* ")
+			newDescription = ""
+		}
+
 		if newTitle != "" {
 			updateIssueQuery := `UPDATE issues SET title = $1, description = $2 WHERE id = $3`
 			_, err = tx.Exec(updateIssueQuery, newTitle, newDescription, issueID)
@@ -4713,7 +4586,7 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
 		return
 	}
-	
+
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 func (a *App) deleteCommentHandler(w http.ResponseWriter, r *http.Request) {
@@ -4871,8 +4744,8 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		Question       string `json:"question"`
-		SenderID       string `json:"sender_id"`
+		Question         string `json:"question"`
+		SenderID         string `json:"sender_id"`
 		ReplyToCommentID string `json:"reply_to_comment_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -4880,7 +4753,6 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	var issueTitle, issueDesc string
 	err = a.DB.QueryRow("SELECT title, description FROM public.issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
 	if err != nil {
@@ -4888,7 +4760,6 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	rows, err := a.DB.Query(`
         SELECT ca.username, ic.text 
         FROM public.issue_comments ic
@@ -4910,11 +4781,10 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		commentHistory.WriteString(fmt.Sprintf("%s: %s\n", username, text))
 	}
 
-	
 	ctx := context.Background()
-	
+
 	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
-	if apiKey == ""  {
+	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set on the server")
 		return
 	}
@@ -4926,9 +4796,8 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	
 	model := client.GenerativeModel("gemini-2.5-flash-lite")
-	model.Tools = tools 
+	model.Tools = tools
 	cs := model.StartChat()
 
 	fullPrompt := fmt.Sprintf(
@@ -4943,7 +4812,6 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		issueTitle, issueDesc, commentHistory.String(), payload.SenderID, payload.Question,
 	)
 
-	
 	log.Printf("Mengirim prompt ke Gemini: %s", fullPrompt)
 	resp, err := cs.SendMessage(ctx, genai.Text(fullPrompt))
 	if err != nil {
@@ -4956,8 +4824,6 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		if fc, ok := part.(genai.FunctionCall); ok {
 			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 
-			
-			
 			var panelNoPp string
 			err := a.DB.QueryRow(`
                 SELECT p.no_pp FROM public.panels p 
@@ -4965,13 +4831,11 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
                 JOIN public.issues i ON c.id = i.chat_id 
                 WHERE i.id = $1`, issueID).Scan(&panelNoPp)
 			if err != nil {
-				
+
 				respondWithError(w, http.StatusInternalServerError, "Gagal menemukan panel terkait isu ini: "+err.Error())
 				return
 			}
-			
 
-			
 			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
 			if err != nil {
 				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err)
@@ -4987,7 +4851,6 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	
 	finalResponseText := extractTextFromResponse(resp)
 	if finalResponseText == "" {
 		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda."
@@ -4997,16 +4860,15 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	a.postAiComment(issueID, payload.SenderID, finalResponseText, payload.ReplyToCommentID)
 	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
 }
-func (a *App) postAiComment(issueID int, senderID string, text string, replyToCommentID string) { 
+func (a *App) postAiComment(issueID int, senderID string, text string, replyToCommentID string) {
 	newCommentID := uuid.New().String()
 	geminiUserID := "gemini_ai"
 
-	
 	query := `
 		INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id, reply_to_comment_id) 
-		VALUES ($1, $2, $3, $4, $5, $6)` 
-		
-	_, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, text, senderID, replyToCommentID) 
+		VALUES ($1, $2, $3, $4, $5, $6)`
+
+	_, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, text, senderID, replyToCommentID)
 }
 
 func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
@@ -5019,6 +4881,7 @@ func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
 	}
 	return ""
 }
+
 var tools = []*genai.Tool{
 	{
 		FunctionDeclarations: []*genai.FunctionDeclaration{
@@ -5063,7 +4926,7 @@ var tools = []*genai.Tool{
 					},
 					Required: []string{"vendor_name", "category"},
 				},
-			},{
+			}, {
 				Name:        "update_busbar_status",
 				Description: "Mengubah status untuk komponen Busbar PCC atau Busbar MCC.",
 				Parameters: &genai.Schema{
@@ -5077,14 +4940,13 @@ var tools = []*genai.Tool{
 						"new_status": {
 							Type:        genai.TypeString,
 							Description: "Status baru untuk busbar.",
-							Enum:        []string{"Open", "Punching/Bending","Plating/Epoxy","100% Siap Kirim", "Close"},
+							Enum:        []string{"Open", "Punching/Bending", "Plating/Epoxy", "100% Siap Kirim", "Close"},
 						},
 					},
 					Required: []string{"busbar_type", "new_status"},
 				},
 			},
 
-			
 			{
 				Name:        "update_component_status",
 				Description: "Mengubah status untuk komponen utama (picking component).",
@@ -5101,7 +4963,6 @@ var tools = []*genai.Tool{
 				},
 			},
 
-			
 			{
 				Name:        "update_palet_status",
 				Description: "Mengubah status untuk komponen Palet.",
@@ -5118,7 +4979,6 @@ var tools = []*genai.Tool{
 				},
 			},
 
-			
 			{
 				Name:        "update_corepart_status",
 				Description: "Mengubah status untuk komponen Corepart.",
@@ -5137,26 +4997,21 @@ var tools = []*genai.Tool{
 		},
 	},
 }
+
 type pdd struct {
-	NoPp               sql.NullString  `json:"no_pp"`
-	NoPanel            sql.NullString  `json:"no_panel"`
-	Project            sql.NullString  `json:"project"`
-	NoWbs              sql.NullString  `json:"no_wbs"`
-	PercentProgress    sql.NullFloat64 `json:"percent_progress"`
-	StatusBusbarPcc    sql.NullString  `json:"status_busbar_pcc"`
-	StatusBusbarMcc    sql.NullString  `json:"status_busbar_mcc"`
-	StatusComponent    sql.NullString  `json:"status_component"`
-	StatusPalet        sql.NullString  `json:"status_palet"`
-	StatusCorepart     sql.NullString  `json:"status_corepart"`
-	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
-	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
+	NoPp              sql.NullString  `json:"no_pp"`
+	NoPanel           sql.NullString  `json:"no_panel"`
+	Project           sql.NullString  `json:"project"`
+	NoWbs             sql.NullString  `json:"no_wbs"`
+	PercentProgress   sql.NullFloat64 `json:"percent_progress"`
+	StatusBusbarPcc   sql.NullString  `json:"status_busbar_pcc"`
+	StatusBusbarMcc   sql.NullString  `json:"status_busbar_mcc"`
+	StatusComponent   sql.NullString  `json:"status_component"`
+	StatusPalet       sql.NullString  `json:"status_palet"`
+	StatusCorepart    sql.NullString  `json:"status_corepart"`
+	PanelVendorName   sql.NullString  `json:"panel_vendor_name"`
+	BusbarVendorNames sql.NullString  `json:"busbar_vendor_names"`
 }
-
-
-
-
-
-
 
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -5193,7 +5048,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	panelDetailsBytes, _ := json.MarshalIndent(panel, "", "  ")
-    panelDetails := string(panelDetailsBytes)
+	panelDetails := string(panelDetailsBytes)
 
 	rows, err := a.DB.Query(`
 		SELECT i.id, i.title, i.description, i.status, ic.sender_id, ic.text
@@ -5213,8 +5068,10 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	for rows.Next() {
 		var issueID int
 		var issueTitle, issueDesc, issueStatus, commentSender, commentText sql.NullString
-		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil { continue }
-		
+		if err := rows.Scan(&issueID, &issueTitle, &issueDesc, &issueStatus, &commentSender, &commentText); err != nil {
+			continue
+		}
+
 		if issueID != currentIssueID {
 			issuesHistory.WriteString(fmt.Sprintf("\n--- ISU BARU (ID: %d) ---\nJudul: %s\nDeskripsi: %s\nStatus: %s\n", issueID, issueTitle.String, issueDesc.String, issueStatus.String))
 			currentIssueID = issueID
@@ -5225,28 +5082,31 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	ctx := context.Background()
-	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" 
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
 		return
 	}
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error()); return }
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create Gemini client: "+err.Error())
+		return
+	}
 	defer client.Close()
 
 	model := client.GenerativeModel("gemini-1.5-flash")
 	model.Tools = getToolsForRole(senderRole)
 	cs := model.StartChat()
-	
+
 	var promptParts []genai.Part
 	fullPromptText := fmt.Sprintf(
-	"**Persona & Aturan:**\n"+
+		"**Persona & Aturan:**\n"+
 			"1.  **Kamu adalah asisten AI yang cerdas dan kontekstual bernama Gemini.** Gunakan bahasa Indonesia yang profesional dan proaktif.\n"+
-			"2. Saat kamu perlu mengambil data atau melakukan sebuah aksi, panggil fungsi yang sesuai. Setelah fungsi berhasil dieksekusi, rangkum hasilnya untuk user dalam bahasa percakapan yang natural.\n"	+		
+			"2. Saat kamu perlu mengambil data atau melakukan sebuah aksi, panggil fungsi yang sesuai. Setelah fungsi berhasil dieksekusi, rangkum hasilnya untuk user dalam bahasa percakapan yang natural.\n"+
 			"3.  Gunakan format tebal (`**teks**`) untuk menekankan nama isu atau item penting.\n"+
 			"4.  Kamu bisa melakukan banyak hal: meringkas status, mengubah progres panel, mengubah status isu, menambah komentar, mengubah status komponen (Busbar, Palet, dll), dan menugaskan vendor. Selalu tawarkan bantuan jika relevan.\n"+
 			"5.  Lakukan aksi HANYA jika diizinkan oleh role user: **%s**.\n\n"+
-			
+
 			"**Aturan Penting untuk Memberi 'Rekomendasi Aksi' (`[SUGGESTION]`):**\n"+
 			"1.  **Sintesis Konteks Penuh:** Rekomendasi HARUS relevan dengan topik utama dari keseluruhan diskusi (pertanyaan terakhir user + histori komentar). Jangan membuat rekomendasi acak tentang isu lain yang tidak sedang dibicarakan.\n"+
 			"2.  **Logika Menentukan PIC:** PIC sebuah isu adalah **user terakhir yang memberikan komentar** pada isu tersebut (selain 'gemini_ai'). Jika belum ada komentar, PIC adalah pembuat isu.\n"+
@@ -5266,7 +5126,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		senderRole, panelDetails, issuesHistory.String(), payload.SenderID, payload.Question,
 	)
 	promptParts = append(promptParts, genai.Text(fullPromptText))
-	
+
 	if payload.ImageB64 != nil && *payload.ImageB64 != "" {
 		if parts := strings.Split(*payload.ImageB64, ","); len(parts) == 2 {
 			if imageBytes, err := base64.StdEncoding.DecodeString(parts[1]); err == nil {
@@ -5276,7 +5136,10 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp, err := cs.SendMessage(ctx, promptParts...)
-	if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error()); return }
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate content: "+err.Error())
+		return
+	}
 
 	actionTaken := false
 	if resp.Candidates != nil && len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
@@ -5286,18 +5149,23 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 
 			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
-			if err != nil { 
-				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err) 
+			if err != nil {
+				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err)
 			}
 			log.Printf("Hasil eksekusi fungsi: %s", functionResult)
-			
+
 			resp, err = cs.SendMessage(ctx, genai.FunctionResponse{Name: fc.Name, Response: map[string]any{"result": functionResult}})
-			if err != nil { respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error()); return }
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to generate confirmation message: "+err.Error())
+				return
+			}
 		}
 	}
-	
+
 	finalResponseText := extractTextFromResponse(resp)
-	if finalResponseText == "" { finalResponseText = "Maaf, ada sedikit kendala. Boleh coba tanya lagi?" }
+	if finalResponseText == "" {
+		finalResponseText = "Maaf, ada sedikit kendala. Boleh coba tanya lagi?"
+	}
 
 	var suggestions []string
 	re := regexp.MustCompile(`\[SUGGESTION:\s*(.*?)\]`)
@@ -5308,117 +5176,113 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	finalResponseText = re.ReplaceAllString(finalResponseText, "")
-	
+
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":   uuid.New().String(),
-		"text": strings.TrimSpace(finalResponseText),
-		"action_taken": actionTaken,
+		"id":                uuid.New().String(),
+		"text":              strings.TrimSpace(finalResponseText),
+		"action_taken":      actionTaken,
 		"suggested_actions": suggestions,
 	})
 }
 
-
 func getToolsForRole(role string) []*genai.Tool {
-	
+
 	var allTools []*genai.FunctionDeclaration
 
-	
 	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "get_panel_summary",
+		Name:        "get_panel_summary",
 		Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
 	})
 	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "find_similar_past_issues",
+		Name:        "find_similar_past_issues",
 		Description: "Mencari di database untuk isu-isu historis yang mirip dengan isu saat ini berdasarkan judulnya.",
 		Parameters: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{ "issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."}, },
-			Required: []string{"issue_title"},
+			Type:       genai.TypeObject,
+			Properties: map[string]*genai.Schema{"issue_title": {Type: genai.TypeString, Description: "Judul isu yang ingin dicari kemiripannya."}},
+			Required:   []string{"issue_title"},
 		},
 	})
 	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "update_issue_status",
+		Name:        "update_issue_status",
 		Description: "Mengubah status dari sebuah isu spesifik menggunakan ID uniknya.",
 		Parameters: &genai.Schema{
 			Type: genai.TypeObject,
 			Properties: map[string]*genai.Schema{
-				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang statusnya ingin diubah."},
-				"new_status":  {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
+				"issue_id":   {Type: genai.TypeNumber, Description: "ID unik dari isu yang statusnya ingin diubah."},
+				"new_status": {Type: genai.TypeString, Enum: []string{"solved", "unsolved"}},
 			},
 			Required: []string{"issue_id", "new_status"},
 		},
 	})
 	allTools = append(allTools, &genai.FunctionDeclaration{
-		Name: "add_issue_comment",
+		Name:        "add_issue_comment",
 		Description: "Menambahkan komentar baru ke sebuah isu spesifik.",
 		Parameters: &genai.Schema{
 			Type: genai.TypeObject,
 			Properties: map[string]*genai.Schema{
-				"issue_id": { Type: genai.TypeNumber, Description: "ID unik dari isu yang ingin dikomentari."},
-				"comment_text": { Type: genai.TypeString, Description: "Isi teks dari komentar."},
+				"issue_id":     {Type: genai.TypeNumber, Description: "ID unik dari isu yang ingin dikomentari."},
+				"comment_text": {Type: genai.TypeString, Description: "Isi teks dari komentar."},
 			},
 			Required: []string{"issue_id", "comment_text"},
 		},
 	})
 
-	
 	if role == AppRoleAdmin {
 		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_panel_progress",
+			Name:        "update_panel_progress",
 			Description: "ADMIN ONLY: Mengubah persentase progres dari sebuah panel.",
 			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
+				Type:       genai.TypeObject,
 				Properties: map[string]*genai.Schema{"new_progress": {Type: genai.TypeNumber, Description: "Nilai progres baru antara 0-100."}},
-				Required: []string{"new_progress"},
+				Required:   []string{"new_progress"},
 			},
 		})
 		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_panel_remark",
+			Name:        "update_panel_remark",
 			Description: "ADMIN ONLY: Menambah atau mengubah catatan/remark utama pada panel.",
 			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
+				Type:       genai.TypeObject,
 				Properties: map[string]*genai.Schema{"new_remark": {Type: genai.TypeString, Description: "Teks remark yang baru."}},
-				Required: []string{"new_remark"},
+				Required:   []string{"new_remark"},
 			},
 		})
 		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "assign_vendor",
+			Name:        "assign_vendor",
 			Description: "ADMIN ONLY: Menugaskan vendor ke sebuah kategori pekerjaan di panel ini.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
 				Properties: map[string]*genai.Schema{
-					"vendor_name": { Type: genai.TypeString, Description: "Nama vendor yang akan ditugaskan, contoh: 'GPE', 'DSM', 'ABACUS'." },
-					"category": { Type: genai.TypeString, Description: "Kategori pekerjaan.", Enum: []string{"busbar", "component", "palet", "corepart"} },
+					"vendor_name": {Type: genai.TypeString, Description: "Nama vendor yang akan ditugaskan, contoh: 'GPE', 'DSM', 'ABACUS'."},
+					"category":    {Type: genai.TypeString, Description: "Kategori pekerjaan.", Enum: []string{"busbar", "component", "palet", "corepart"}},
 				},
 				Required: []string{"vendor_name", "category"},
 			},
 		})
 	}
 
-	
 	if role == AppRoleAdmin || role == AppRoleK3 {
 		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_palet_status",
+			Name:        "update_palet_status",
 			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Palet.",
 			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
+				Type:       genai.TypeObject,
 				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-				Required: []string{"new_status"},
+				Required:   []string{"new_status"},
 			},
 		})
 		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_corepart_status",
+			Name:        "update_corepart_status",
 			Description: "K3 & ADMIN ONLY: Mengubah status untuk komponen Corepart.",
 			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
+				Type:       genai.TypeObject,
 				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "Close"}}},
-				Required: []string{"new_status"},
+				Required:   []string{"new_status"},
 			},
 		})
 	}
 	if role == AppRoleAdmin || role == AppRoleK5 {
 		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_busbar_status",
+			Name:        "update_busbar_status",
 			Description: "K5 & ADMIN ONLY: Mengubah status untuk komponen Busbar.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
@@ -5432,20 +5296,18 @@ func getToolsForRole(role string) []*genai.Tool {
 	}
 	if role == AppRoleAdmin || role == AppRoleWarehouse {
 		allTools = append(allTools, &genai.FunctionDeclaration{
-			Name: "update_component_status",
+			Name:        "update_component_status",
 			Description: "WAREHOUSE & ADMIN ONLY: Mengubah status untuk komponen utama.",
 			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
+				Type:       genai.TypeObject,
 				Properties: map[string]*genai.Schema{"new_status": {Type: genai.TypeString, Enum: []string{"Open", "On Progress", "Done"}}},
-				Required: []string{"new_status"},
+				Required:   []string{"new_status"},
 			},
 		})
 	}
 
 	return []*genai.Tool{{FunctionDeclarations: allTools}}
 }
-
-
 
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
 	executeUpdate := func(column string, value interface{}) error {
@@ -5458,14 +5320,18 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 	case "get_panel_summary":
 		var panel pdd
 		err := a.DB.QueryRow(`SELECT p.percent_progress, p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet, p.status_corepart FROM public.panels p WHERE p.no_pp = $1`, panelNoPp).Scan(&panel.PercentProgress, &panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart)
-		if err != nil { return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err) }
+		if err != nil {
+			return "", fmt.Errorf("gagal mendapatkan detail panel: %w", err)
+		}
 		return fmt.Sprintf("Progres panel saat ini %.0f%%. Status Busbar PCC: %s, Busbar MCC: %s, Komponen: %s, Palet: %s, Corepart: %s.", panel.PercentProgress.Float64, panel.StatusBusbarPcc.String, panel.StatusBusbarMcc.String, panel.StatusComponent.String, panel.StatusPalet.String, panel.StatusCorepart.String), nil
 
 	case "update_issue_status":
 		tx, err := a.DB.Begin()
-		if err != nil { return "", fmt.Errorf("gagal memulai transaksi: %w", err) }
+		if err != nil {
+			return "", fmt.Errorf("gagal memulai transaksi: %w", err)
+		}
 		defer tx.Rollback()
-		
+
 		issueIDFloat, _ := fc.Args["issue_id"].(float64)
 		newStatus, _ := fc.Args["new_status"].(string)
 		issueID := int(issueIDFloat)
@@ -5473,17 +5339,25 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		var currentLogs Logs
 		var issueTitle string
 		err = tx.QueryRow(`SELECT title, logs FROM public.issues WHERE id = $1`, issueID).Scan(&issueTitle, &currentLogs)
-		if err != nil { return "", fmt.Errorf("isu dengan ID %d tidak ditemukan", issueID) }
+		if err != nil {
+			return "", fmt.Errorf("isu dengan ID %d tidak ditemukan", issueID)
+		}
 
 		newLogEntry := LogEntry{Action: "menandai " + newStatus, User: "gemini_ai", Timestamp: time.Now()}
 		updatedLogs := append(currentLogs, newLogEntry)
-		
+
 		result, err := tx.Exec("UPDATE issues SET status = $1, logs = $2 WHERE id = $3", newStatus, updatedLogs, issueID)
-		if err != nil { return "", fmt.Errorf("gagal update isu: %w", err) }
-		if rows, _ := result.RowsAffected(); rows == 0 { return "", fmt.Errorf("tidak ada isu yang diupdate") }
-		
-		if err := tx.Commit(); err != nil { return "", fmt.Errorf("gagal commit: %w", err) }
-		
+		if err != nil {
+			return "", fmt.Errorf("gagal update isu: %w", err)
+		}
+		if rows, _ := result.RowsAffected(); rows == 0 {
+			return "", fmt.Errorf("tidak ada isu yang diupdate")
+		}
+
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("gagal commit: %w", err)
+		}
+
 		log.Printf("SUCCESS & COMMITTED: Issue ID %d ('%s') status changed to '%s'.", issueID, issueTitle, newStatus)
 		return fmt.Sprintf("Status untuk isu '%s' berhasil diubah menjadi '%s'.", issueTitle, newStatus), nil
 
@@ -5493,43 +5367,63 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 		issueID := int(issueIDFloat)
 
 		_, err := a.DB.Exec(`INSERT INTO issue_comments (id, issue_id, sender_id, text) VALUES ($1, $2, $3, $4)`, uuid.New().String(), issueID, "gemini_ai", commentText)
-		if err != nil { return "", fmt.Errorf("gagal menambah komentar: %w", err) }
-		
+		if err != nil {
+			return "", fmt.Errorf("gagal menambah komentar: %w", err)
+		}
+
 		log.Printf("SUCCESS: Comment added to Issue ID %d. Text: %s", issueID, commentText)
 		return fmt.Sprintf("Komentar '%s' berhasil ditambahkan ke isu ID %d.", commentText, issueID), nil
 
 	case "update_panel_progress":
 		progress, _ := fc.Args["new_progress"].(float64)
-		if progress < 0 || progress > 100 { return "", fmt.Errorf("nilai progres harus antara 0 dan 100") }
-		if err := executeUpdate("percent_progress", progress); err != nil { return "", err }
+		if progress < 0 || progress > 100 {
+			return "", fmt.Errorf("nilai progres harus antara 0 dan 100")
+		}
+		if err := executeUpdate("percent_progress", progress); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Progres panel berhasil diubah menjadi %.0f%%.", progress), nil
-	
+
 	case "update_panel_remark":
 		newRemark, _ := fc.Args["new_remark"].(string)
-		if err := executeUpdate("remarks", newRemark); err != nil { return "", err }
+		if err := executeUpdate("remarks", newRemark); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Catatan panel berhasil diupdate menjadi: '%s'.", newRemark), nil
 
 	case "update_busbar_status":
 		busbarType, _ := fc.Args["busbar_type"].(string)
 		newStatus, _ := fc.Args["new_status"].(string)
 		var dbColumn string
-		if busbarType == "pcc" { dbColumn = "status_busbar_pcc" } else { dbColumn = "status_busbar_mcc" }
-		if err := executeUpdate(dbColumn, newStatus); err != nil { return "", err }
+		if busbarType == "pcc" {
+			dbColumn = "status_busbar_pcc"
+		} else {
+			dbColumn = "status_busbar_mcc"
+		}
+		if err := executeUpdate(dbColumn, newStatus); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Status Busbar %s berhasil diubah menjadi '%s'.", strings.ToUpper(busbarType), newStatus), nil
 
 	case "update_component_status":
 		newStatus, _ := fc.Args["new_status"].(string)
-		if err := executeUpdate("status_component", newStatus); err != nil { return "", err }
+		if err := executeUpdate("status_component", newStatus); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Status Komponen berhasil diubah menjadi '%s'.", newStatus), nil
 
 	case "update_palet_status":
 		newStatus, _ := fc.Args["new_status"].(string)
-		if err := executeUpdate("status_palet", newStatus); err != nil { return "", err }
+		if err := executeUpdate("status_palet", newStatus); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Status Palet berhasil diubah menjadi '%s'.", newStatus), nil
 
 	case "update_corepart_status":
 		newStatus, _ := fc.Args["new_status"].(string)
-		if err := executeUpdate("status_corepart", newStatus); err != nil { return "", err }
+		if err := executeUpdate("status_corepart", newStatus); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Status Corepart berhasil diubah menjadi '%s'.", newStatus), nil
 
 	case "assign_vendor":
@@ -5538,21 +5432,30 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 
 		var vendorID string
 		err := a.DB.QueryRow("SELECT id FROM public.companies WHERE name ILIKE $1", vendorName).Scan(&vendorID)
-		if err != nil { return "", fmt.Errorf("vendor '%s' tidak ditemukan.", vendorName) }
-		
+		if err != nil {
+			return "", fmt.Errorf("vendor '%s' tidak ditemukan.", vendorName)
+		}
+
 		var tableName string
 		switch category {
-		case "busbar": tableName = "busbars"
-		case "component": tableName = "components"
-		case "palet": tableName = "palet"
-		case "corepart": tableName = "corepart"
-		default: return "", fmt.Errorf("kategori '%s' tidak valid", category)
+		case "busbar":
+			tableName = "busbars"
+		case "component":
+			tableName = "components"
+		case "palet":
+			tableName = "palet"
+		case "corepart":
+			tableName = "corepart"
+		default:
+			return "", fmt.Errorf("kategori '%s' tidak valid", category)
 		}
-		
+
 		query := fmt.Sprintf("INSERT INTO %s (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT (panel_no_pp, vendor) DO NOTHING", tableName)
 		_, err = a.DB.Exec(query, panelNoPp, vendorID)
-		if err != nil { return "", fmt.Errorf("gagal menugaskan vendor: %w", err) }
-		
+		if err != nil {
+			return "", fmt.Errorf("gagal menugaskan vendor: %w", err)
+		}
+
 		return fmt.Sprintf("Vendor '%s' berhasil ditugaskan untuk pekerjaan %s.", vendorName, category), nil
 
 	default:
@@ -5561,7 +5464,7 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 }
 
 func sendNotificationEmail(recipients []string, subject, htmlBody string) {
-	
+
 	validRecipients := []string{}
 	for _, r := range recipients {
 		if strings.Contains(strings.TrimSpace(r), "@") {
@@ -5596,55 +5499,51 @@ func sendNotificationEmail(recipients []string, subject, htmlBody string) {
 }
 
 func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Request) {
-    
-    panelNoPp := r.URL.Query().Get("panel_no_pp")
 
-    
-    if panelNoPp == "" {
-        respondWithJSON(w, http.StatusOK, []string{})
-        return
-    }
+	panelNoPp := r.URL.Query().Get("panel_no_pp")
 
-    
-    query := `
+	if panelNoPp == "" {
+		respondWithJSON(w, http.StatusOK, []string{})
+		return
+	}
+
+	query := `
         SELECT DISTINCT unnest(string_to_array(i.notify_email, ',')) as email
         FROM public.issues i
         JOIN public.chats c ON i.chat_id = c.id
         WHERE c.panel_no_pp = $1 AND i.notify_email IS NOT NULL AND i.notify_email != ''
     `
 
-    rows, err := a.DB.Query(query, panelNoPp)
-    if err != nil {
-        respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data email: "+err.Error())
-        return
-    }
-    defer rows.Close()
+	rows, err := a.DB.Query(query, panelNoPp)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data email: "+err.Error())
+		return
+	}
+	defer rows.Close()
 
-    emailSet := make(map[string]bool)
-    for rows.Next() {
-        var email sql.NullString
-        if err := rows.Scan(&email); err != nil {
-            log.Printf("Gagal memindai email: %v", err)
-            continue
-        }
-        
-        if email.Valid {
-            trimmedEmail := strings.TrimSpace(email.String)
-            if trimmedEmail != "" {
-                emailSet[trimmedEmail] = true
-            }
-        }
-    }
+	emailSet := make(map[string]bool)
+	for rows.Next() {
+		var email sql.NullString
+		if err := rows.Scan(&email); err != nil {
+			log.Printf("Gagal memindai email: %v", err)
+			continue
+		}
 
-    var recommendations []string
-    for email := range emailSet {
-        recommendations = append(recommendations, email)
-    }
+		if email.Valid {
+			trimmedEmail := strings.TrimSpace(email.String)
+			if trimmedEmail != "" {
+				emailSet[trimmedEmail] = true
+			}
+		}
+	}
 
-    respondWithJSON(w, http.StatusOK, recommendations)
+	var recommendations []string
+	for email := range emailSet {
+		recommendations = append(recommendations, email)
+	}
+
+	respondWithJSON(w, http.StatusOK, recommendations)
 }
-
-
 
 func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -5669,8 +5568,9 @@ func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Requ
 	var srs []AdditionalSR
 	for rows.Next() {
 		var sr AdditionalSR
-		
-		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.CloseDate, &sr.ReceivedDate); err != nil {			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
+
+		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.CloseDate, &sr.ReceivedDate); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
 			return
 		}
 		srs = append(srs, sr)
@@ -5686,7 +5586,6 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	
 	var payload struct {
 		AdditionalSR
 		CreatedBy string `json:"createdBy"`
@@ -5706,13 +5605,11 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		payload.PanelNoPp, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.CloseDate, payload.ReceivedDate,
 	).Scan(&payload.ID, &payload.CreatedAt)
 
-
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create Additional SR: "+err.Error())
 		return
 	}
 
-	
 	go func() {
 		stakeholders, err := a.getPanelStakeholders(panelNoPp)
 		if err != nil {
@@ -5737,7 +5634,6 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 	respondWithJSON(w, http.StatusCreated, payload.AdditionalSR)
 }
 
-
 func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
@@ -5746,7 +5642,6 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	
 	var payload struct {
 		AdditionalSR
 		UpdatedBy string `json:"updatedBy"`
@@ -5756,7 +5651,6 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	
 	var panelNoPp string
 	err = a.DB.QueryRow("SELECT panel_no_pp FROM additional_sr WHERE id = $1", id).Scan(&panelNoPp)
 	if err != nil {
@@ -5768,20 +5662,18 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	
 	query := `
 			UPDATE additional_sr SET
 				po_number = $1, item = $2, quantity = $3, supplier = $4,
 				status = $5, remarks = $6, close_date = $7, received_date = $8
 			WHERE id = $9`
-		res, err := a.DB.Exec(query, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.CloseDate, payload.ReceivedDate, id)
-		count, _ := res.RowsAffected()
-		if count == 0 {
-			respondWithError(w, http.StatusNotFound, "Additional SR not found during update")
-			return
-		}
+	res, err := a.DB.Exec(query, payload.PoNumber, payload.Item, payload.Quantity, payload.Supplier, payload.Status, payload.Remarks, payload.CloseDate, payload.ReceivedDate, id)
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		respondWithError(w, http.StatusNotFound, "Additional SR not found during update")
+		return
+	}
 
-	
 	go func() {
 		stakeholders, err := a.getPanelStakeholders(panelNoPp)
 		if err != nil {
@@ -5805,7 +5697,6 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-
 
 func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -5832,7 +5723,7 @@ func (a *App) deleteAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 
 func (a *App) getSuppliersHandler(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT DISTINCT supplier FROM additional_sr WHERE supplier IS NOT NULL AND supplier != '' ORDER BY supplier ASC`
-	
+
 	rows, err := a.DB.Query(query)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to fetch suppliers: "+err.Error())
@@ -6352,7 +6243,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, finalResponse)
 }
 func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
-	
+
 	query := `
 		SELECT
 			ps.position_code,
@@ -6373,7 +6264,7 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
 	var slots []ProductionSlot
 	for rows.Next() {
 		var slot ProductionSlot
-		
+
 		if err := rows.Scan(&slot.PositionCode, &slot.IsOccupied, &slot.PanelNoPp, &slot.PanelNoPanel); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to scan slot: "+err.Error())
 			return
@@ -6386,10 +6277,9 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
 
 func (a *App) sendNotificationToUsers(usernames []string, title string, body string) {
 	if len(usernames) == 0 {
-		return 
+		return
 	}
 
-	
 	query := "SELECT DISTINCT fcm_token FROM user_devices WHERE username = ANY($1)"
 	rows, err := a.DB.Query(query, pq.Array(usernames))
 	if err != nil {
@@ -6413,7 +6303,6 @@ func (a *App) sendNotificationToUsers(usernames []string, title string, body str
 		return
 	}
 
-	
 	message := &messaging.MulticastMessage{
 		Notification: &messaging.Notification{
 			Title: title,
@@ -6438,7 +6327,6 @@ func (a *App) sendNotificationToUsers(usernames []string, title string, body str
 	log.Printf("Successfully sent %d notifications to %d devices for users %v. Failures: %d", br.SuccessCount, len(tokens), usernames, br.FailureCount)
 }
 
-
 func (a *App) getAdminUsernames() ([]string, error) {
 	query := `
 		SELECT ca.username FROM company_accounts ca
@@ -6460,7 +6348,6 @@ func (a *App) getAdminUsernames() ([]string, error) {
 	}
 	return admins, nil
 }
-
 
 func (a *App) getPanelStakeholders(panelNoPp string) ([]string, error) {
 	query := `
@@ -6497,32 +6384,27 @@ func (a *App) getPanelStakeholders(panelNoPp string) ([]string, error) {
 	return stakeholders, nil
 }
 
-
 func (a *App) startNotificationScheduler() {
 	log.Println("⏰ Starting notification scheduler...")
-	
-	
+
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	
 	a.runScheduledChecks()
 
 	for range ticker.C {
-		
+
 		if time.Now().Hour() == 8 {
 			a.runScheduledChecks()
 		}
 	}
 }
 
-
 func (a *App) runScheduledChecks() {
 	log.Println("Running scheduled checks for notifications...")
 	a.checkPanelsDueToday()
 	a.checkOverduePanels()
 }
-
 
 func (a *App) checkPanelsDueToday() {
 	query := `SELECT no_pp FROM panels WHERE target_delivery::date = CURRENT_DATE AND is_closed = false`
@@ -6548,7 +6430,6 @@ func (a *App) checkPanelsDueToday() {
 	}
 }
 
-
 func (a *App) checkOverduePanels() {
 	query := `SELECT no_pp FROM panels WHERE target_delivery::date < CURRENT_DATE AND is_closed = false`
 	rows, err := a.DB.Query(query)
@@ -6572,7 +6453,6 @@ func (a *App) checkOverduePanels() {
 		}
 	}
 }
-
 
 func (a *App) registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
