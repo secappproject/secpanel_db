@@ -30,9 +30,6 @@ import (
 	"gopkg.in/gomail.v2"
 )
 
-// =============================================================================
-// MODELS (Structs for JSON and DB)
-// =============================================================================
 const (
 	AppRoleAdmin     = "admin"
 	AppRoleViewer    = "viewer"
@@ -49,9 +46,9 @@ const (
 )
 
 type LogEntry struct {
-	Action    string    `json:"action"`    // e.g., "membuat issue", "menandai solved"
-	User      string    `json:"user"`      // The username who performed the action
-	Timestamp time.Time `json:"timestamp"` // When the action was performed
+	Action    string    `json:"action"`    
+	User      string    `json:"user"`      
+	Timestamp time.Time `json:"timestamp"` 
 }
 
 type Logs []LogEntry
@@ -110,9 +107,9 @@ type ChatMessage struct {
 	ID            int        `json:"id"`
 	ChatID        int        `json:"chat_id"`
 	SenderUsername string    `json:"sender_username"`
-	Text          *string    `json:"text"` // Pointer agar bisa null
-	ImageData     *string    `json:"image_data,omitempty"` // Pointer dan omitempty
-	RepliedIssueID *int       `json:"replied_issue_id,omitempty"` // Pointer dan omitempty
+	Text          *string    `json:"text"` 
+	ImageData     *string    `json:"image_data,omitempty"` 
+	RepliedIssueID *int       `json:"replied_issue_id,omitempty"` 
 	CreatedAt     time.Time `json:"created_at"`
 }
 type IssueForExport struct {
@@ -344,18 +341,18 @@ type PanelDisplayDataWithTimeline struct {
 	AllDoneDate          *time.Time      `json:"all_done_date,omitempty"`  
 }
 
-// =============================================================================
-// DB INTERFACE
-// =============================================================================
+
+
+
 type DBTX interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 	Query(query string, args ...interface{}) (*sql.Rows, error)
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
-// =============================================================================
-// APP & MAIN
-// =============================================================================
+
+
+
 type App struct {
 	Router *mux.Router
 	DB     *sql.DB
@@ -391,20 +388,20 @@ func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 }
 
 func (a *App) Run(addr string) {
-	// [FIX] Bungkus router Anda dengan middleware CORS di sini
 	
-	// Tentukan domain yang diizinkan. Tanda '*' berarti mengizinkan semua domain.
-	// Untuk keamanan produksi, ganti '*' dengan domain web Flutter Anda (misal: "http://localhost:port", "https://nama-web-anda.com")
+	
+	
+	
 	allowedOrigins := handlers.AllowedOrigins([]string{"*"})
 	
-	// Tentukan metode HTTP yang diizinkan
+	
 	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
 	
-	// Tentukan header yang diizinkan
+	
 	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization"})
 
 	log.Printf("Server berjalan di %s", addr)
-	// Gunakan handler CORS yang sudah dikonfigurasi untuk menjalankan server
+	
 	log.Fatal(http.ListenAndServe(addr, handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(a.Router)))
 }
 func main() {
@@ -437,11 +434,11 @@ func main() {
 
 	app.Run(":8080")
 }
-// =============================================================================
-// ROUTES
-// =============================================================================
+
+
+
 func (a *App) initializeRoutes() {
-	// Auth & User Management
+	
 	a.Router.HandleFunc("/login", a.loginHandler).Methods("POST")
 	a.Router.HandleFunc("/user/register-device", a.registerDeviceHandler).Methods("POST")
 	a.Router.HandleFunc("/company-by-username/{username}", a.getCompanyByUsernameHandler).Methods("GET")
@@ -456,7 +453,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/accounts/search", a.searchUsernamesHandler).Methods("GET")
 
 
-	// Company Management
+	
 	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST")
 	a.Router.HandleFunc("/company/{id}", a.getCompanyByIdHandler).Methods("GET")
 	a.Router.HandleFunc("/company/{id}", a.updateCompanyHandler).Methods("PUT")
@@ -466,7 +463,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/companies/form-data", a.getUniqueCompanyDataForFormHandler).Methods("GET")
 
 
-	// Panel Management
+	
 	a.Router.HandleFunc("/panels", a.getAllPanelsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST")
 	a.Router.HandleFunc("/panel/status-ao-k5", a.upsertStatusAOK5).Methods("POST")
@@ -481,17 +478,17 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panels/{old_no_pp}/change-pp", a.changePanelNoPpHandler).Methods("PUT")
 	a.Router.HandleFunc("/panel/remark-vendor", a.upsertPanelRemarkHandler).Methods("POST")
 
-	// Rute isPanelNumberUniqueHandler tidak lagi diperlukan karena no_panel tidak unik
-	// a.Router.HandleFunc("/panel/exists/no-panel/{no_panel}", a.isPanelNumberUniqueHandler).Methods("GET")
+	
+	
 
-	// Sub-Panel Parts Management
+	
 	
 	a.Router.HandleFunc("/busbar", a.upsertGenericHandler("busbars", &Busbar{})).Methods("POST")
 	a.Router.HandleFunc("/component", a.upsertGenericHandler("components", &Component{})).Methods("POST")
 	a.Router.HandleFunc("/palet", a.upsertGenericHandler("palet", &Palet{})).Methods("POST")
 	a.Router.HandleFunc("/corepart", a.upsertGenericHandler("corepart", &Corepart{})).Methods("POST")
 
-	// Gunakan handler generik untuk semua operasi DELETE
+	
 	a.Router.HandleFunc("/busbar", a.deleteGenericRelationHandler("busbars")).Methods("DELETE")
 	a.Router.HandleFunc("/palet", a.deleteGenericRelationHandler("palet")).Methods("DELETE")
 	a.Router.HandleFunc("/corepart", a.deleteGenericRelationHandler("corepart")).Methods("DELETE")
@@ -502,7 +499,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/palets", a.getAllGenericHandler("palet", func() interface{} { return &Palet{} })).Methods("GET")
 	a.Router.HandleFunc("/coreparts", a.getAllGenericHandler("corepart", func() interface{} { return &Corepart{} })).Methods("GET")
 
-	// Export & Import
+	
 	a.Router.HandleFunc("/export/filtered-data", a.getFilteredDataForExportHandler).Methods("GET")
 	a.Router.HandleFunc("/export/custom", a.generateCustomExportJsonHandler).Methods("GET")
 	a.Router.HandleFunc("/export/database", a.generateFilteredDatabaseJsonHandler).Methods("GET")
@@ -510,7 +507,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/import/template", a.generateImportTemplateHandler).Methods("GET")
 	a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST")
 
-	// Issue Management Routes
+	
 	a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{no_pp}/issues", a.getIssuesByPanelHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{no_pp}/issues", a.createIssueForPanelHandler).Methods("POST")
@@ -522,15 +519,15 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/issue-titles/{id}", a.updateIssueTitleHandler).Methods("PUT")
 	a.Router.HandleFunc("/issue-titles/{id}", a.deleteIssueTitleHandler).Methods("DELETE")
 
-	// Photo Management Routes
+	
 	a.Router.HandleFunc("/issues/{issue_id}/photos", a.addPhotoToIssueHandler).Methods("POST")
 	a.Router.HandleFunc("/photos/{id}", a.deletePhotoHandler).Methods("DELETE")
 
-	// Chat Message Routes
+	
 	a.Router.HandleFunc("/chats/{chat_id}/messages", a.getMessagesByChatIDHandler).Methods("GET")
 	a.Router.HandleFunc("/chats/{chat_id}/messages", a.createMessageHandler).Methods("POST")
 
-	// Issue Comment Routes
+	
 	a.Router.HandleFunc("/issues/{issue_id}/comments", a.getCommentsByIssueHandler).Methods("GET")
 	a.Router.HandleFunc("/issues/{issue_id}/comments", a.createCommentHandler).Methods("POST")
 	a.Router.HandleFunc("/issues/{issue_id}/ask-gemini", a.askGeminiHandler).Methods("POST")
@@ -542,7 +539,7 @@ func (a *App) initializeRoutes() {
 	fs := http.FileServer(http.Dir("./uploads/"))
 	a.Router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 
-	// Additional SR
+	
 	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.getAdditionalSRsByPanelHandler).Methods("GET")
 	a.Router.HandleFunc("/panel/{no_pp}/additional-sr", a.createAdditionalSRHandler).Methods("POST")
 	a.Router.HandleFunc("/additional-sr/{id}", a.updateAdditionalSRHandler).Methods("PUT")
@@ -550,14 +547,14 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/suppliers", a.getSuppliersHandler).Methods("GET")
 
 
-	 // Workflow Transfer
+	 
     a.Router.HandleFunc("/production-slots", a.getProductionSlotsHandler).Methods("GET")
     a.Router.HandleFunc("/panels/{no_pp}/transfer", a.transferPanelHandler).Methods("POST")
 }
 
-// =============================================================================
-// HANDLERS
-// =============================================================================
+
+
+
 
 func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	var c Company
@@ -620,14 +617,14 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		actor := "seseorang" // Default actor
+		actor := "seseorang" 
 		if p.CreatedBy != nil {
 			actor = *p.CreatedBy
 		}
 
 		finalRecipients := []string{}
 		for _, user := range stakeholders {
-			// Filter agar tidak mengirim notifikasi ke diri sendiri
+			
 			if user != actor {
 				finalRecipients = append(finalRecipients, user)
 			}
@@ -637,7 +634,7 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 			if isNewPanel {
 				title := "Panel Baru Ditambahkan"
 				body := fmt.Sprintf("%s menambahkan panel baru: %s", actor, p.NoPp)
-				// Cek jika panel baru tidak punya vendor
+				
 				if p.VendorID == nil || *p.VendorID == "" {
 					body = fmt.Sprintf("%s menambahkan panel baru TANPA VENDOR: %s", actor, p.NoPp)
 				}
@@ -654,7 +651,7 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. Ambil no_pp dari URL, contoh: /panel/PP-123/status-ao
+	
 	vars := mux.Vars(r)
 	noPp, ok := vars["no_pp"]
 	if !ok {
@@ -662,7 +659,7 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Siapkan struct untuk menampung data dari body JSON request
+	
 	var payload struct {
 		StatusBusbarPcc *string     `json:"status_busbar_pcc"`
 		StatusBusbarMcc *string     `json:"status_busbar_mcc"`
@@ -676,7 +673,7 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Bangun query UPDATE secara dinamis agar hanya field yang dikirim yang diupdate
+	
 	var updates []string
 	var args []interface{}
 	argCounter := 1
@@ -707,33 +704,33 @@ func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
 		argCounter++
 	}
 
-	// Jika tidak ada data yang perlu diupdate, hentikan proses
+	
 	if len(updates) == 0 {
 		respondWithJSON(w, http.StatusOK, map[string]string{"message": "Tidak ada field yang diupdate"})
 		return
 	}
 
-	// 4. Finalisasi query dengan menambahkan klausa WHERE
+	
 	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 	args = append(args, noPp)
 
-	// 5. Eksekusi query
+	
 	result, err := a.DB.Exec(query, args...)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal mengupdate status: "+err.Error())
 		return
 	}
 
-	// 6. Cek apakah ada baris yang terpengaruh
+	
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		respondWithError(w, http.StatusNotFound, "Panel dengan No. PP tersebut tidak ditemukan")
 		return
 	}
 
-	// 7. Kirim respon sukses
+	
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
-}// Ganti fungsi getCompanyByUsernameHandler
+}
 func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request) {
     username := mux.Vars(r)["username"]
     
@@ -744,7 +741,7 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
 
     var company Company
 
-    // [PERBAIKAN] Tambahkan "public." di depan nama tabel
+    
     query := `
         SELECT c.id, c.name, c.role
         FROM public.companies c
@@ -771,7 +768,7 @@ func (a *App) getCompanyByUsernameHandler(w http.ResponseWriter, r *http.Request
 }
 
 
-// Ganti juga fungsi loginHandler
+
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct{ Username, Password string }
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -780,7 +777,7 @@ func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var account CompanyAccount
     
-    // [PERBAIKAN] Tambahkan "public."
+    
 	err := a.DB.QueryRow("SELECT password, company_id FROM public.company_accounts WHERE username = $1", payload.Username).Scan(&account.Password, &account.CompanyID)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Username atau password salah")
@@ -788,7 +785,7 @@ func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if account.Password == payload.Password {
 		var company Company
-        // [PERBAIKAN] Tambahkan "public."
+        
 		err := a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE id = $1", account.CompanyID).Scan(&company.ID, &company.Name, &company.Role)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Company not found for user")
@@ -950,9 +947,9 @@ func (a *App) isUsernameTakenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ---> PERUBAHAN DI SINI <---
-	// Jangan kirim 404. Selalu kirim 200 OK dengan jawaban JSON.
-	// Flutter akan tahu dari nilai boolean 'exists'.
+	
+	
+	
 	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
 func (a *App) getAllUserAccountsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
@@ -996,12 +993,12 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 		WHERE c.name = $1 AND ca.username != $2
 		ORDER BY ca.username`
 
-	// [PERIKSA BARIS INI DENGAN TELITI]
-	// Pastikan kamu mengirim DUA argumen: companyName DAN currentUsername
-	rows, err := a.DB.Query(query, companyName, currentUsername) // <-- Pastikan ada 2 variabel di sini
+	
+	
+	rows, err := a.DB.Query(query, companyName, currentUsername) 
     
 	if err != nil {
-		// Jika ada error di sini, Flutter akan menampilkan pesan kesalahan
+		
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1025,19 +1022,19 @@ func (a *App) getColleagueAccountsForDisplayHandler(w http.ResponseWriter, r *ht
 }
 
 func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. Ambil query pencarian dari URL (?q=...)
+	
 	query := r.URL.Query().Get("q")
 	if query == "" {
-		// Jika query kosong, kembalikan list kosong agar tidak membebani server
+		
 		respondWithJSON(w, http.StatusOK, []string{})
 		return
 	}
 
-	// 2. Siapkan SQL query untuk mencari username yang cocok (case-insensitive)
-	//    'LIKE' dengan '%' berarti "diawali dengan"
+	
+	
 	sqlQuery := "SELECT username FROM public.company_accounts WHERE username ILIKE $1 LIMIT 10"
 
-	// 3. Eksekusi query ke database
+	
 	rows, err := a.DB.Query(sqlQuery, query+"%")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1045,19 +1042,19 @@ func (a *App) searchUsernamesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// 4. Kumpulkan hasil pencarian ke dalam sebuah slice
+	
 	var usernames []string
 	for rows.Next() {
 		var username string
 		if err := rows.Scan(&username); err != nil {
-			// Jika ada error saat scan, log dan lanjutkan ke baris berikutnya
+			
 			log.Printf("Error scanning username: %v", err)
 			continue
 		}
 		usernames = append(usernames, username)
 	}
 
-	// 5. Kirim hasilnya sebagai JSON
+	
 	respondWithJSON(w, http.StatusOK, usernames)
 }
 func (a *App) getUniqueCompanyDataForFormHandler(w http.ResponseWriter, r *http.Request) {
@@ -1128,17 +1125,17 @@ func (a *App) getCompanyByNameHandler(w http.ResponseWriter, r *http.Request) {
 	err = a.DB.QueryRow("SELECT id, name, role FROM public.companies WHERE name = $1", name).Scan(&c.ID, &c.Name, &c.Role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// [FIX] Jangan kirim error 404.
-			// Kirim status 200 OK dengan body null/kosong.
-			// Ini menandakan pencarian sukses, tapi data tidak ada.
+			
+			
+			
 			respondWithJSON(w, http.StatusOK, nil)
 			return
 		}
-		// Ini untuk error database yang sesungguhnya.
+		
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Jika perusahaan ditemukan, kirim datanya seperti biasa.
+	
 	respondWithJSON(w, http.StatusOK, c)
 }
 func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) {
@@ -1459,7 +1456,7 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Mulai transaksi
+	
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
@@ -1467,7 +1464,7 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// 2. Cari semua slot yang ditempati oleh panel-panel yang akan dihapus
+	
 	querySlots := "SELECT production_slot FROM panels WHERE no_pp = ANY($1) AND production_slot IS NOT NULL"
 	rows, err := tx.Query(querySlots, pq.Array(payload.NoPps))
 	if err != nil {
@@ -1482,9 +1479,9 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 			slotsToFree = append(slotsToFree, slot)
 		}
 	}
-	rows.Close() // Selalu tutup rows setelah selesai
+	rows.Close() 
 
-	// 3. Hapus panel-panelnya
+	
 	queryDelete := "DELETE FROM public.panels WHERE no_pp = ANY($1)"
 	result, err := tx.Exec(queryDelete, pq.Array(payload.NoPps))
 	if err != nil {
@@ -1492,7 +1489,7 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Jika ada slot yang perlu dikosongkan, lakukan update
+	
 	if len(slotsToFree) > 0 {
 		queryFreeSlots := "UPDATE production_slots SET is_occupied = false WHERE position_code = ANY($1)"
 		_, err = tx.Exec(queryFreeSlots, pq.Array(slotsToFree))
@@ -1502,7 +1499,7 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 5. Commit transaksi jika semua OK
+	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
 		return
@@ -1515,15 +1512,15 @@ func (a *App) deletePanelsHandler(w http.ResponseWriter, r *http.Request) {
 func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 
-	// 1. Mulai transaksi database
+	
 	tx, err := a.DB.Begin()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal memulai transaksi: "+err.Error())
 		return
 	}
-	defer tx.Rollback() // Otomatis batalkan jika ada error
+	defer tx.Rollback() 
 
-	// 2. Cari tahu slot mana yang sedang ditempati panel ini (jika ada)
+	
 	var occupiedSlot sql.NullString
 	err = tx.QueryRow("SELECT production_slot FROM panels WHERE no_pp = $1", noPp).Scan(&occupiedSlot)
 	if err != nil {
@@ -1535,7 +1532,7 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Hapus panelnya
+	
 	result, err := tx.Exec("DELETE FROM public.panels WHERE no_pp = $1", noPp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menghapus panel: "+err.Error())
@@ -1543,12 +1540,12 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		// Seharusnya tidak terjadi karena sudah dicek di atas, tapi untuk keamanan
+		
 		respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan saat proses hapus")
 		return
 	}
 
-	// 4. Jika panel tadi menempati slot, kosongkan slotnya
+	
 	if occupiedSlot.Valid && occupiedSlot.String != "" {
 		_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", occupiedSlot.String)
 		if err != nil {
@@ -1557,7 +1554,7 @@ func (a *App) deletePanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 5. Jika semua berhasil, simpan perubahan
+	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal menyelesaikan transaksi: "+err.Error())
 		return
@@ -1628,8 +1625,8 @@ func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// [FIX] Always respond with 200 OK and a clear JSON body.
-	// This single line handles both cases (exists or not).
+	
+	
 	respondWithJSON(w, http.StatusOK, map[string]bool{"exists": exists})
 }
 
@@ -1658,7 +1655,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// 1. Ambil data panel yang ada sekarang dari DB
+	
 	var existingPanel Panel
 	querySelect := `
 		SELECT no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
@@ -1684,7 +1681,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Timpa data lama dengan perubahan dari payload (jika ada)
+	
 	if payloadData.NoPanel != nil { existingPanel.NoPanel = payloadData.NoPanel }
 	if payloadData.NoWbs != nil { existingPanel.NoWbs = payloadData.NoWbs }
 	if payloadData.Project != nil { existingPanel.Project = payloadData.Project }
@@ -1707,7 +1704,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 	existingPanel.ClosedDate = payloadData.ClosedDate
 	existingPanel.NoPp = payloadData.NoPp
 
-	// 3. Logika untuk mengubah Primary Key
+	
 	newNoPp := existingPanel.NoPp
 	pkToUpdateWith := oldNoPp 
 
@@ -1735,7 +1732,7 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Lakukan satu kali UPDATE final dengan data yang sudah lengkap
+	
 	updateQuery := `
 		UPDATE panels SET
 			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
@@ -1811,9 +1808,9 @@ func (a *App) isPanelNumberUniqueHandler(w http.ResponseWriter, r *http.Request)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
-}// main.go
+}
 
-// Fungsi generik untuk menghapus relasi panel-vendor
+
 func (a *App) deleteGenericRelationHandler(tableName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
@@ -1830,7 +1827,7 @@ func (a *App) deleteGenericRelationHandler(tableName string) http.HandlerFunc {
 			return
 		}
 
-		// Query dibangun secara dinamis berdasarkan nama tabel
+		
 		query := fmt.Sprintf("DELETE FROM %s WHERE panel_no_pp = $1 AND vendor = $2", tableName)
 		result, err := a.DB.Exec(query, payload.PanelNoPp, payload.Vendor)
 		if err != nil {
@@ -1905,7 +1902,7 @@ func (a *App) deleteBusbarHandler(w http.ResponseWriter, r *http.Request) {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		// Ini bukan error, mungkin data sudah terhapus sebelumnya, jadi kembalikan sukses
+		
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "No matching busbar relation found to delete"})
 		return
 	}
@@ -1934,40 +1931,40 @@ func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.
 	respondWithJSON(w, http.StatusCreated, payload)
 }
 func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
-	// Definisikan struct untuk payload JSON yang dikirim oleh klien (role K5)
+	
 	var payload struct {
 		PanelNoPp       string      `json:"panel_no_pp"`
-		VendorID        string      `json:"vendor"` // Field ini ada di payload tapi tidak digunakan untuk update DB
+		VendorID        string      `json:"vendor"` 
 		AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
 		AoBusbarMcc     *customTime `json:"ao_busbar_mcc"`
 		StatusBusbarPcc *string     `json:"status_busbar_pcc"`
 		StatusBusbarMcc *string     `json:"status_busbar_mcc"`
 	}
 
-	// Decode body request ke dalam struct payload
+	
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
 
-	// Validasi dasar bahwa No. PP harus ada
+	
 	if payload.PanelNoPp == "" {
 		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
 		return
 	}
 
-	// Siapkan untuk membangun query UPDATE secara dinamis
+	
 	var updates []string
 	var args []interface{}
 	argCounter := 1
 
-	// Tambahkan field ke query hanya jika nilainya tidak nil di payload
 	
-	// if payload.VendorID != "" {
-	// 	updates = append(updates, fmt.Sprintf("vendor_id = $%d", argCounter))
-	// 	args = append(args, payload.VendorID)
-	// 	argCounter++	
-	// }
+	
+	
+	
+	
+	
+	
 	if payload.StatusBusbarPcc != nil {
 		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
 		args = append(args, *payload.StatusBusbarPcc)
@@ -1989,13 +1986,13 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 		argCounter++
 	}
 
-	// Jika tidak ada field yang perlu diupdate, kirim respon sukses
+	
 	if len(updates) == 0 {
 		respondWithJSON(w, http.StatusOK, map[string]string{"message": "No fields to update."})
 		return
 	}
 
-	// Finalisasi query dengan klausa WHERE dan eksekusi
+	
 	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 	args = append(args, payload.PanelNoPp)
 
@@ -2005,7 +2002,7 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cek apakah ada baris yang berhasil diupdate
+	
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
@@ -2016,20 +2013,20 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
-	// Definisikan struct untuk payload JSON yang dikirim oleh klien (role Warehouse)
+	
 	var payload struct {
 		PanelNoPp       string  `json:"panel_no_pp"`
-		VendorID        string  `json:"vendor"` // Field ini ada di payload tapi tidak digunakan untuk update DB
+		VendorID        string  `json:"vendor"` 
 		StatusComponent *string `json:"status_component"`
 	}
 
-	// Decode body request ke dalam struct payload
+	
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
 
-	// Validasi dasar
+	
 	if payload.PanelNoPp == "" {
 		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
 		return
@@ -2039,7 +2036,7 @@ func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query UPDATE yang sederhana dan langsung
+	
 	query := `UPDATE panels SET status_component = $1 WHERE no_pp = $2`
 
 	result, err := a.DB.Exec(query, *payload.StatusComponent, payload.PanelNoPp)
@@ -2048,7 +2045,7 @@ func (a *App) upsertStatusWHS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cek apakah ada baris yang berhasil diupdate
+	
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
@@ -2123,7 +2120,7 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	query := `UPDATE companies SET name = $1, role = $2 WHERE id = $3`
 	_, err := a.DB.Exec(query, payload.Name, payload.Role, id)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" { // unique_violation
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" { 
 			respondWithError(w, http.StatusConflict, "Nama perusahaan '"+payload.Name+"' sudah digunakan.")
 			return
 		}
@@ -2141,9 +2138,9 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback() // Rollback jika terjadi error
+	defer tx.Rollback() 
 
-	// Query dasar untuk panel dengan JOIN (tidak berubah)
+	
 	panelQuery := `
 		SELECT DISTINCT 
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress,
@@ -2162,7 +2159,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	args := []interface{}{}
 	argCounter := 1
 
-	// -- Helper Functions (Tidak ada perubahan di sini) --
+	
 	addDateFilter := func(query, col, start, end string) (string, []interface{}) {
 		localArgs := []interface{}{}
 		if start != "" {
@@ -2313,7 +2310,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		panelQuery += " AND (p.is_closed = false)"
 	}
 	
-	// Eksekusi query
+	
 	rows, err := tx.Query(panelQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("gagal query panel: %w", err)
@@ -2362,15 +2359,15 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
             ORDER BY p.no_pp, i.created_at`
 		issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			// Log error tapi jangan hentikan proses, kembalikan slice kosong
+			
 			log.Printf("Error querying issues for export: %v", err)
-			result["issues"] = []IssueForExport{} // Default ke slice kosong
+			result["issues"] = []IssueForExport{} 
 		} else {
-			defer issueRows.Close() // Pastikan ditutup
+			defer issueRows.Close() 
 			var issues []IssueForExport
 			for issueRows.Next() {
 				var issue IssueForExport
-				// Scan field sesuai urutan SELECT
+				
 				if err := issueRows.Scan(
 					&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel,
 					&issue.IssueID, &issue.Title, &issue.Description, &issue.Status,
@@ -2381,21 +2378,21 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 					log.Printf("Warning: Failed to scan issue row: %v", err)
 				}
 			}
-            if err = issueRows.Err(); err != nil { // Cek error setelah loop
+            if err = issueRows.Err(); err != nil { 
                log.Printf("Error during issue rows iteration: %v", err)
             }
-			result["issues"] = issues // Simpan hasil ke map
-			log.Printf("DEBUG: Found %d issues", len(issues)) // Log jumlah issue
+			result["issues"] = issues 
+			log.Printf("DEBUG: Found %d issues", len(issues)) 
 		}
 
-		// [PERBAIKAN 2] Query untuk Comments
+		
 		commentQuery := `
             SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
             FROM issue_comments ic
             JOIN issues i ON ic.issue_id = i.id
             JOIN chats ch ON i.chat_id = ch.id
             WHERE ch.panel_no_pp = ANY($1)
-            ORDER BY ic.issue_id, ic.timestamp` // Asumsi ada kolom timestamp
+            ORDER BY ic.issue_id, ic.timestamp` 
 		commentRows, err := tx.Query(commentQuery, pq.Array(relevantPanelIds))
 		if err != nil {
 			log.Printf("Error querying comments for export: %v", err)
@@ -2405,7 +2402,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			var comments []CommentForExport
 			for commentRows.Next() {
 				var comment CommentForExport
-				// Scan field sesuai urutan SELECT
+				
 				if err := commentRows.Scan(
 					&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID,
 				); err == nil {
@@ -2417,8 +2414,8 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
             if err = commentRows.Err(); err != nil {
                log.Printf("Error during comment rows iteration: %v", err)
             }
-			result["comments"] = comments // Simpan hasil ke map
-			log.Printf("DEBUG: Found %d comments", len(comments)) // Log jumlah comment
+			result["comments"] = comments 
+			log.Printf("DEBUG: Found %d comments", len(comments)) 
 		}
 
 		srQuery := `
@@ -2436,7 +2433,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			var srs []AdditionalSRForExport
 			for srRows.Next() {
 				var sr AdditionalSRForExport
-				// Scan field sesuai urutan SELECT
+				
 				if err := srRows.Scan(
 					&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel,
 					&sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier,
@@ -2477,24 +2474,24 @@ func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Req
 	}
 	respondWithJSON(w, http.StatusOK, data)
 }
-// file: main.go
+
 
 func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Request) {
-	// Ambil parameter spesifik untuk export custom
+	
 	includePanels, _ := strconv.ParseBool(r.URL.Query().Get("panels"))
 	includeUsers, _ := strconv.ParseBool(r.URL.Query().Get("users"))
 
-	// [PERBAIKAN KUNCI]
-	// Panggil fungsi getFilteredDataForExport dengan seluruh request 'r'.
-	// Fungsi ini sekarang akan membaca semua parameter filter (tanggal, vendor, status, dll) dari URL.
+	
+	
+	
 	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Mengambil semua data 'companies' untuk mapping ID ke Nama
-	// Ini tidak perlu difilter karena kita butuh semua perusahaan sebagai referensi
+	
+	
 	allCompaniesResult, err := fetchAllAs(a.DB, "companies", func() interface{} { return &Company{} })
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
@@ -2508,13 +2505,13 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 		companyMap[company.ID] = *company
 	}
 
-	// Siapkan JSON final yang akan dikirim
+	
 	jsonData := make(map[string]interface{})
 
-	// Logika internal untuk membangun struktur JSON tidak berubah.
-	// Sekarang ia akan otomatis bekerja dengan data panel yang sudah terfilter.
+	
+	
 	if includePanels {
-		panels := data["panels"].([]Panel) // Konversi ke slice of Panel
+		panels := data["panels"].([]Panel) 
 		busbars := data["busbars"].([]interface{})
 		panelBusbarMap := make(map[string]string)
 		for _, b := range busbars {
@@ -2529,7 +2526,7 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 		}
 
 		var panelData []map[string]interface{}
-		for _, panel := range panels { // Langsung iterate dari slice of Panel
+		for _, panel := range panels { 
 			panelVendorName := ""
 			if panel.VendorID != nil {
 				if company, ok := companyMap[*panel.VendorID]; ok {
@@ -2580,36 +2577,36 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 
 	respondWithJSON(w, http.StatusOK, jsonData)
 }
-// file: main.go
+
 
 func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http.Request) {
-	// Ambil parameter tabel mana saja yang mau di-export
+	
 	tablesParam := r.URL.Query().Get("tables")
 	tablesToInclude := strings.Split(tablesParam, ",")
 
-	// [PERBAIKAN KUNCI]
-	// Panggil fungsi getFilteredDataForExport dengan seluruh request 'r'.
-	// Ini akan mengembalikan data yang sudah difilter berdasarkan parameter URL
-	// seperti tanggal, vendor, status, dll.
+	
+	
+	
+	
 	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Buat map JSON final
+	
 	jsonData := make(map[string]interface{})
 	
-	// Logika untuk memilih tabel mana yang akan dimasukkan ke JSON final tidak berubah.
-	// Sekarang ia akan bekerja dengan data yang sudah terfilter.
+	
+	
 	for _, table := range tablesToInclude {
-		// Normalisasi nama tabel untuk pencocokan yang lebih fleksibel
+		
 		normalizedTable := strings.ToLower(strings.ReplaceAll(table, " ", ""))
 		switch normalizedTable {
 		case "companies":
 			jsonData["companies"] = data["companies"]
 		case "companyaccounts":
-			// Nama tabel di JSON adalah 'company_accounts'
+			
 			jsonData["company_accounts"] = data["companyAccounts"]
 		case "panels":
 			jsonData["panels"] = data["panels"]
@@ -2695,10 +2692,10 @@ func (a *App) generateImportTemplateHandler(w http.ResponseWriter, r *http.Reque
 }
 
 
-// normalizeVendorName membersihkan nama vendor ke format dasar untuk pencocokan.
-// Contoh: "PT. G.A.A 2" -> "GAA"
+
+
 func normalizeVendorName(name string) string {
-	// 1. Hapus Prefiks Umum (PT, CV, etc.)
+	
 	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
 	tempName := strings.ToUpper(name)
 	for _, prefix := range prefixes {
@@ -2708,7 +2705,7 @@ func normalizeVendorName(name string) string {
 		}
 	}
 
-	// 2. Hapus semua karakter non-alfabet
+	
 	var result strings.Builder
 	for _, r := range tempName {
 		if r >= 'A' && r <= 'Z' {
@@ -2718,10 +2715,10 @@ func normalizeVendorName(name string) string {
 	return result.String()
 }
 
-// generateAcronym membuat akronim dari nama vendor.
-// Contoh: "PT Global Abc Acd" -> "GAA"
+
+
 func generateAcronym(name string) string {
-	// 1. Hapus Prefiks
+	
 	prefixes := []string{"PT.", "PT", "CV.", "CV", "UD.", "UD"}
 	tempName := strings.ToUpper(name)
 	for _, prefix := range prefixes {
@@ -2731,10 +2728,10 @@ func generateAcronym(name string) string {
 		}
 	}
 
-	// 2. Buat Akronim dari sisa kata
-	parts := strings.Fields(tempName) // Memisahkan berdasarkan spasi
+	
+	parts := strings.Fields(tempName) 
 	if len(parts) <= 1 {
-		return "" // Bukan nama multi-kata, tidak ada akronim
+		return "" 
 	}
 	var acronym strings.Builder
 	for _, part := range parts {
@@ -2743,7 +2740,7 @@ func generateAcronym(name string) string {
 		}
 	}
 
-	// Hanya kembalikan jika benar-benar sebuah akronim (2+ huruf)
+	
 	if acronym.Len() > 1 {
 		return acronym.String()
 	}
@@ -2767,14 +2764,14 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
-	// --- [MODIFIKASI] Ambil role dan company ID dari user yang login ---
+	
 	var loggedInUserCompanyId string
 	var loggedInUserRole string
 	if payload.LoggedInUsername != nil && *payload.LoggedInUsername != "" {
 		query := `SELECT c.id, c.role FROM public.companies c JOIN public.company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
 		err := tx.QueryRow(query, *payload.LoggedInUsername).Scan(&loggedInUserCompanyId, &loggedInUserRole)
 		if err != nil && err != sql.ErrNoRows {
-			// Ini adalah error database sungguhan, bukan user tidak ditemukan
+			
 			respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data user: "+err.Error())
 			return
 		}
@@ -2783,7 +2780,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	var errors []string
 	dataProcessed := false
 
-	// --- Pre-computation & Caching Vendor Names ---
+	
 	vendorIdMap := make(map[string]bool)
 	normalizedNameToIdMap := make(map[string]string)
 	acronymToIdMap := make(map[string]string)
@@ -2877,12 +2874,12 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if panelSheetData, ok := payload.Data["panel"]; ok {
-		// [PERBAIKAN 1] Logika baru untuk memastikan Warehouse selalu ada
+		
 		var warehouseCompanyId string
 		err := tx.QueryRow("SELECT id FROM public.companies WHERE name = 'Warehouse'").Scan(&warehouseCompanyId)
 		if err == sql.ErrNoRows {
-			// Jika tidak ada, buat baru
-			warehouseCompanyId = "warehouse" // ID default
+			
+			warehouseCompanyId = "warehouse" 
 			_, errInsert := tx.Exec(
 				"INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING",
 				warehouseCompanyId,
@@ -2934,16 +2931,16 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
 			}
 
-			// --- [MODIFIKASI] Logika baru untuk vendor Panel dan Busbar berdasarkan role ---
+			
 			var panelVendorId, busbarVendorId sql.NullString
 
 			if loggedInUserRole == AppRoleK3 {
-				// LOGIKA KHUSUS UNTUK K3
-				// 1. Panel Vendor otomatis diisi dengan company K3 yang login
+				
+				
 				panelVendorId = sql.NullString{String: loggedInUserCompanyId, Valid: true}
-				// 2. Kolom Busbar diabaikan, busbarVendorId dibiarkan null (tidak valid)
+				
 			} else {
-				// LOGIKA STANDAR UNTUK ROLE LAIN
+				
 				panelVendorInput := getValueCaseInsensitive(row, "Panel")
 				busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
 
@@ -2965,7 +2962,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 					}
 				}
 			}
-			// --- AKHIR MODIFIKASI ---
+			
 
 			lastErrorIndex := len(errors) - 1
 			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
@@ -2974,7 +2971,7 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 			actualDeliveryDate := parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC"))
 			var progress float64 = 0.0
-			// Jika tanggal delivery ada, set progress ke 100
+			
 			if actualDeliveryDate != nil {
 				progress = 100.0
 			}
@@ -2986,10 +2983,10 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				"project":           getValueCaseInsensitive(row, "PROJECT"),
 				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")),
 				"closed_date":       actualDeliveryDate,
-				"is_closed":         actualDeliveryDate != nil, // is_closed juga bergantung pada tanggal ini
+				"is_closed":         actualDeliveryDate != nil, 
 				"vendor_id":         panelVendorId,
 				"created_by":        "import",
-				"percent_progress":  progress, // [PERBAIKAN] Gunakan variabel progress yang sudah dihitung
+				"percent_progress":  progress, 
 				"status_busbar_pcc": "On Progress",
 				"status_busbar_mcc": "On Progress",
 				"status_component":  "Open",
@@ -3050,10 +3047,10 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 
 func getOrCreateChatByPanel(tx *sql.Tx, panelNoPp string) (int, error) {
 	var chatID int
-	// Check if chat exists
+	
 	err := tx.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
-		// Chat does not exist, create it
+		
 		err = tx.QueryRow("INSERT INTO chats (panel_no_pp) VALUES ($1) RETURNING id", panelNoPp).Scan(&chatID)
 		if err != nil {
 			return 0, fmt.Errorf("failed to create chat: %w", err)
@@ -3142,13 +3139,13 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	imageUrlsJSON, _ := json.Marshal(imageUrls)
 	newCommentID := uuid.New().String()
 
-	// --- ▼▼▼ PERUBAHAN DI SINI ▼▼▼ ---
-	// Tambahkan is_system_comment ke query
+	
+	
 	commentQuery := `
 		INSERT INTO issue_comments (id, issue_id, sender_id, text, image_urls, is_system_comment)
-		VALUES ($1, $2, $3, $4, $5, TRUE)` // Set nilainya menjadi TRUE
+		VALUES ($1, $2, $3, $4, $5, TRUE)` 
 	_, err = tx.Exec(commentQuery, newCommentID, issueID, payload.CreatedBy, commentText, imageUrlsJSON)
-	// --- ▲▲▲ AKHIR PERUBAHAN ▲▲▲
+	
 	
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create initial comment: "+err.Error())
@@ -3162,7 +3159,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	go func() {
-		// 1. Cek & Filter daftar penerima (cukup sekali)
+		
 		if payload.NotifyEmail == "" {
 			return
 		}
@@ -3170,20 +3167,20 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		finalRecipients := []string{}
 		for _, r := range allRecipients {
 			trimmed := strings.TrimSpace(r)
-			// Jangan kirim notifikasi ke diri sendiri
+			
 			if trimmed != "" && trimmed != payload.CreatedBy {
 				finalRecipients = append(finalRecipients, trimmed)
 			}
 		}
 
-		// 2. Jika ada penerima, kirim kedua notifikasi
+		
 		if len(finalRecipients) > 0 {
-			// A. Kirim Push Notification
+			
 			title := fmt.Sprintf("Isu Baru di Panel %s", panelNoPp)
 			body := fmt.Sprintf("%s membuat isu baru: '%s'", payload.CreatedBy, payload.Title)
 			a.sendNotificationToUsers(finalRecipients, title, body)
 
-			// B. Kirim Email Notifikasi
+			
 			subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
 			htmlBody := fmt.Sprintf(
 				`<h3>Isu Baru Telah Dibuat pada Panel %s</h3>
@@ -3208,7 +3205,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	var chatID int
 	err := a.DB.QueryRow("SELECT id FROM public.chats WHERE panel_no_pp = $1", panelNoPp).Scan(&chatID)
 	if err == sql.ErrNoRows {
-		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{}) // Return empty list
+		respondWithJSON(w, http.StatusOK, []IssueWithPhotos{}) 
 		return
 	}
 	if err != nil {
@@ -3216,7 +3213,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query utama untuk mendapatkan semua isu
+	
 	rows, err := a.DB.Query("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at, notify_email FROM public.issues WHERE chat_id = $1 ORDER BY created_at DESC", chatID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -3224,7 +3221,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// Gunakan map untuk mapping issue ID ke issue-nya
+	
 	issueMap := make(map[int]*IssueWithPhotos)
 	var issueIDs []int
 
@@ -3235,7 +3232,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		issueIDs = append(issueIDs, issue.ID)
-		issueMap[issue.ID] = &IssueWithPhotos{Issue: issue, Photos: []Photo{}} // Inisialisasi dengan slice foto kosong
+		issueMap[issue.ID] = &IssueWithPhotos{Issue: issue, Photos: []Photo{}} 
 	}
 	
 	if len(issueIDs) == 0 {
@@ -3243,7 +3240,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query kedua untuk mendapatkan semua foto yang relevan sekaligus
+	
 	photoRows, err := a.DB.Query("SELECT id, issue_id, photo_data FROM public.photos WHERE issue_id = ANY($1)", pq.Array(issueIDs))
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve photos: "+err.Error())
@@ -3251,7 +3248,7 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer photoRows.Close()
 
-	// Gabungkan foto ke dalam map isu
+	
 	for photoRows.Next() {
 		var p Photo
 		if err := photoRows.Scan(&p.ID, &p.IssueID, &p.PhotoData); err != nil {
@@ -3263,15 +3260,15 @@ func (a *App) getIssuesByPanelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Konversi map kembali ke slice untuk respons JSON
+	
 	var issuesWithPhotos []IssueWithPhotos
-	for _, id := range issueIDs { // Iterasi sesuai urutan asli
+	for _, id := range issueIDs { 
 		issuesWithPhotos = append(issuesWithPhotos, *issueMap[id])
 	}
 	
 	respondWithJSON(w, http.StatusOK, issuesWithPhotos)
 }
-// getIssueByIDHandler retrieves a single issue with its photos.
+
 func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
@@ -3281,7 +3278,7 @@ func (a *App) getIssueByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var issue Issue
-	// ▼▼▼ FIX: REMOVED "issue_type" FROM THE QUERY ▼▼▼
+	
 	err = a.DB.QueryRow("SELECT id, chat_id, title, description, status, logs, created_by, created_at, updated_at FROM public.issues WHERE id = $1", id).Scan(&issue.ID, &issue.ChatID, &issue.Title, &issue.Description, &issue.Status, &issue.Logs, &issue.CreatedBy, &issue.CreatedAt, &issue.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -3320,13 +3317,13 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Ubah NotifyEmail menjadi pointer agar bisa deteksi perubahannya
+	
 	var payload struct {
 		Description string  `json:"issue_description"`
 		Title       string  `json:"issue_title"`
 		Status      string  `json:"issue_status"`
 		UpdatedBy   string  `json:"updated_by"`
-		NotifyEmail *string `json:"notify_email,omitempty"` // Pointer agar bisa nil
+		NotifyEmail *string `json:"notify_email,omitempty"` 
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -3344,7 +3341,7 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// 2. Ambil data lama termasuk notify_email dan panel_no_pp
+	
 	var currentLogs Logs
 	var currentStatus, notifyEmail, panelNoPp string
 	err = tx.QueryRow(`
@@ -3368,16 +3365,16 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	newLogEntry := LogEntry{Action: logAction, User: payload.UpdatedBy, Timestamp: time.Now()}
 	updatedLogs := append(currentLogs, newLogEntry)
 
-	// 3. Tentukan nilai final notify_email
-	finalNotifyEmail := notifyEmail // Default pakai nilai lama
+	
+	finalNotifyEmail := notifyEmail 
 	if payload.NotifyEmail != nil {
-		finalNotifyEmail = *payload.NotifyEmail // Pakai nilai baru jika dikirim di payload
+		finalNotifyEmail = *payload.NotifyEmail 
 		if logAction == "mengubah issue" {
-			logAction = "mengubah daftar notifikasi" // Aksi lebih spesifik untuk email
+			logAction = "mengubah daftar notifikasi" 
 		}
 	}
 	
-	// 4. Update query untuk menyertakan notify_email
+	
 	query := `UPDATE issues SET title = $1, description = $2, status = $3, logs = $4, notify_email = $5 WHERE id = $6`
 	res, err := tx.Exec(query, payload.Title, payload.Description, payload.Status, updatedLogs, finalNotifyEmail, issueID)
 	if err != nil {
@@ -3390,26 +3387,26 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Buat teks komentar yang baru
+	
 	updatedCommentText := fmt.Sprintf("**%s**", payload.Title)
 	if payload.Description != "" {
 		updatedCommentText = fmt.Sprintf("**%s**: %s", payload.Title, payload.Description)
 	}
 
-	// 3. Update komentar sistem yang sesuai
-	// Kita juga set is_edited menjadi true untuk menandakan ada perubahan
+	
+	
 	commentQuery := `
 		UPDATE issue_comments 
 		SET text = $1, is_edited = TRUE
 		WHERE issue_id = $2 AND is_system_comment = TRUE`
 	_, err = tx.Exec(commentQuery, updatedCommentText, issueID)
 	if err != nil {
-		// Transaksi akan di-rollback jika ini gagal
+		
 		respondWithError(w, http.StatusInternalServerError, "Failed to update system comment: "+err.Error())
 		return
 	}
 
-	// 4. Commit transaksi jika semua berhasil
+	
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Gagal commit transaksi")
 		return
@@ -3417,7 +3414,7 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 	
 		go func() {
 		if currentStatus != payload.Status {
-			// Ambil daftar penerima final dan filter pelaku aksi
+			
 			allRecipients := strings.Split(finalNotifyEmail, ",")
 			finalRecipients := []string{}
 			for _, recipient := range allRecipients {
@@ -3428,12 +3425,12 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(finalRecipients) > 0 {
-				// A. Kirim Push Notification Perubahan Status
+				
 				notifTitle := fmt.Sprintf("Update Isu di Panel %s", panelNoPp)
 				notifBody := fmt.Sprintf("%s mengubah status isu '%s' menjadi %s.", payload.UpdatedBy, payload.Title, payload.Status)
 				a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
-				// B. Kirim Email Perubahan Status
+				
 				subject := fmt.Sprintf("[SecPanel] Update Status Isu: %s", payload.Title)
 				htmlBody := fmt.Sprintf(
 					`<h3>Status Isu pada Panel %s Telah Diubah</h3>
@@ -3446,13 +3443,13 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 				)
 				sendNotificationEmail(finalRecipients, subject, htmlBody)
 			}
-			return // Penting: Hentikan proses agar tidak lanjut ke skenario 2
+			return 
 		}
 
-		// --- SKENARIO 2: HANYA DAFTAR NOTIFIKASI YANG BERUBAH ---
-		// Kode ini hanya akan berjalan jika status isu TIDAK berubah
+		
+		
 		if payload.NotifyEmail != nil {
-			// Ambil daftar email lama dan baru untuk perbandingan
+			
 			oldEmails := make(map[string]bool)
 			for _, email := range strings.Split(notifyEmail, ",") {
 				if strings.TrimSpace(email) != "" {
@@ -3463,18 +3460,18 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 			var addedEmails []string
 			for _, emailStr := range strings.Split(finalNotifyEmail, ",") {
 				email := strings.TrimSpace(emailStr)
-				if email != "" && !oldEmails[email] { // Jika email baru dan tidak ada di daftar lama
+				if email != "" && !oldEmails[email] { 
 					addedEmails = append(addedEmails, email)
 				}
 			}
 			
 			if len(addedEmails) > 0 {
-				// A. Kirim Push Notifikasi "Anda Ditambahkan"
+				
 				notifTitle := fmt.Sprintf("Anda ditambahkan ke Isu di Panel %s", panelNoPp)
 				notifBody := fmt.Sprintf("%s menambahkan Anda ke notifikasi isu '%s'.", payload.UpdatedBy, payload.Title)
 				a.sendNotificationToUsers(addedEmails, notifTitle, notifBody)
 
-				// B. Kirim Email Notifikasi "Anda Ditambahkan"
+				
 				subject := fmt.Sprintf("[SecPanel] Anda Ditambahkan ke Notifikasi Isu: %s", payload.Title)
 				htmlBody := fmt.Sprintf(
 					`<h3>Anda Telah Ditambahkan ke Notifikasi Isu</h3>
@@ -3491,7 +3488,7 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
-// deleteIssueHandler deletes an issue and its associated photos.
+
 func (a *App) deleteIssueHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
@@ -3514,7 +3511,7 @@ func (a *App) deleteIssueHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// addPhotoToIssueHandler adds a new photo to an issue.
+
 func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	issueID, err := strconv.Atoi(vars["issue_id"])
@@ -3524,7 +3521,7 @@ func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		PhotoData string `json:"photo"` // Base64 string
+		PhotoData string `json:"photo"` 
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -3540,7 +3537,7 @@ func (a *App) addPhotoToIssueHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, map[string]int{"photo_id": photoID})
 }
 
-// deletePhotoHandler removes a photo.
+
 func (a *App) deletePhotoHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
@@ -3565,23 +3562,20 @@ func (a *App) deletePhotoHandler(w http.ResponseWriter, r *http.Request) {
 
 func cleanMapData(data map[string]interface{}) {
 	for key, value := range data {
-		// Cek apakah nilainya adalah string
+		
 		if s, ok := value.(string); ok {
 			trimmedS := strings.TrimSpace(s)
 			if trimmedS == "" {
-				// Jika stringnya kosong setelah di-trim, hapus dari map
+				
 				delete(data, key)
 			} else {
-				// Jika tidak, update map dengan nilai yang sudah bersih
+				
 				data[key] = trimmedS
 			}
 		}
 	}
 }
 
-// =============================================================================
-// HELPERS & DB INIT
-// =============================================================================
 func jsonContentTypeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
@@ -3606,7 +3600,7 @@ func splitIds(ns sql.NullString) []string {
 func toColumnName(n int) string {
     result := ""
     for n >= 0 {
-        // Modulo 26 untuk mendapatkan karakter saat ini
+        
         remainder := n % 26
         result = string('A'+remainder) + result
         n = (n / 26) - 1
@@ -3754,7 +3748,7 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel issue_titles: %v", err)
 	}
 
-	// Tambahkan beberapa data awal jika tabel baru dibuat
+	
 	var count_titles int
 	if err := db.QueryRow("SELECT COUNT(*) FROM public.issue_titles").Scan(&count_titles); err == nil && count_titles == 0 {
 		log.Println("Tabel issue_titles kosong, menambahkan data awal...")
@@ -3781,7 +3775,7 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal membuat tabel issue_comments: %v", err)
 	}
 
-	// Buat folder 'uploads' jika belum ada untuk menyimpan gambar
+	
 	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
 		os.Mkdir("uploads", 0755)
 		log.Println("Folder 'uploads' berhasil dibuat.")
@@ -3947,7 +3941,7 @@ func initDB(db *sql.DB) {
 		insertDummyData(db)
 	}
 
-	// Migrasi untuk menambahkan kolom status_penyelesaian dan production_slot ke tabel panels
+	
 	alterPanelsForTransferSQL := `
 	DO $$
 	BEGIN
@@ -3964,7 +3958,7 @@ func initDB(db *sql.DB) {
 		log.Fatalf("Gagal menjalankan migrasi untuk workflow transfer: %v", err)
 	}
 
-	// Membuat tabel production_slots
+	
 	createProductionSlotsTableSQL := `
 	CREATE TABLE IF NOT EXISTS production_slots (
 		position_code TEXT PRIMARY KEY,
@@ -4021,16 +4015,16 @@ func initDB(db *sql.DB) {
 		}
 		defer stmt.Close()
 
-		        // --- [PERUBAHAN UTAMA DI SINI] ---
-        // Jumlah total slot yang diinginkan per cell.
-        // A-Z   = 26
-        // A-ZZ  = 26 + 26*26 = 702
-        // A-ZZZ = 26 + 26*26 + 26*26*26 = 18278
+		        
+        
+        
+        
+        
         const slotsPerCell = 702 
 		for row := 1; row <= 7; row++ {
-            // Lakukan perulangan berdasarkan angka, bukan karakter
+            
             for i := 0; i < slotsPerCell; i++ {
-                // Ubah angka 'i' menjadi kode kolom (A, B, ..., AA, AB, ...)
+                
                 colName := toColumnName(i)
                 
                 slotCode := fmt.Sprintf("Cell %d-%s", row, colName)
@@ -4040,12 +4034,12 @@ func initDB(db *sql.DB) {
                 }
             }
         }
-		// === AKHIR BAGIAN PENTING ===
+		
 
 		tx.Commit()
 		log.Println("Berhasil menambahkan 28 slot produksi dalam format baris.")
 	}
-	// Menambahkan foreign key constraint dari panels.production_slot ke production_slots.position_code
+	
 	addForeignKeyConstraintSQL := `
 	DO $$
 	BEGIN
@@ -4360,28 +4354,28 @@ func parseDate(dateStr string) *string {
 	if dateStr == "" {
 		return nil
 	}
-	// Daftar format yang akan dicoba untuk di-parsing.
+	
 	layouts := []string{
-		time.RFC3339Nano,              // [PENAMBAHAN] Format dengan milidetik: 2025-07-17T00:00:00.000Z
-		time.RFC3339,                   // Format standar: 2025-07-17T00:00:00Z
-		"2006-01-02T15:04:05Z07:00",     // Format standar lain
-		"02-Jan-2006",                  // Format: 17-Jul-2025
-		"02-Jan-06",                    // Format: 17-Jul-25
-		"1/2/2006",                     // Format: 7/17/2025
+		time.RFC3339Nano,              
+		time.RFC3339,                   
+		"2006-01-02T15:04:05Z07:00",     
+		"02-Jan-2006",                  
+		"02-Jan-06",                    
+		"1/2/2006",                     
 	}
 	for _, layout := range layouts {
 		t, err := time.Parse(layout, dateStr)
 		if err == nil {
-			// Jika berhasil, ubah ke format standar ISO 8601 untuk disimpan di DB
+			
 			s := t.Format(time.RFC3339)
 			return &s
 		}
 	}
-	// Jika semua format gagal, kembalikan nil
+	
 	return nil
 }
 
-// getMessagesByChatIDHandler mengambil semua pesan untuk sebuah chat ID.
+
 func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	chatID, err := strconv.Atoi(vars["chat_id"])
@@ -4414,7 +4408,7 @@ func (a *App) getMessagesByChatIDHandler(w http.ResponseWriter, r *http.Request)
 	respondWithJSON(w, http.StatusOK, messages)
 }
 
-// createMessageHandler mengirim sebuah pesan baru ke dalam chat.
+
 func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	chatID, err := strconv.Atoi(vars["chat_id"])
@@ -4426,7 +4420,7 @@ func (a *App) createMessageHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		SenderUsername string  `json:"sender_username"`
 		Text           *string `json:"text"`
-		ImageData      *string `json:"image_data"` // Base64 string
+		ImageData      *string `json:"image_data"` 
 		RepliedIssueID *int    `json:"replied_issue_id"`
 	}
 
@@ -4539,7 +4533,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	var imageUrls []string
 	for _, base64Image := range payload.Images {
-		// Decode base64
+		
 		parts := strings.Split(base64Image, ",")
 		if len(parts) != 2 {
 			log.Println("Invalid base64 image format")
@@ -4551,7 +4545,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Simpan ke file
+		
 		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
 		filepath := fmt.Sprintf("uploads/%s", filename)
 		err = os.WriteFile(filepath, imgData, 0644)
@@ -4559,11 +4553,11 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Failed to save image file: %v", err)
 			continue
 		}
-		// Simpan URL-nya
+		
 		imageUrls = append(imageUrls, "/"+filepath)
 	}
 
-	imageUrlsJSON, _ := json.Marshal(imageUrls) // Asumsikan `imageUrls` sudah diproses
+	imageUrlsJSON, _ := json.Marshal(imageUrls) 
 	newCommentID := uuid.New().String()
 
 	query := `
@@ -4576,7 +4570,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		// 1. Ambil data dari database (cukup sekali)
+		
 		var notifyList, issueTitle, panelNoPp string
 		err := a.DB.QueryRow(`
 			SELECT COALESCE(i.notify_email, ''), i.title, c.panel_no_pp
@@ -4587,28 +4581,28 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if notifyList == "" {
-			return // Tidak ada yang perlu dinotifikasi
+			return 
 		}
 
-		// 2. Filter daftar penerima (cukup sekali)
+		
 		allRecipients := strings.Split(notifyList, ",")
 		finalRecipients := []string{}
 		for _, recipient := range allRecipients {
 			trimmedRecipient := strings.TrimSpace(recipient)
-			// Jangan kirim notifikasi ke diri sendiri
+			
 			if trimmedRecipient != "" && trimmedRecipient != payload.SenderID {
 				finalRecipients = append(finalRecipients, trimmedRecipient)
 			}
 		}
 
-		// 3. Jika ada penerima, kirim kedua jenis notifikasi
+		
 		if len(finalRecipients) > 0 {
-			// A. Kirim Push Notification
+			
 			notifTitle := fmt.Sprintf("Komentar baru di Panel %s", panelNoPp)
 			notifBody := fmt.Sprintf("%s: \"%s\"", payload.SenderID, payload.Text)
 			a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
-			// B. Kirim Email Notifikasi
+			
 			emailSubject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
 			emailHtmlBody := fmt.Sprintf(
 				`<h3>Komentar Baru pada Isu di Panel %s</h3>
@@ -4628,7 +4622,7 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusCreated, map[string]string{"id": newCommentID})
 }
-// Ganti fungsi lama dengan versi final ini di main.go
+
 func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 	commentID := mux.Vars(r)["id"]
 
@@ -4660,7 +4654,7 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update komentar itu sendiri seperti biasa
+	
 	var finalImageUrls []string
 	for _, img := range payload.Images {
 		if strings.HasPrefix(img, "data:image") {
@@ -4684,27 +4678,27 @@ func (a *App) updateCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Jika komentar yang diedit ADALAH komentar sistem, update juga isunya
+	
 	if isSystemComment.Valid && isSystemComment.Bool {
 		
-		// --- ▼▼▼ LOGIKA PARSING BARU YANG LEBIH FLEKSIBEL ▼▼▼ ---
+		
 		var newTitle, newDescription string
 		
-		// Gunakan SplitN untuk membagi string hanya pada kemunculan ": " pertama
+		
 		parts := strings.SplitN(payload.Text, ": ", 2)
 
 		if len(parts) == 2 {
-			// Jika ada pemisah ": ", bagian pertama adalah title, kedua adalah description
-			newTitle = strings.Trim(parts[0], "* ") // Hapus markdown ** dan spasi
+			
+			newTitle = strings.Trim(parts[0], "* ") 
 			newDescription = strings.TrimSpace(parts[1])
 		} else {
-			// Jika tidak ada pemisah, seluruh teks adalah title
+			
 			newTitle = strings.Trim(payload.Text, "* ")
-			newDescription = "" // Kosongkan deskripsi
+			newDescription = "" 
 		}
-		// --- ▲▲▲ AKHIR LOGIKA PARSING BARU ▲▲▲ ---
+		
 
-		// Lanjutkan hanya jika title tidak kosong setelah parsing
+		
 		if newTitle != "" {
 			updateIssueQuery := `UPDATE issues SET title = $1, description = $2 WHERE id = $3`
 			_, err = tx.Exec(updateIssueQuery, newTitle, newDescription, issueID)
@@ -4886,7 +4880,7 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Ambil Konteks Isu
+	
 	var issueTitle, issueDesc string
 	err = a.DB.QueryRow("SELECT title, description FROM public.issues WHERE id = $1", issueID).Scan(&issueTitle, &issueDesc)
 	if err != nil {
@@ -4894,7 +4888,7 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Ambil Konteks Komentar
+	
 	rows, err := a.DB.Query(`
         SELECT ca.username, ic.text 
         FROM public.issue_comments ic
@@ -4916,7 +4910,7 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		commentHistory.WriteString(fmt.Sprintf("%s: %s\n", username, text))
 	}
 
-	// 3. Setup Gemini Client
+	
 	ctx := context.Background()
 	
 	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8"
@@ -4932,9 +4926,9 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	// 4. Setup Model dan Prompt
+	
 	model := client.GenerativeModel("gemini-2.5-flash-lite")
-	model.Tools = tools // Menggunakan tools yang sudah didefinisikan
+	model.Tools = tools 
 	cs := model.StartChat()
 
 	fullPrompt := fmt.Sprintf(
@@ -4949,7 +4943,7 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		issueTitle, issueDesc, commentHistory.String(), payload.SenderID, payload.Question,
 	)
 
-	// 5. Kirim Prompt dan Eksekusi Function Call (BAGIAN PERBAIKAN)
+	
 	log.Printf("Mengirim prompt ke Gemini: %s", fullPrompt)
 	resp, err := cs.SendMessage(ctx, genai.Text(fullPrompt))
 	if err != nil {
@@ -4962,8 +4956,8 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		if fc, ok := part.(genai.FunctionCall); ok {
 			log.Printf("Gemini meminta pemanggilan fungsi: %s dengan argumen: %v", fc.Name, fc.Args)
 
-			// ▼▼▼ PERBAIKAN UTAMA ADA DI SINI ▼▼▼
-			// Dapatkan 'panelNoPp' dari 'issueID' sebelum memanggil fungsi eksekusi.
+			
+			
 			var panelNoPp string
 			err := a.DB.QueryRow(`
                 SELECT p.no_pp FROM public.panels p 
@@ -4971,13 +4965,13 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
                 JOIN public.issues i ON c.id = i.chat_id 
                 WHERE i.id = $1`, issueID).Scan(&panelNoPp)
 			if err != nil {
-				// Jika panel tidak ditemukan, kirim pesan error yang jelas.
+				
 				respondWithError(w, http.StatusInternalServerError, "Gagal menemukan panel terkait isu ini: "+err.Error())
 				return
 			}
-			// ▲▲▲ AKHIR PERBAIKAN UTAMA ▲▲▲
+			
 
-			// Panggil fungsi eksekusi dengan argumen yang benar (string, bukan int)
+			
 			functionResult, err := a.executeDatabaseFunction(fc, panelNoPp)
 			if err != nil {
 				functionResult = fmt.Sprintf("Error saat menjalankan fungsi: %v", err)
@@ -4993,7 +4987,7 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 6. Proses dan Kirim Jawaban Final
+	
 	finalResponseText := extractTextFromResponse(resp)
 	if finalResponseText == "" {
 		finalResponseText = "Maaf, terjadi kesalahan saat memproses permintaan Anda."
@@ -5003,18 +4997,18 @@ func (a *App) askGeminiHandler(w http.ResponseWriter, r *http.Request) {
 	a.postAiComment(issueID, payload.SenderID, finalResponseText, payload.ReplyToCommentID)
 	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
 }
-func (a *App) postAiComment(issueID int, senderID string, text string, replyToCommentID string) { // <-- UBAH DI SINI
+func (a *App) postAiComment(issueID int, senderID string, text string, replyToCommentID string) { 
 	newCommentID := uuid.New().String()
 	geminiUserID := "gemini_ai"
 
-	// Query INSERT sekarang harus menyertakan reply_to_comment_id
+	
 	query := `
 		INSERT INTO issue_comments (id, issue_id, sender_id, text, reply_to_user_id, reply_to_comment_id) 
 		VALUES ($1, $2, $3, $4, $5, $6)` 
 		
-	_, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, text, senderID, replyToCommentID) // <-- UBAH DI SINI
+	_, _ = a.DB.Exec(query, newCommentID, issueID, geminiUserID, text, senderID, replyToCommentID) 
 }
-// FUNGSI HELPER BARU untuk mengekstrak teks dari response Gemini
+
 func extractTextFromResponse(resp *genai.GenerateContentResponse) string {
 	if resp != nil && len(resp.Candidates) > 0 {
 		if content := resp.Candidates[0].Content; content != nil && len(content.Parts) > 0 {
@@ -5090,7 +5084,7 @@ var tools = []*genai.Tool{
 				},
 			},
 
-			// 2. Fungsi khusus untuk Component
+			
 			{
 				Name:        "update_component_status",
 				Description: "Mengubah status untuk komponen utama (picking component).",
@@ -5107,7 +5101,7 @@ var tools = []*genai.Tool{
 				},
 			},
 
-			// 3. Fungsi khusus untuk Palet
+			
 			{
 				Name:        "update_palet_status",
 				Description: "Mengubah status untuk komponen Palet.",
@@ -5124,7 +5118,7 @@ var tools = []*genai.Tool{
 				},
 			},
 
-			// 4. Fungsi khusus untuk Corepart
+			
 			{
 				Name:        "update_corepart_status",
 				Description: "Mengubah status untuk komponen Corepart.",
@@ -5157,13 +5151,13 @@ type pdd struct {
 	PanelVendorName    sql.NullString  `json:"panel_vendor_name"`
 	BusbarVendorNames  sql.NullString  `json:"busbar_vendor_names"`
 }
-// File: main.go
 
-// =============================================================================
-// FUNGSI AI UTAMA (GANTI SEMUA DI BAWAH INI)
-// =============================================================================
 
-// Salin dan ganti seluruh fungsi askGeminiAboutPanelHandler Anda dengan ini
+
+
+
+
+
 func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	panelNoPp := vars["no_pp"]
@@ -5231,7 +5225,7 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	ctx := context.Background()
-	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" // Pastikan API Key Anda benar
+	apiKey := "AIzaSyDiMY2xY0N_eOw5vUzk-J3sLVDb81TEfS8" 
 	if apiKey == "" {
 		respondWithError(w, http.StatusInternalServerError, "GEMINI_API_KEY is not set")
 		return
@@ -5323,12 +5317,12 @@ func (a *App) askGeminiAboutPanelHandler(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// Salin dan ganti seluruh fungsi getToolsForRole Anda dengan ini
+
 func getToolsForRole(role string) []*genai.Tool {
-	// Kumpulan semua kemungkinan "alat"
+	
 	var allTools []*genai.FunctionDeclaration
 
-	// --- Alat untuk Semua Role ---
+	
 	allTools = append(allTools, &genai.FunctionDeclaration{
 		Name: "get_panel_summary",
 		Description: "Memberikan ringkasan status dan progres terkini dari panel yang sedang dibahas.",
@@ -5367,7 +5361,7 @@ func getToolsForRole(role string) []*genai.Tool {
 		},
 	})
 
-	// --- Alat Khusus Admin ---
+	
 	if role == AppRoleAdmin {
 		allTools = append(allTools, &genai.FunctionDeclaration{
 			Name: "update_panel_progress",
@@ -5401,7 +5395,7 @@ func getToolsForRole(role string) []*genai.Tool {
 		})
 	}
 
-	// --- Alat Berdasarkan Role Spesifik (K3, K5, WHS) ---
+	
 	if role == AppRoleAdmin || role == AppRoleK3 {
 		allTools = append(allTools, &genai.FunctionDeclaration{
 			Name: "update_palet_status",
@@ -5452,7 +5446,7 @@ func getToolsForRole(role string) []*genai.Tool {
 }
 
 
-// Salin dan ganti seluruh fungsi executeDatabaseFunction Anda dengan ini
+
 func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (string, error) {
 	executeUpdate := func(column string, value interface{}) error {
 		query := fmt.Sprintf("UPDATE panels SET %s = $1 WHERE no_pp = $2", column)
@@ -5567,7 +5561,7 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 }
 
 func sendNotificationEmail(recipients []string, subject, htmlBody string) {
-	// Filter email kosong atau tidak valid
+	
 	validRecipients := []string{}
 	for _, r := range recipients {
 		if strings.Contains(strings.TrimSpace(r), "@") {
@@ -5602,16 +5596,16 @@ func sendNotificationEmail(recipients []string, subject, htmlBody string) {
 }
 
 func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Request) {
-    // Ambil panel_no_pp dari query parameter (?panel_no_pp=...)
+    
     panelNoPp := r.URL.Query().Get("panel_no_pp")
 
-    // Jika tidak ada panel_no_pp, tidak ada yang bisa direkomendasikan
+    
     if panelNoPp == "" {
         respondWithJSON(w, http.StatusOK, []string{})
         return
     }
 
-    // Query untuk mengambil semua email unik dari semua isu pada panel yang sama
+    
     query := `
         SELECT DISTINCT unnest(string_to_array(i.notify_email, ',')) as email
         FROM public.issues i
@@ -5633,7 +5627,7 @@ func (a *App) getEmailRecommendationsHandler(w http.ResponseWriter, r *http.Requ
             log.Printf("Gagal memindai email: %v", err)
             continue
         }
-        // Pastikan email valid dan tidak kosong setelah dibersihkan
+        
         if email.Valid {
             trimmedEmail := strings.TrimSpace(email.String)
             if trimmedEmail != "" {
@@ -5675,7 +5669,7 @@ func (a *App) getAdditionalSRsByPanelHandler(w http.ResponseWriter, r *http.Requ
 	var srs []AdditionalSR
 	for rows.Next() {
 		var sr AdditionalSR
-		// Perbarui Scan
+		
 		if err := rows.Scan(&sr.ID, &sr.PanelNoPp, &sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier, &sr.Status, &sr.Remarks, &sr.CreatedAt, &sr.CloseDate, &sr.ReceivedDate); err != nil {			respondWithError(w, http.StatusInternalServerError, "Failed to scan Additional SR: "+err.Error())
 			return
 		}
@@ -5692,7 +5686,7 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Penting: Client harus mengirim field 'createdBy' dalam payload
+	
 	var payload struct {
 		AdditionalSR
 		CreatedBy string `json:"createdBy"`
@@ -5718,7 +5712,7 @@ func (a *App) createAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// --- Logika Notifikasi ---
+	
 	go func() {
 		stakeholders, err := a.getPanelStakeholders(panelNoPp)
 		if err != nil {
@@ -5752,7 +5746,7 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Penting: Client harus mengirim field 'updatedBy' dalam payload
+	
 	var payload struct {
 		AdditionalSR
 		UpdatedBy string `json:"updatedBy"`
@@ -5762,7 +5756,7 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Dapatkan No PP dari database sebelum update, untuk notifikasi
+	
 	var panelNoPp string
 	err = a.DB.QueryRow("SELECT panel_no_pp FROM additional_sr WHERE id = $1", id).Scan(&panelNoPp)
 	if err != nil {
@@ -5774,7 +5768,7 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Lakukan update ke database
+	
 	query := `
 			UPDATE additional_sr SET
 				po_number = $1, item = $2, quantity = $3, supplier = $4,
@@ -5787,7 +5781,7 @@ func (a *App) updateAdditionalSRHandler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-	// --- Logika Notifikasi ---
+	
 	go func() {
 		stakeholders, err := a.getPanelStakeholders(panelNoPp)
 		if err != nil {
@@ -6354,7 +6348,7 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, finalResponse)
 }
 func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
-	// UBAH QUERY INI untuk menyertakan p.no_panel
+	
 	query := `
 		SELECT
 			ps.position_code,
@@ -6375,7 +6369,7 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
 	var slots []ProductionSlot
 	for rows.Next() {
 		var slot ProductionSlot
-		// TAMBAHKAN &slot.PanelNoPanel di sini
+		
 		if err := rows.Scan(&slot.PositionCode, &slot.IsOccupied, &slot.PanelNoPp, &slot.PanelNoPanel); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Failed to scan slot: "+err.Error())
 			return
@@ -6385,13 +6379,13 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
 
 	respondWithJSON(w, http.StatusOK, slots)
 }
-// sendNotificationToUsers mengirim notifikasi ke banyak pengguna.
+
 func (a *App) sendNotificationToUsers(usernames []string, title string, body string) {
 	if len(usernames) == 0 {
-		return // Tidak ada target, hentikan
+		return 
 	}
 
-	// 1. Ambil semua token unik dari daftar username
+	
 	query := "SELECT DISTINCT fcm_token FROM user_devices WHERE username = ANY($1)"
 	rows, err := a.DB.Query(query, pq.Array(usernames))
 	if err != nil {
@@ -6415,7 +6409,7 @@ func (a *App) sendNotificationToUsers(usernames []string, title string, body str
 		return
 	}
 
-	// 2. Buat dan kirim pesan notifikasi
+	
 	message := &messaging.MulticastMessage{
 		Notification: &messaging.Notification{
 			Title: title,
@@ -6440,7 +6434,7 @@ func (a *App) sendNotificationToUsers(usernames []string, title string, body str
 	log.Printf("Successfully sent %d notifications to %d devices for users %v. Failures: %d", br.SuccessCount, len(tokens), usernames, br.FailureCount)
 }
 
-// getAdminUsernames mengambil semua username dengan role 'admin'.
+
 func (a *App) getAdminUsernames() ([]string, error) {
 	query := `
 		SELECT ca.username FROM company_accounts ca
@@ -6463,7 +6457,7 @@ func (a *App) getAdminUsernames() ([]string, error) {
 	return admins, nil
 }
 
-// getPanelStakeholders mengambil semua user yang terkait dengan sebuah panel.
+
 func (a *App) getPanelStakeholders(panelNoPp string) ([]string, error) {
 	query := `
 		SELECT DISTINCT ca.username
@@ -6499,33 +6493,33 @@ func (a *App) getPanelStakeholders(panelNoPp string) ([]string, error) {
 	return stakeholders, nil
 }
 
-// startNotificationScheduler adalah worker utama yang berjalan di background.
+
 func (a *App) startNotificationScheduler() {
 	log.Println("⏰ Starting notification scheduler...")
-	// Untuk testing, ganti menjadi `time.NewTicker(1 * time.Minute)`
-	// Untuk produksi, jalankan setiap jam
+	
+	
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	// Jalankan sekali saat startup
+	
 	a.runScheduledChecks()
 
 	for range ticker.C {
-		// Cek apakah sudah waktunya (misal: jam 8 pagi)
+		
 		if time.Now().Hour() == 8 {
 			a.runScheduledChecks()
 		}
 	}
 }
 
-// runScheduledChecks menjalankan semua pemeriksaan terjadwal.
+
 func (a *App) runScheduledChecks() {
 	log.Println("Running scheduled checks for notifications...")
 	a.checkPanelsDueToday()
 	a.checkOverduePanels()
 }
 
-// checkPanelsDueToday mengirim notifikasi untuk panel yang harus dikirim hari ini.
+
 func (a *App) checkPanelsDueToday() {
 	query := `SELECT no_pp FROM panels WHERE target_delivery::date = CURRENT_DATE AND is_closed = false`
 	rows, err := a.DB.Query(query)
@@ -6550,7 +6544,7 @@ func (a *App) checkPanelsDueToday() {
 	}
 }
 
-// checkOverduePanels mengirim notifikasi untuk panel yang telat.
+
 func (a *App) checkOverduePanels() {
 	query := `SELECT no_pp FROM panels WHERE target_delivery::date < CURRENT_DATE AND is_closed = false`
 	rows, err := a.DB.Query(query)
@@ -6575,7 +6569,7 @@ func (a *App) checkOverduePanels() {
 	}
 }
 
-// registerDeviceHandler menerima dan menyimpan FCM token dari client.
+
 func (a *App) registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Username string `json:"username"`
