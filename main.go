@@ -6208,10 +6208,10 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	         FROM public.companies c 
 	         JOIN public.busbars b ON c.id = b.vendor 
 	         WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
-	        (SELECT json_agg(json_build_object('vendor_name', c.name, 'remark', b.remarks, 'vendor_id', c.id))
-	         FROM public.busbars b
-	         JOIN public.companies c ON b.vendor = c.id
-	         WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != '') as busbar_remarks,
+			COALESCE((SELECT json_agg(json_build_object('vendor_name', c.name, 'remark', b.remarks, 'vendor_id', c.id))
+			 FROM public.busbars b
+			 JOIN public.companies c ON b.vendor = c.id
+			 WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''), '[]'::jsonb) as busbar_remarks,
 	        (SELECT STRING_AGG(c.name, ', ') 
 	         FROM public.companies c 
 	         JOIN public.components co ON c.id = co.vendor 
