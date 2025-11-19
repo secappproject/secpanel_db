@@ -133,15 +133,17 @@ type CommentForExport struct {
 }
 
 type AdditionalSRForExport struct {
-	PanelNoPp    string  `json:"panel_no_pp"`
-	PanelNoWbs   *string `json:"panel_no_wbs"`
-	PanelNoPanel *string `json:"panel_no_panel"`
-	PoNumber     string  `json:"po_number"`
-	Item         string  `json:"item"`
-	Quantity     int     `json:"quantity"`
-	Supplier     *string `json:"supplier"`
-	Status       string  `json:"status"`
-	Remarks      string  `json:"remarks"`
+	PanelNoPp    string      `json:"panel_no_pp"`
+	PanelNoWbs   *string     `json:"panel_no_wbs"`
+	PanelNoPanel *string     `json:"panel_no_panel"`
+	PoNumber     string      `json:"po_number"`
+	Item         string      `json:"item"`
+	Quantity     int         `json:"quantity"`
+	Supplier     *string     `json:"supplier"`
+	Status       string      `json:"status"`
+	Remarks      string      `json:"remarks"`
+	ReceivedDate *customTime `json:"received_date"`
+	CloseDate    *customTime `json:"close_date"`
 }
 
 type Issue struct {
@@ -2365,8 +2367,8 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 
 		srQuery := `
-            SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks
-            FROM additional_sr asr
+            SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks, asr.received_date, asr.close_date
+            FROM additional_sr asr
             JOIN panels p ON asr.panel_no_pp = p.no_pp
             WHERE p.no_pp = ANY($1)
             ORDER BY p.no_pp, asr.id`
@@ -2383,7 +2385,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 				if err := srRows.Scan(
 					&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel,
 					&sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier,
-					&sr.Status, &sr.Remarks,
+					&sr.Status, &sr.Remarks, &sr.ReceivedDate, &sr.CloseDate,
 				); err == nil {
 					srs = append(srs, sr)
 				} else {
