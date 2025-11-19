@@ -2365,13 +2365,14 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			result["comments"] = comments
 			log.Printf("DEBUG: Found %d comments", len(comments))
 		}
-
 		srQuery := `
-            SELECT p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity, asr.supplier, asr.status, asr.remarks, asr.received_date, asr.close_date
-            FROM additional_sr asr
-            JOIN panels p ON asr.panel_no_pp = p.no_pp
-            WHERE p.no_pp = ANY($1)
-            ORDER BY p.no_pp, asr.id`
+			SELECT
+				p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity,
+				asr.supplier, asr.status, asr.remarks, asr.received_date, asr.close_date
+			FROM additional_sr asr
+			JOIN panels p ON asr.panel_no_pp = p.no_pp
+			WHERE p.no_pp = ANY($1)
+			ORDER BY p.no_pp, asr.id`
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
 		if err != nil {
 			log.Printf("Error querying additional SRs for export: %v", err)
