@@ -2367,10 +2367,19 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 		srQuery := `
 			SELECT
-				p.no_pp, p.no_wbs, p.no_panel, asr.po_number, asr.item, asr.quantity,
-				asr.supplier, asr.status, asr.remarks, asr.received_date, asr.close_date
+				p.no_pp, 
+				p.no_wbs, 
+				p.no_panel, 
+				COALESCE(asr.po_number, '') as po_number,  
+				COALESCE(asr.item, '') as item,            
+				COALESCE(asr.quantity, 0) as quantity,     
+				asr.supplier,                            
+				COALESCE(asr.status, 'open') as status,    
+				COALESCE(asr.remarks, '') as remarks,     
+				asr.received_date, 
+				asr.close_date
 			FROM additional_sr asr
-			LEFT JOIN panels p ON asr.panel_no_pp = p.no_pp
+			JOIN panels p ON asr.panel_no_pp = p.no_pp
 			WHERE p.no_pp = ANY($1)
 			ORDER BY p.no_pp, asr.id`
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
