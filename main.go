@@ -2367,7 +2367,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 		srQuery := `
 			SELECT
-				asr.panel_no_pp, -- UBAH: Ambil ID dari tabel additional_sr langsung
+				asr.panel_no_pp,
 				p.no_wbs,
 				p.no_panel,
 				COALESCE(asr.po_number, '') as po_number, 
@@ -2379,8 +2379,10 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 				asr.received_date, 
 				asr.close_date
 			FROM additional_sr asr
-			JOIN panels p ON asr.panel_no_pp = p.no_pp
-			WHERE asr.panel_no_pp = ANY($1)
+			LEFT JOIN panels p ON asr.panel_no_pp = p.no_pp  
+			WHERE 
+				asr.panel_no_pp = ANY($1) 
+				OR p.no_pp IS NULL      
 			ORDER BY asr.panel_no_pp, asr.id`
 
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
