@@ -2367,10 +2367,10 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 		srQuery := `
 			SELECT
-				p.no_pp, 
-				p.no_wbs, 
-				p.no_panel, 
-				COALESCE(asr.po_number, '') as po_number,  
+				asr.panel_no_pp, -- UBAH: Ambil ID dari tabel additional_sr langsung
+				p.no_wbs,
+				p.no_panel,
+				COALESCE(asr.po_number, '') as po_number, 
 				COALESCE(asr.item, '') as item,            
 				COALESCE(asr.quantity, 0) as quantity,     
 				asr.supplier,                            
@@ -2380,8 +2380,9 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 				asr.close_date
 			FROM additional_sr asr
 			JOIN panels p ON asr.panel_no_pp = p.no_pp
-			WHERE p.no_pp = ANY($1)
-			ORDER BY p.no_pp, asr.id`
+			WHERE asr.panel_no_pp = ANY($1)
+			ORDER BY asr.panel_no_pp, asr.id`
+
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
 		if err != nil {
 			log.Printf("Error querying additional SRs for export: %v", err)
