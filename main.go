@@ -2435,11 +2435,11 @@ func (a *App) getFilteredDataForExportHandler(w http.ResponseWriter, r *http.Req
 	}
 	respondWithJSON(w, http.StatusOK, data)
 }
-
 func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Request) {
-
 	includePanels, _ := strconv.ParseBool(r.URL.Query().Get("panels"))
 	includeUsers, _ := strconv.ParseBool(r.URL.Query().Get("users"))
+	includeIssues, _ := strconv.ParseBool(r.URL.Query().Get("issues"))
+	includeSrs, _ := strconv.ParseBool(r.URL.Query().Get("srs"))
 
 	data, err := a.getFilteredDataForExport(r)
 	if err != nil {
@@ -2449,7 +2449,7 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 
 	allCompaniesResult, err := fetchAllAs(a.DB, "companies", func() interface{} { return &Company{} })
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	allCompanies := allCompaniesResult.([]interface{})
@@ -2527,11 +2527,19 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 		jsonData["user_data"] = userData
 	}
 
+	if includeIssues {
+		jsonData["issues"] = data["issues"]
+		jsonData["comments"] = data["comments"]
+	}
+
+	if includeSrs {
+		jsonData["additional_srs"] = data["additional_srs"]
+	}
+
 	respondWithJSON(w, http.StatusOK, jsonData)
 }
 
 func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http.Request) {
-
 	tablesParam := r.URL.Query().Get("tables")
 	tablesToInclude := strings.Split(tablesParam, ",")
 
@@ -2544,13 +2552,11 @@ func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http
 	jsonData := make(map[string]interface{})
 
 	for _, table := range tablesToInclude {
-
 		normalizedTable := strings.ToLower(strings.ReplaceAll(table, " ", ""))
 		switch normalizedTable {
 		case "companies":
 			jsonData["companies"] = data["companies"]
-		case "companyaccounts":
-
+		case "companyaccounts", "company_accounts":
 			jsonData["company_accounts"] = data["companyAccounts"]
 		case "panels":
 			jsonData["panels"] = data["panels"]
@@ -2562,11 +2568,18 @@ func (a *App) generateFilteredDatabaseJsonHandler(w http.ResponseWriter, r *http
 			jsonData["palet"] = data["palet"]
 		case "corepart":
 			jsonData["corepart"] = data["corepart"]
+		case "additionalsr", "additional_sr":
+			jsonData["additional_sr"] = data["additional_srs"]
+		case "issues":
+			jsonData["issues"] = data["issues"]
+		case "issuecomments", "issue_comments", "comments":
+			jsonData["issue_comments"] = data["comments"]
 		}
 	}
 
 	respondWithJSON(w, http.StatusOK, jsonData)
 }
+
 func (a *App) importDataHandler(w http.ResponseWriter, r *http.Request) {
 	var data map[string][]map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
