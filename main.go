@@ -2255,9 +2255,9 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			panelQuery += " AND (" + strings.Join(statusConditions, " OR ") + ")"
 		}
 	}
-	if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
-		panelQuery += " AND (p.is_closed = false)"
-	}
+	// if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
+	// 	panelQuery += " AND (p.is_closed = false)"
+	// }
 
 	rows, err := tx.Query(panelQuery, args...)
 	if err != nil {
