@@ -126,6 +126,7 @@ type IssueForExport struct {
 }
 
 type CommentForExport struct {
+	CommentID        string         `json:"comment_id"`
 	IssueID          int            `json:"issue_id"`
 	Text             string         `json:"text"`
 	SenderID         string         `json:"sender_id"`
@@ -2083,6 +2084,7 @@ func (a *App) updateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
+
 func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{}, error) {
 	queryParams := r.URL.Query()
 	result := make(map[string]interface{})
@@ -2255,9 +2257,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			panelQuery += " AND (" + strings.Join(statusConditions, " OR ") + ")"
 		}
 	}
-	// if includeArchived, err := strconv.ParseBool(queryParams.Get("include_archived")); err == nil && !includeArchived {
-	// 	panelQuery += " AND (p.is_closed = false)"
-	// }
 
 	rows, err := tx.Query(panelQuery, args...)
 	if err != nil {
@@ -2276,7 +2275,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc,
 			&p.StatusPenyelesaian, &p.ProductionSlot,
 		); err != nil {
-			log.Printf("Peringatan: Gagal scan panel row: %v", err)
 			continue
 		}
 		panels = append(panels, p)
@@ -2323,7 +2321,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		}
 
 		commentQuery := `
-            SELECT ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
+            SELECT ic.id, ic.issue_id, ic.text, ic.sender_id, ic.reply_to_comment_id
             FROM issue_comments ic
             JOIN issues i ON ic.issue_id = i.id
             JOIN chats ch ON i.chat_id = ch.id
@@ -2338,47 +2336,17 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 			for commentRows.Next() {
 				var comment CommentForExport
 				if err := commentRows.Scan(
-					&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID,
+					&comment.CommentID,
+					&comment.IssueID,
+					&comment.Text,
+					&comment.SenderID,
+					&comment.ReplyToCommentID,
 				); err == nil {
 					comments = append(comments, comment)
 				}
 			}
 			result["comments"] = comments
 		}
-
-		log.Println("========== DEBUG ADDITIONAL SR START ==========")
-		if len(relevantPanelIds) > 0 {
-			log.Printf("DEBUG: Filter menggunakan %d Panel ID.", len(relevantPanelIds))
-			log.Printf("DEBUG: Contoh ID yang dicari: '%s'", relevantPanelIds[0])
-		}
-
-		debugRawQuery := `SELECT panel_no_pp, LENGTH(panel_no_pp) FROM additional_sr LIMIT 5`
-		debugRows, errDebug := tx.Query(debugRawQuery)
-		if errDebug != nil {
-			log.Printf("DEBUG ERROR: Gagal cek raw data: %v", errDebug)
-		} else {
-			log.Println("DEBUG: Sampling Data Database (additional_sr):")
-			for debugRows.Next() {
-				var rawPP string
-				var length int
-				debugRows.Scan(&rawPP, &length)
-				log.Printf(" -> DB: '%s' | Panjang: %d", rawPP, length)
-			}
-			debugRows.Close()
-		}
-
-		if len(relevantPanelIds) > 0 {
-			checkQuery := `SELECT COUNT(*) FROM additional_sr WHERE panel_no_pp = $1`
-			var countCheck int
-			_ = tx.QueryRow(checkQuery, relevantPanelIds[0]).Scan(&countCheck)
-			log.Printf("DEBUG: Cek match eksak untuk ID '%s' -> Ditemukan: %d baris", relevantPanelIds[0], countCheck)
-
-			checkQueryTrim := `SELECT COUNT(*) FROM additional_sr WHERE TRIM(panel_no_pp) = $1`
-			var countCheckTrim int
-			_ = tx.QueryRow(checkQueryTrim, relevantPanelIds[0]).Scan(&countCheckTrim)
-			log.Printf("DEBUG: Cek match DENGAN TRIM untuk ID '%s' -> Ditemukan: %d baris", relevantPanelIds[0], countCheckTrim)
-		}
-		log.Println("========== DEBUG ADDITIONAL SR END ==========")
 
 		srQuery := `
 			SELECT
@@ -2401,7 +2369,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Error querying additional SRs: %v", err)
 			result["additional_srs"] = []AdditionalSRForExport{}
 		} else {
 			defer srRows.Close()
@@ -2417,7 +2384,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 				}
 			}
 			result["additional_srs"] = srs
-			log.Printf("DEBUG: Found %d additional SRs", len(srs))
 		}
 	} else {
 		result["busbars"] = []Busbar{}
