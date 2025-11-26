@@ -2202,8 +2202,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		return query, localArgs
 	}
 
-	log.Printf("DEBUG: Final Query: %s", panelQuery)
-	log.Printf("DEBUG: Final Args: %v", args)
 	var newArgs []interface{}
 	panelQuery, newArgs = addDateFilter(panelQuery, "p.start_date", queryParams.Get("start_date_start"), queryParams.Get("start_date_end"))
 	args = append(args, newArgs...)
@@ -2293,7 +2291,6 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	}
 
 	if len(relevantPanelIds) > 0 {
-		log.Printf("DEBUG: Fetching related data for panel IDs: %v", relevantPanelIds)
 		result["busbars"], _ = fetchInAs(tx, "busbars", "panel_no_pp", relevantPanelIds, func() interface{} { return &Busbar{} })
 		result["components"], _ = fetchInAs(tx, "components", "panel_no_pp", relevantPanelIds, func() interface{} { return &Component{} })
 		result["palet"], _ = fetchInAs(tx, "palet", "panel_no_pp", relevantPanelIds, func() interface{} { return &Palet{} })
@@ -2308,30 +2305,21 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
             ORDER BY p.no_pp, i.created_at`
 		issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-
-			log.Printf("Error querying issues for export: %v", err)
 			result["issues"] = []IssueForExport{}
 		} else {
 			defer issueRows.Close()
 			var issues []IssueForExport
 			for issueRows.Next() {
 				var issue IssueForExport
-
 				if err := issueRows.Scan(
 					&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel,
 					&issue.IssueID, &issue.Title, &issue.Description, &issue.Status,
 					&issue.CreatedBy, &issue.CreatedAt,
 				); err == nil {
 					issues = append(issues, issue)
-				} else {
-					log.Printf("Warning: Failed to scan issue row: %v", err)
 				}
 			}
-			if err = issueRows.Err(); err != nil {
-				log.Printf("Error during issue rows iteration: %v", err)
-			}
 			result["issues"] = issues
-			log.Printf("DEBUG: Found %d issues", len(issues))
 		}
 
 		commentQuery := `
@@ -2343,76 +2331,95 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
             ORDER BY ic.issue_id, ic.timestamp`
 		commentRows, err := tx.Query(commentQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Error querying comments for export: %v", err)
 			result["comments"] = []CommentForExport{}
 		} else {
 			defer commentRows.Close()
 			var comments []CommentForExport
 			for commentRows.Next() {
 				var comment CommentForExport
-
 				if err := commentRows.Scan(
 					&comment.IssueID, &comment.Text, &comment.SenderID, &comment.ReplyToCommentID,
 				); err == nil {
 					comments = append(comments, comment)
-				} else {
-					log.Printf("Warning: Failed to scan comment row: %v", err)
 				}
 			}
-			if err = commentRows.Err(); err != nil {
-				log.Printf("Error during comment rows iteration: %v", err)
-			}
 			result["comments"] = comments
-			log.Printf("DEBUG: Found %d comments", len(comments))
 		}
+
+		log.Println("========== DEBUG ADDITIONAL SR START ==========")
+		if len(relevantPanelIds) > 0 {
+			log.Printf("DEBUG: Filter menggunakan %d Panel ID.", len(relevantPanelIds))
+			log.Printf("DEBUG: Contoh ID yang dicari: '%s'", relevantPanelIds[0])
+		}
+
+		debugRawQuery := `SELECT panel_no_pp, LENGTH(panel_no_pp) FROM additional_sr LIMIT 5`
+		debugRows, errDebug := tx.Query(debugRawQuery)
+		if errDebug != nil {
+			log.Printf("DEBUG ERROR: Gagal cek raw data: %v", errDebug)
+		} else {
+			log.Println("DEBUG: Sampling Data Database (additional_sr):")
+			for debugRows.Next() {
+				var rawPP string
+				var length int
+				debugRows.Scan(&rawPP, &length)
+				log.Printf(" -> DB: '%s' | Panjang: %d", rawPP, length)
+			}
+			debugRows.Close()
+		}
+
+		if len(relevantPanelIds) > 0 {
+			checkQuery := `SELECT COUNT(*) FROM additional_sr WHERE panel_no_pp = $1`
+			var countCheck int
+			_ = tx.QueryRow(checkQuery, relevantPanelIds[0]).Scan(&countCheck)
+			log.Printf("DEBUG: Cek match eksak untuk ID '%s' -> Ditemukan: %d baris", relevantPanelIds[0], countCheck)
+
+			checkQueryTrim := `SELECT COUNT(*) FROM additional_sr WHERE TRIM(panel_no_pp) = $1`
+			var countCheckTrim int
+			_ = tx.QueryRow(checkQueryTrim, relevantPanelIds[0]).Scan(&countCheckTrim)
+			log.Printf("DEBUG: Cek match DENGAN TRIM untuk ID '%s' -> Ditemukan: %d baris", relevantPanelIds[0], countCheckTrim)
+		}
+		log.Println("========== DEBUG ADDITIONAL SR END ==========")
+
 		srQuery := `
 			SELECT
 				asr.panel_no_pp,
 				p.no_wbs,
 				p.no_panel,
 				COALESCE(asr.po_number, '') as po_number, 
-				COALESCE(asr.item, '') as item,            
+				COALESCE(asr.item, '') as item,             
 				COALESCE(asr.quantity, 0) as quantity,     
-				asr.supplier,                            
+				COALESCE(asr.supplier, '') as supplier,                             
 				COALESCE(asr.status, 'open') as status,    
 				COALESCE(asr.remarks, '') as remarks,     
 				asr.received_date, 
 				asr.close_date
 			FROM additional_sr asr
-			LEFT JOIN panels p ON asr.panel_no_pp = p.no_pp  
+			LEFT JOIN panels p ON TRIM(asr.panel_no_pp) = p.no_pp  
 			WHERE 
-				asr.panel_no_pp = ANY($1) 
-				OR p.no_pp IS NULL      
+				TRIM(asr.panel_no_pp) = ANY($1) 
 			ORDER BY asr.panel_no_pp, asr.id`
 
 		srRows, err := tx.Query(srQuery, pq.Array(relevantPanelIds))
 		if err != nil {
-			log.Printf("Error querying additional SRs for export: %v", err)
+			log.Printf("Error querying additional SRs: %v", err)
 			result["additional_srs"] = []AdditionalSRForExport{}
 		} else {
 			defer srRows.Close()
 			var srs []AdditionalSRForExport
 			for srRows.Next() {
 				var sr AdditionalSRForExport
-
 				if err := srRows.Scan(
 					&sr.PanelNoPp, &sr.PanelNoWbs, &sr.PanelNoPanel,
 					&sr.PoNumber, &sr.Item, &sr.Quantity, &sr.Supplier,
 					&sr.Status, &sr.Remarks, &sr.ReceivedDate, &sr.CloseDate,
 				); err == nil {
 					srs = append(srs, sr)
-				} else {
-					log.Printf("Warning: Failed to scan additional SR row: %v", err)
 				}
-			}
-			if err = srRows.Err(); err != nil {
-				log.Printf("Error during additional SR rows iteration: %v", err)
 			}
 			result["additional_srs"] = srs
 			log.Printf("DEBUG: Found %d additional SRs", len(srs))
 		}
 	} else {
-		log.Printf("DEBUG: No relevant panels found, initializing related data to empty slices.")
 		result["busbars"] = []Busbar{}
 		result["components"] = []Component{}
 		result["palet"] = []Palet{}
