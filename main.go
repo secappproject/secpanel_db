@@ -360,7 +360,7 @@ type App struct {
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
 	dbSslMode := os.Getenv("DB_SSLMODE")
 	if dbSslMode == "" {
-		dbSslMode = "require"
+		dbSslMode = "disable"
 	}
 	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
 
