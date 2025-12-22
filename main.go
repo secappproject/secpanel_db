@@ -889,7 +889,8 @@ func (a *App) deleteCompanyAccountHandler(w http.ResponseWriter, r *http.Request
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 func (a *App) getAllCompanyAccountsHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.DB.Query("SELECT username, password, company_id FROM public.company_accounts")
+	// rows, err := a.DB.Query("SELECT username, password, company_id FROM public.company_accounts")
+	rows, err := a.DB.Query("SELECT username, COALESCE(password, ''), company_id FROM public.company_accounts")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
