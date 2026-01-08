@@ -2464,9 +2464,8 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 				"Panel No":               panel.NoPanel,
 				"WBS":                    panel.NoWbs,
 				"PROJECT":                panel.Project,
-				"Plan Start":             panel.StartDate,
+				"Target Delicery":        panel.TargetDelivery,
 				"Actual Delivery ke SEC": panel.TargetDelivery,
-				"Type Panel":             panel.PanelType,
 				"Panel":                  panelVendorName,
 				"Busbar":                 panelBusbarMap[panel.NoPp],
 				"Progres Panel":          panel.PercentProgress,
@@ -2895,12 +2894,28 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				progress = 100.0
 			}
 
+			rawTargetDelivery := getValueCaseInsensitive(row, "Target Delivery")
+
+			if rawTargetDelivery == "" {
+				rawTargetDelivery = getValueCaseInsensitive(row, "Plan Start")
+			}
+
+			rawStartDate := getValueCaseInsensitive(row, "Start Assembly")
+
+			if rawStartDate == "" {
+				rawStartDate = getValueCaseInsensitive(row, "Start Date")
+			}
+
+			rawPanelType := getValueCaseInsensitive(row, "Type Panel")
+
+			parsedStartDate := parseDate(rawStartDate)
+
 			panelMap := map[string]interface{}{
 				"no_pp":             noPp,
 				"no_panel":          getValueCaseInsensitive(row, "Panel No"),
 				"no_wbs":            getValueCaseInsensitive(row, "WBS"),
 				"project":           getValueCaseInsensitive(row, "PROJECT"),
-				"target_delivery":   parseDate(getValueCaseInsensitive(row, "Plan Start")),
+				"target_delivery":   parseDate(rawTargetDelivery),
 				"closed_date":       actualDeliveryDate,
 				"is_closed":         actualDeliveryDate != nil,
 				"vendor_id":         panelVendorId,
@@ -2911,6 +2926,14 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 				"status_component":  "Open",
 				"status_palet":      "Open",
 				"status_corepart":   "Open",
+			}
+
+			if rawPanelType != "" {
+				panelMap["panel_type"] = rawPanelType
+			}
+
+			if parsedStartDate != nil {
+				panelMap["start_date"] = parsedStartDate
 			}
 
 			if payload.LoggedInUsername != nil {
@@ -2941,66 +2964,6 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			dataProcessed = true
-		}
-	}
-
-	if wbsSheetData, ok := payload.Data["wbs"]; ok {
-		for i, row := range wbsSheetData {
-			cleanMapData(row)
-			rowNum := i + 2
-
-			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
-			var noPp string
-			if f, err := strconv.ParseFloat(noPpRaw, 64); err == nil {
-				noPp = fmt.Sprintf("%d", int(f))
-			} else {
-				noPp = noPpRaw
-			}
-
-			if noPp == "" {
-				continue
-			}
-
-			var updates []string
-			var args []interface{}
-			argCounter := 1
-
-			targetDeliveryVal := getValueCaseInsensitive(row, "Target Delivery")
-			if targetDeliveryVal != "" {
-				if parsedDate := parseDate(targetDeliveryVal); parsedDate != nil {
-					updates = append(updates, fmt.Sprintf("target_delivery = $%d", argCounter))
-					args = append(args, *parsedDate)
-					argCounter++
-				}
-			}
-
-			typePanelVal := getValueCaseInsensitive(row, "Type Panel")
-			if typePanelVal != "" {
-				updates = append(updates, fmt.Sprintf("panel_type = $%d", argCounter))
-				args = append(args, typePanelVal)
-				argCounter++
-			}
-
-			startAssemblyVal := getValueCaseInsensitive(row, "Start Assembly")
-			if startAssemblyVal != "" {
-				if parsedDate := parseDate(startAssemblyVal); parsedDate != nil {
-					updates = append(updates, fmt.Sprintf("start_date = $%d", argCounter))
-					args = append(args, *parsedDate)
-					argCounter++
-				}
-			}
-
-			if len(updates) > 0 {
-				query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
-				args = append(args, noPp)
-
-				_, err := tx.Exec(query, args...)
-				if err != nil {
-					errors = append(errors, fmt.Sprintf("WBS baris %d (PP: %s): Gagal update data: %v", rowNum, noPp, err))
-				} else {
-					dataProcessed = true
-				}
-			}
 		}
 	}
 	if len(errors) > 0 {
@@ -4264,27 +4227,6 @@ func generateExcelTemplate(dataType string) *excelize.File {
 		for i, h := range panelHeaders {
 			f.SetCellValue("panels", fmt.Sprintf("%c1", 'A'+i), h)
 		}
-
-		now := time.Now().Format("2006-01-02")
-		f.SetCellValue("panel", "A2", "12345")
-		f.SetCellValue("panel", "B2", "PNL-001")
-		f.SetCellValue("panel", "C2", "WBS-A")
-		f.SetCellValue("panel", "D2", "Project X")
-		f.SetCellValue("panel", "E2", now)
-		f.SetCellValue("panel", "F2", "")
-		f.SetCellValue("panel", "G2", "Nama Vendor Panel")
-		f.SetCellValue("panel", "H2", "Nama Vendor Busbar")
-		f.NewSheet("wbs")
-
-		wbsHeaders := []string{"PP Panel", "Target Delivery", "Type Panel", "Start Assembly"}
-		for i, h := range wbsHeaders {
-			f.SetCellValue("wbs", fmt.Sprintf("%c1", 'A'+i), h)
-		}
-
-		f.SetCellValue("wbs", "A2", "12345")
-		f.SetCellValue("wbs", "B2", now)
-		f.SetCellValue("wbs", "C2", "Wall Mounting")
-		f.SetCellValue("wbs", "D2", now)
 
 		busbarHeaders := []string{"panel_no_pp", "vendor", "remarks"}
 		f.NewSheet("busbars")
