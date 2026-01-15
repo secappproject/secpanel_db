@@ -39,12 +39,12 @@ const (
 	AppRoleK5        = "k5"
 )
 
-const (
-	CONFIG_SMTP_HOST     = "smtp.gmail.com"
-	CONFIG_SMTP_PORT     = 587
-	CONFIG_SENDER_EMAIL  = "trisutorpro@gmail.com"
-	CONFIG_AUTH_PASSWORD = "bbcsxqtxmxbzveod"
-)
+// const (
+// 	CONFIG_SMTP_HOST     = "smtp.gmail.com"
+// 	CONFIG_SMTP_PORT     = 587
+// 	CONFIG_SENDER_EMAIL  = "trisutorpro@gmail.com"
+// 	CONFIG_AUTH_PASSWORD = "bbcsxqtxmxbzveod"
+// )
 
 type LogEntry struct {
 	Action    string    `json:"action"`
@@ -5504,7 +5504,28 @@ func (a *App) executeDatabaseFunction(fc genai.FunctionCall, panelNoPp string) (
 	}
 }
 
+func getSMTPConfig() (string, int, string, string) {
+	host := os.Getenv("SMTP_HOST")
+	if host == "" {
+		host = "smtp.gmail.com"
+	}
+
+	portStr := os.Getenv("SMTP_PORT")
+	port := 587
+	if portStr != "" {
+		p, _ := strconv.Atoi(portStr)
+		port = p
+	}
+
+	email := os.Getenv("SMTP_EMAIL")
+	password := os.Getenv("SMTP_PASSWORD")
+
+	return host, port, email, password
+}
+
 func sendNotificationEmail(recipients []string, subject, htmlBody string) {
+
+	host, port, senderEmail, authPassword := getSMTPConfig()
 
 	validRecipients := []string{}
 	for _, r := range recipients {
@@ -5519,16 +5540,16 @@ func sendNotificationEmail(recipients []string, subject, htmlBody string) {
 	}
 
 	mailer := gomail.NewMessage()
-	mailer.SetHeader("From", fmt.Sprintf("SecPanel Notifikasi <%s>", CONFIG_SENDER_EMAIL))
+	mailer.SetHeader("From", fmt.Sprintf("SecPanel Notifikasi <%s>", senderEmail))
 	mailer.SetHeader("To", validRecipients...)
 	mailer.SetHeader("Subject", subject)
 	mailer.SetBody("text/html", htmlBody)
 
 	dialer := gomail.NewDialer(
-		CONFIG_SMTP_HOST,
-		CONFIG_SMTP_PORT,
-		CONFIG_SENDER_EMAIL,
-		CONFIG_AUTH_PASSWORD,
+		host,
+		port,
+		senderEmail,
+		authPassword,
 	)
 
 	log.Printf("Mengirim email notifikasi ke: %v", validRecipients)
