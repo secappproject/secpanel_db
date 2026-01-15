@@ -17,9 +17,10 @@ import (
 	"strings"
 	"time"
 
-	firebase "firebase.google.com/go/v4"
+	// firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/gorilla/handlers"
@@ -358,11 +359,24 @@ type App struct {
 }
 
 func (a *App) Initialize(dbUser, dbPassword, dbName, dbHost string) {
+	dbPort := os.Getenv("DB_PORT")
+	if dbPort == "" {
+		dbPort = "5432"
+	}
+
 	dbSslMode := os.Getenv("DB_SSLMODE")
 	if dbSslMode == "" {
 		dbSslMode = "disable"
 	}
-	connectionString := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbName, dbSslMode)
+	connectionString := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		dbUser,
+		dbPassword,
+		dbHost,
+		dbPort,
+		dbName,
+		dbSslMode,
+	)
 
 	var err error
 	a.DB, err = sql.Open("postgres", connectionString)
@@ -398,6 +412,7 @@ func (a *App) Run(addr string) {
 	log.Fatal(http.ListenAndServe(addr, handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(a.Router)))
 }
 func main() {
+	godotenv.Load()
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
@@ -407,25 +422,25 @@ func main() {
 		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
 	}
 
-	ctx := context.Background()
+	// ctx := context.Background()
 
-	firebaseApp, err := firebase.NewApp(ctx, nil)
-	if err != nil {
-		log.Fatalf("error initializing Firebase app: %v\n", err)
-	}
+	// firebaseApp, err := firebase.NewApp(ctx, nil)
+	// if err != nil {
+	// 	log.Fatalf("error initializing Firebase app: %v\n", err)
+	// }
 
-	fcmClient, err := firebaseApp.Messaging(ctx)
-	if err != nil {
-		log.Fatalf("error getting FCM client: %v\n", err)
-	}
+	// fcmClient, err := firebaseApp.Messaging(ctx)
+	// if err != nil {
+	// 	log.Fatalf("error getting FCM client: %v\n", err)
+	// }
 
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
-	app.FCMClient = fcmClient
+	// app.FCMClient = fcmClient
 
-	go app.startNotificationScheduler()
+	// go app.startNotificationScheduler()
 
-	app.Run(":8080")
+	app.Run(":8099")
 }
 func (a *App) initializeRoutes() {
 
