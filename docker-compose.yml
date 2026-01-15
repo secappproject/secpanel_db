@@ -1,12 +1,13 @@
 services:
   postgres:
     image: postgres:15-alpine
+    container_name: secpanel_postgres
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./pg_data:/var/lib/postgresql/data
     ports:
       - "55432:5432"
     restart: always
