@@ -124,6 +124,8 @@ type IssueForExport struct {
 	Status       string     `json:"status"`
 	CreatedBy    string     `json:"created_by"`
 	CreatedAt    *time.Time `json:"created_at"`
+	NotifyEmail  *string    `json:"notify_email"`
+	HasImages    bool       `json:"has_images"`
 }
 
 type CommentForExport struct {
@@ -1918,7 +1920,6 @@ func (a *App) upsertBusbarRemarkandVendorHandler(w http.ResponseWriter, r *http.
 	respondWithJSON(w, http.StatusCreated, payload)
 }
 func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
-
 	var payload struct {
 		PanelNoPp       string      `json:"panel_no_pp"`
 		VendorID        string      `json:"vendor"`
@@ -1929,12 +1930,7 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
-		return
-	}
-
-	if payload.PanelNoPp == "" {
-		respondWithError(w, http.StatusBadRequest, "panel_no_pp is required")
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
 		return
 	}
 
@@ -1942,16 +1938,35 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 	var args []interface{}
 	argCounter := 1
 
+	// LOGIKA UNTUK PCC (Hanya satu blok saja)
 	if payload.StatusBusbarPcc != nil {
 		updates = append(updates, fmt.Sprintf("status_busbar_pcc = $%d", argCounter))
 		args = append(args, *payload.StatusBusbarPcc)
 		argCounter++
+
+		// Auto-stamp Close Date jika status adalah "Close"
+		if *payload.StatusBusbarPcc == "Close" {
+			updates = append(updates, "close_date_busbar_pcc = NOW()")
+		} else {
+			// Jika diubah dari Close ke status lain, hapus tanggalnya
+			updates = append(updates, "close_date_busbar_pcc = NULL")
+		}
 	}
+
+	// LOGIKA UNTUK MCC (Hanya satu blok saja)
 	if payload.StatusBusbarMcc != nil {
 		updates = append(updates, fmt.Sprintf("status_busbar_mcc = $%d", argCounter))
 		args = append(args, *payload.StatusBusbarMcc)
 		argCounter++
+
+		if *payload.StatusBusbarMcc == "Close" {
+			updates = append(updates, "close_date_busbar_mcc = NOW()")
+		} else {
+			updates = append(updates, "close_date_busbar_mcc = NULL")
+		}
 	}
+
+	// Update Tanggal AO jika dikirim
 	if payload.AoBusbarPcc != nil {
 		updates = append(updates, fmt.Sprintf("ao_busbar_pcc = $%d", argCounter))
 		args = append(args, payload.AoBusbarPcc)
@@ -1968,18 +1983,13 @@ func (a *App) upsertStatusAOK5(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Eksekusi Update
 	query := fmt.Sprintf("UPDATE panels SET %s WHERE no_pp = $%d", strings.Join(updates, ", "), argCounter)
 	args = append(args, payload.PanelNoPp)
 
-	result, err := a.DB.Exec(query, args...)
+	_, err := a.DB.Exec(query, args...)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to update panel status for K5: "+err.Error())
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		respondWithError(w, http.StatusNotFound, "Panel with the given no_pp not found.")
+		respondWithError(w, http.StatusInternalServerError, "Failed to update panel status: "+err.Error())
 		return
 	}
 
@@ -2311,12 +2321,15 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 		result["corepart"], _ = fetchInAs(tx, "corepart", "panel_no_pp", relevantPanelIds, func() interface{} { return &Corepart{} })
 
 		issueQuery := `
-            SELECT p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, i.status, i.created_by, i.created_at
-            FROM issues i
-            JOIN chats ch ON i.chat_id = ch.id
-            JOIN panels p ON ch.panel_no_pp = p.no_pp
-            WHERE p.no_pp = ANY($1)
-            ORDER BY p.no_pp, i.created_at`
+			SELECT 
+				p.no_pp, p.no_wbs, p.no_panel, i.id, i.title, i.description, 
+				i.status, i.created_by, i.created_at, i.notify_email,
+				(SELECT EXISTS(SELECT 1 FROM photos WHERE issue_id = i.id)) as has_images
+			FROM issues i
+			JOIN chats ch ON i.chat_id = ch.id
+			JOIN panels p ON ch.panel_no_pp = p.no_pp
+			WHERE p.no_pp = ANY($1)
+			ORDER BY p.no_pp, i.created_at`
 		issueRows, err := tx.Query(issueQuery, pq.Array(relevantPanelIds))
 		if err != nil {
 			result["issues"] = []IssueForExport{}
@@ -2328,7 +2341,7 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 				if err := issueRows.Scan(
 					&issue.PanelNoPp, &issue.PanelNoWbs, &issue.PanelNoPanel,
 					&issue.IssueID, &issue.Title, &issue.Description, &issue.Status,
-					&issue.CreatedBy, &issue.CreatedAt,
+					&issue.CreatedBy, &issue.CreatedAt, &issue.NotifyEmail, &issue.HasImages,
 				); err == nil {
 					issues = append(issues, issue)
 				}
@@ -3110,44 +3123,46 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	var wbs, noPanel string
+	err = tx.QueryRow("SELECT COALESCE(no_wbs, 'N/A'), COALESCE(no_panel, 'N/A') FROM public.panels WHERE no_pp = $1", panelNoPp).Scan(&wbs, &noPanel)
+	if err != nil {
+		wbs, noPanel = "N/A", "N/A"
+	}
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to commit transaction")
 		return
 	}
 
 	go func() {
-
 		if payload.NotifyEmail == "" {
 			return
 		}
-		allRecipients := strings.Split(payload.NotifyEmail, ",")
-		finalRecipients := []string{}
-		for _, r := range allRecipients {
-			trimmed := strings.TrimSpace(r)
+		finalRecipients := strings.Split(payload.NotifyEmail, ",")
 
-			if trimmed != "" && trimmed != payload.CreatedBy {
-				finalRecipients = append(finalRecipients, trimmed)
-			}
-		}
+		// JUDUL: WBS + No Panel
+		subject := fmt.Sprintf("[SecPanel] Isu Baru - %s / %s", wbs, noPanel)
 
-		if len(finalRecipients) > 0 {
+		htmlBody := fmt.Sprintf(`
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.6; max-width: 600px; border: 1px solid #eee; padding: 20px;">
+                <h2 style="color: #27ae60; border-bottom: 2px solid #27ae60; padding-bottom: 10px;">Laporan Isu Baru</h2>
+                <p>Telah ditambahkan isu baru untuk panel berikut:</p>
+                
+                <p><strong>WBS:</strong> %s<br>
+                   <strong>No. Panel:</strong> %s</p>
 
-			title := fmt.Sprintf("Isu Baru di Panel %s", panelNoPp)
-			body := fmt.Sprintf("%s membuat isu baru: '%s'", payload.CreatedBy, payload.Title)
-			a.sendNotificationToUsers(finalRecipients, title, body)
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <h3 style="margin-top:0; color: #2c3e50;">%s</h3>
+                    <p style="margin-bottom:0;">%s</p>
+                </div>
+                
+                <p style="font-size: 12px; color: #999; border-top: 1px solid #eee; pt: 10px;">
+                    Dibuat oleh: %s<br>
+                    <i>Email ini dikirim secara otomatis oleh sistem SecPanel.</i>
+                </p>
+            </div>`,
+			wbs, noPanel, payload.Title, payload.Description, payload.CreatedBy)
 
-			subject := fmt.Sprintf("[SecPanel] Isu Baru Dibuat: %s", payload.Title)
-			htmlBody := fmt.Sprintf(
-				`<h3>Isu Baru Telah Dibuat pada Panel %s</h3>
-				 <p><strong>Judul Isu:</strong> %s</p>
-				 <p><strong>Deskripsi:</strong> %s</p>
-				 <p><strong>Dibuat oleh:</strong> %s</p>
-				 <hr>
-				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
-				panelNoPp, payload.Title, payload.Description, payload.CreatedBy,
-			)
-			sendNotificationEmail(finalRecipients, subject, htmlBody)
-		}
+		sendNotificationEmail(finalRecipients, subject, htmlBody)
 	}()
 
 	respondWithJSON(w, http.StatusCreated, map[string]int{"issue_id": issueID})
@@ -4492,11 +4507,15 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 
-		var notifyList, issueTitle, panelNoPp string
+		var notifyList, issueTitle, issueDesc, panelNoPp, wbs, noPanel string
 		err := a.DB.QueryRow(`
-			SELECT COALESCE(i.notify_email, ''), i.title, c.panel_no_pp
-			FROM public.issues i JOIN public.chats c ON i.chat_id = c.id
-			WHERE i.id = $1`, issueID).Scan(&notifyList, &issueTitle, &panelNoPp)
+            SELECT COALESCE(i.notify_email, ''), i.title, i.description, c.panel_no_pp, 
+                   COALESCE(p.no_wbs, 'N/A'), COALESCE(p.no_panel, 'N/A')
+            FROM public.issues i 
+            JOIN public.chats c ON i.chat_id = c.id
+            JOIN public.panels p ON c.panel_no_pp = p.no_pp
+            WHERE i.id = $1`, issueID).Scan(&notifyList, &issueTitle, &issueDesc, &panelNoPp, &wbs, &noPanel)
+
 		if err != nil {
 			log.Printf("Gagal ambil info isu untuk notifikasi (ID: %d): %v", issueID, err)
 			return
@@ -4523,17 +4542,23 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 			emailSubject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
 			emailHtmlBody := fmt.Sprintf(
-				`<h3>Komentar Baru pada Isu di Panel %s</h3>
-				 <p><strong>Judul Isu:</strong> %s</p>
-				 <p><strong>Dari:</strong> %s</p>
-				 <p><strong>Komentar:</strong></p>
-				 <blockquote style="border-left: 2px solid #ccc; padding-left: 10px; margin-left: 5px; font-style: italic;">
-					%s
-				 </blockquote>
-				 <hr>
-				 <p><i>Email ini dibuat secara otomatis. Silakan periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
-				panelNoPp, issueTitle, payload.SenderID, payload.Text,
-			)
+				`<div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #eee; padding: 20px;">
+					<h3 style="color: #2980b9;">Update Komentar Isu</h3>
+					<p><strong>Panel:</strong> %s / %s</p>
+					<p><strong>Isu Utama:</strong> %s</p>
+					
+					<div style="background: #ebf5fb; padding: 15px; border-left: 4px solid #2980b9; margin: 15px 0;">
+						<strong style="color:#2980b9;">%s memberikan komentar:</strong><br>
+						<p style="font-style: italic;">"%s"</p>
+					</div>
+
+					<div style="margin-top: 20px; padding: 10px; border: 1px dashed #ccc; font-size: 13px; color: #666;">
+						<strong>Deskripsi Isu Asli:</strong><br>
+						%s
+					</div>
+
+				</div>`,
+				wbs, noPanel, issueTitle, payload.SenderID, payload.Text, issueDesc)
 			sendNotificationEmail(finalRecipients, emailSubject, emailHtmlBody)
 		}
 	}()
