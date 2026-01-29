@@ -3140,7 +3140,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
 		finalRecipients := strings.Split(payload.NotifyEmail, ",")
 
 		// JUDUL: WBS + No Panel
-		subject := fmt.Sprintf("[SecPanel] Isu Baru - %s / %s", wbs, noPanel)
+		subject := fmt.Sprintf("[NO REPLY] TrisutorPRO: Isu Baru - %s / %s", wbs, noPanel)
 
 		htmlBody := fmt.Sprintf(`
             <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.6; max-width: 600px; border: 1px solid #eee; padding: 20px;">
@@ -3157,7 +3157,7 @@ func (a *App) createIssueForPanelHandler(w http.ResponseWriter, r *http.Request)
                 
                 <p style="font-size: 12px; color: #999; border-top: 1px solid #eee; pt: 10px;">
                     Dibuat oleh: %s<br>
-                    <i>Email ini dikirim secara otomatis oleh sistem SecPanel.</i>
+                    <i>Email ini dikirim secara otomatis oleh sistem TrisutorPRO.</i>
                 </p>
             </div>`,
 			wbs, noPanel, payload.Title, payload.Description, payload.CreatedBy)
@@ -3387,14 +3387,14 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 				notifBody := fmt.Sprintf("%s mengubah status isu '%s' menjadi %s.", payload.UpdatedBy, payload.Title, payload.Status)
 				a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
 
-				subject := fmt.Sprintf("[SecPanel] Update Status Isu: %s", payload.Title)
+				subject := fmt.Sprintf("[NO REPLY] TrisutorPRO: Update Status Isu: %s", payload.Title)
 				htmlBody := fmt.Sprintf(
 					`<h3>Status Isu pada Panel %s Telah Diubah</h3>
 					 <p><strong>Judul Isu:</strong> %s</p>
 					 <p><strong>Aksi:</strong> Status isu ini telah diubah menjadi <strong>%s</strong>.</p>
 					 <p><strong>Oleh:</strong> %s</p>
 					 <hr>
-					 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
+					 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi TrisutorPRO untuk detail lebih lanjut.</i></p>`,
 					panelNoPp, payload.Title, payload.Status, payload.UpdatedBy,
 				)
 				sendNotificationEmail(finalRecipients, subject, htmlBody)
@@ -3403,7 +3403,21 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if payload.NotifyEmail != nil {
+			// 1. Ambil data WBS, No Panel, dan Detail Isu untuk konteks email
+			var wbs, noPanel, issueTitle, issueDesc string
+			err := a.DB.QueryRow(`
+				SELECT COALESCE(p.no_wbs, 'N/A'), COALESCE(p.no_panel, 'N/A'), i.title, i.description
+				FROM public.issues i
+				JOIN public.chats c ON i.chat_id = c.id
+				JOIN public.panels p ON c.panel_no_pp = p.no_pp
+				WHERE i.id = $1`, issueID).Scan(&wbs, &noPanel, &issueTitle, &issueDesc)
 
+			if err != nil {
+				log.Printf("Gagal ambil info panel untuk notifikasi add: %v", err)
+				return
+			}
+
+			// 2. Identifikasi email baru yang ditambahkan
 			oldEmails := make(map[string]bool)
 			for _, email := range strings.Split(notifyEmail, ",") {
 				if strings.TrimSpace(email) != "" {
@@ -3420,20 +3434,30 @@ func (a *App) updateIssueHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(addedEmails) > 0 {
+				// JUDUL: [NO REPLY] TrisutorPRO: Akses Notifikasi - WBS / No Panel
+				subject := fmt.Sprintf("[NO REPLY] TrisutorPRO: Akses Notifikasi - %s / %s", wbs, noPanel)
 
-				notifTitle := fmt.Sprintf("Anda ditambahkan ke Isu di Panel %s", panelNoPp)
-				notifBody := fmt.Sprintf("%s menambahkan Anda ke notifikasi isu '%s'.", payload.UpdatedBy, payload.Title)
-				a.sendNotificationToUsers(addedEmails, notifTitle, notifBody)
+				htmlBody := fmt.Sprintf(`
+					<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.6; max-width: 600px; border: 1px solid #eee; padding: 20px;">
+						<h2 style="color: #f39c12; border-bottom: 2px solid #f39c12; padding-bottom: 10px;">Undangan Notifikasi</h2>
+						
+						<p>Halo, Anda telah ditambahkan ke dalam daftar notifikasi untuk isu berikut pada panel <strong>%s / %s</strong>.</p>
+						
+						<div style="background: #fff9eb; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #f39c12;">
+							<p style="margin:0; font-size: 12px; color: #666;">Topik Isu:</p>
+							<h3 style="margin: 5px 0; color: #2c3e50;">%s</h3>
+							<p style="margin:0; font-size: 13px; color: #7f8c8d;">%s</p>
+						</div>
 
-				subject := fmt.Sprintf("[SecPanel] Anda Ditambahkan ke Notifikasi Isu: %s", payload.Title)
-				htmlBody := fmt.Sprintf(
-					`<h3>Anda Telah Ditambahkan ke Notifikasi Isu</h3>
-					 <p>Anda akan menerima pembaruan untuk isu <strong>"%s"</strong> pada panel <strong>%s</strong>.</p>
-					 <p><strong>Ditambahkan oleh:</strong> %s</p>
-					 <hr>
-					 <p><i>Email ini dibuat secara otomatis. Periksa aplikasi SecPanel untuk detail lebih lanjut.</i></p>`,
-					payload.Title, panelNoPp, payload.UpdatedBy,
-				)
+						<p>Mulai sekarang, Anda akan menerima email otomatis setiap kali ada komentar atau perubahan status pada isu ini.</p>
+						
+						<p style="font-size: 12px; color: #999; border-top: 1px solid #eee; margin-top: 20px; padding-top: 10px;">
+							Ditambahkan oleh: %s<br>
+							<i>Email ini dikirim secara otomatis oleh sistem TrisutorPRO.</i>
+						</p>
+					</div>`,
+					wbs, noPanel, issueTitle, issueDesc, payload.UpdatedBy)
+
 				sendNotificationEmail(addedEmails, subject, htmlBody)
 			}
 		}
@@ -4506,60 +4530,83 @@ func (a *App) createCommentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-
-		var notifyList, issueTitle, issueDesc, panelNoPp, wbs, noPanel string
+		var notifyList, issueTitle, issueDesc, wbs, noPanel string
 		err := a.DB.QueryRow(`
-            SELECT COALESCE(i.notify_email, ''), i.title, i.description, c.panel_no_pp, 
+            SELECT COALESCE(i.notify_email, ''), i.title, i.description, 
                    COALESCE(p.no_wbs, 'N/A'), COALESCE(p.no_panel, 'N/A')
             FROM public.issues i 
             JOIN public.chats c ON i.chat_id = c.id
             JOIN public.panels p ON c.panel_no_pp = p.no_pp
-            WHERE i.id = $1`, issueID).Scan(&notifyList, &issueTitle, &issueDesc, &panelNoPp, &wbs, &noPanel)
+            WHERE i.id = $1`, issueID).Scan(&notifyList, &issueTitle, &issueDesc, &wbs, &noPanel)
 
-		if err != nil {
-			log.Printf("Gagal ambil info isu untuk notifikasi (ID: %d): %v", issueID, err)
+		if err != nil || notifyList == "" {
 			return
 		}
-		if notifyList == "" {
-			return
+
+		rows, err := a.DB.Query(`
+			SELECT sender_id, text, timestamp 
+			FROM public.issue_comments 
+			WHERE issue_id = $1 
+			ORDER BY timestamp ASC`, issueID)
+
+		var commentThreadHTML string
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var sID, txt string
+				var ts time.Time
+				if err := rows.Scan(&sID, &txt, &ts); err == nil {
+					bgColor := "#ffffff"
+					if sID == payload.SenderID {
+						bgColor = "#f0f7ff"
+					}
+
+					commentThreadHTML += fmt.Sprintf(`
+						<div style="padding: 10px; border-bottom: 1px solid #eee; background-color: %s;">
+							<strong style="color: #2c3e50; font-size: 13px;">%s</strong> 
+							<span style="font-size: 11px; color: #999;">• %s</span><br>
+							<p style="margin: 5px 0 0 0; font-size: 14px;">%s</p>
+						</div>`, bgColor, sID, ts.Format("02 Jan 15:04"), txt)
+				}
+			}
 		}
 
 		allRecipients := strings.Split(notifyList, ",")
 		finalRecipients := []string{}
 		for _, recipient := range allRecipients {
-			trimmedRecipient := strings.TrimSpace(recipient)
-
-			if trimmedRecipient != "" && trimmedRecipient != payload.SenderID {
-				finalRecipients = append(finalRecipients, trimmedRecipient)
+			trimmed := strings.TrimSpace(recipient)
+			if trimmed != "" && trimmed != payload.SenderID {
+				finalRecipients = append(finalRecipients, trimmed)
 			}
 		}
 
 		if len(finalRecipients) > 0 {
+			subject := fmt.Sprintf("[NO REPLY] TrisutorPRO: Komentar Baru - %s / %s", wbs, noPanel)
 
-			notifTitle := fmt.Sprintf("Komentar baru di Panel %s", panelNoPp)
-			notifBody := fmt.Sprintf("%s: \"%s\"", payload.SenderID, payload.Text)
-			a.sendNotificationToUsers(finalRecipients, notifTitle, notifBody)
-
-			emailSubject := fmt.Sprintf("[SecPanel] Komentar Baru: %s", issueTitle)
-			emailHtmlBody := fmt.Sprintf(
-				`<div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #eee; padding: 20px;">
-					<h3 style="color: #2980b9;">Update Komentar Isu</h3>
-					<p><strong>Panel:</strong> %s / %s</p>
-					<p><strong>Isu Utama:</strong> %s</p>
+			htmlBody := fmt.Sprintf(`
+				<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.6; max-width: 600px; border: 1px solid #eee; padding: 20px;">
+					<h2 style="color: #2980b9; border-bottom: 2px solid #2980b9; padding-bottom: 10px;">Update Komentar</h2>
 					
-					<div style="background: #ebf5fb; padding: 15px; border-left: 4px solid #2980b9; margin: 15px 0;">
-						<strong style="color:#2980b9;">%s memberikan komentar:</strong><br>
-						<p style="font-style: italic;">"%s"</p>
+					<p>Terdapat komentar baru pada panel <strong>%s / %s</strong></p>
+					
+					<div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #ccc;">
+						<p style="margin:0; font-size: 12px; color: #666;">Topik Isu:</p>
+						<h3 style="margin: 5px 0; color: #2c3e50;">%s</h3>
+						<p style="margin:0; font-size: 13px; color: #7f8c8d;">%s</p>
 					</div>
 
-					<div style="margin-top: 20px; padding: 10px; border: 1px dashed #ccc; font-size: 13px; color: #666;">
-						<strong>Deskripsi Isu Asli:</strong><br>
+					<h4 style="color: #7f8c8d; margin-bottom: 10px; text-transform: uppercase; font-size: 12px;">Percakapan Isu:</h4>
+					<div style="border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
 						%s
 					</div>
 
+					<p style="font-size: 12px; color: #999; margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px;">
+						<i>Email ini dikirim secara otomatis oleh sistem TrisutorPRO. Silakan balas langsung di aplikasi.</i>
+					</p>
 				</div>`,
-				wbs, noPanel, issueTitle, payload.SenderID, payload.Text, issueDesc)
-			sendNotificationEmail(finalRecipients, emailSubject, emailHtmlBody)
+				wbs, noPanel, issueTitle, issueDesc, commentThreadHTML)
+
+			sendNotificationEmail(finalRecipients, subject, htmlBody)
 		}
 	}()
 
@@ -5565,7 +5612,7 @@ func sendNotificationEmail(recipients []string, subject, htmlBody string) {
 	}
 
 	mailer := gomail.NewMessage()
-	mailer.SetHeader("From", fmt.Sprintf("SecPanel Notifikasi <%s>", senderEmail))
+	mailer.SetHeader("From", fmt.Sprintf("TrisutorPRO Notifikasi <%s>", senderEmail))
 	mailer.SetHeader("To", validRecipients...)
 	mailer.SetHeader("Subject", subject)
 	mailer.SetBody("text/html", htmlBody)
