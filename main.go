@@ -868,6 +868,7 @@ func main() {
 	dbPassword := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
 	dbHost := os.Getenv("DB_HOST")
+	dbPort     := os.Getenv("DB_PORT")
 
 	if dbUser == "" || dbPassword == "" || dbName == "" || dbHost == "" {
 		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
@@ -878,7 +879,7 @@ func main() {
 
 	port := os.Getenv("APP_PORT")
 		if port == "" {
-			port = "8099" 
+			port = "8081" 
 		}
 
 		app.Run(":" + port)
