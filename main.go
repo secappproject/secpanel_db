@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -16,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
+	//    "bytes"
 	// firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
 	"github.com/google/uuid"
@@ -39,19 +40,29 @@ const (
 	AppRoleK5        = "k5"
 )
 
-// const (
-// 	CONFIG_SMTP_HOST     = "smtp.gmail.com"
-// 	CONFIG_SMTP_PORT     = 587
-// 	CONFIG_SENDER_EMAIL  = "trisutorpro@gmail.com"
-// 	CONFIG_AUTH_PASSWORD = "bbcsxqtxmxbzveod"
-// )
-
+type CustomImportRequest struct {
+	Mode       string                              `json:"mode"`
+	Data       map[string][]map[string]interface{} `json:"data"`
+	ImportedBy string                              `json:"imported_by"`
+}
 type LogEntry struct {
 	Action    string    `json:"action"`
 	User      string    `json:"user"`
 	Timestamp time.Time `json:"timestamp"`
 }
-
+type PanelImportData struct {
+	NoPP            string      `json:"no_pp"`
+	NoPanel         string      `json:"no_panel"`
+	NoWBS           string      `json:"no_wbs"`
+	Project         string      `json:"project"`
+	PanelType       string      `json:"panel_type"`
+	TargetDelivery  string      `json:"target_delivery"`
+	VendorID        *string     `json:"vendor_id"`
+	BusbarVendorID  *string     `json:"busbar_vendor_id"`
+	PercentProgress *float64    `json:"percent_progress"`
+	StatusBusbarPcc *string     `json:"status_busbar_pcc"`
+	AoBusbarPcc     *customTime `json:"ao_busbar_pcc"`
+}
 type Logs []LogEntry
 
 func (l Logs) Value() (driver.Value, error) {
@@ -180,11 +191,442 @@ type customTime struct {
 }
 type PanelKeyInfo struct {
 	NoPp    string `json:"no_pp"`
+	NoWbs   string `json:"no_wbs"`
 	NoPanel string `json:"no_panel"`
 	Project string `json:"project"`
-	NoWbs   string `json:"no_wbs"`
 }
 
+type Wiring struct {
+	ID string `json:"id,omitempty"`
+
+	PanelNoPP            string     `json:"panel_no_pp"`
+	NoWBS                string     `json:"no_wbs"`
+	NoPanel              string     `json:"no_panel"`
+	PanelType            string     `json:"panel_type"`
+	Supplier             string     `json:"supplier"`
+	Progress             int        `json:"progress"`
+	Status               string     `json:"status"`
+	TargetDeliveryWiring *time.Time `json:"target_delivery_wiring"`
+	ActualDeliveryWiring *time.Time `json:"actual_delivery_wiring"`
+	ClosedAt             *time.Time `json:"closed_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at,omitempty"`
+	UpdatedAt            time.Time  `json:"updated_at,omitempty"`
+}
+
+type MassReplaceWiringRequest struct {
+	Data       []Wiring `json:"data"`
+	ImportedBy string   `json:"imported_by"`
+}
+
+func (a *App) MassReplaceWiringHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Data []Wiring `json:"data"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	updatedCount := 0
+	notFoundCount := 0
+	var notFoundList []map[string]string
+
+	tx, err := a.DB.Begin()
+	if err != nil {
+		http.Error(w, "DB Error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	for _, item := range input.Data {
+		if item.PanelNoPP == "" || item.NoWBS == "" {
+			continue
+		}
+
+		// --- LOGIKA TIMESTAMP LOCKING ---
+		var existingClosedAt *time.Time
+		// Ambil data timestamp saat ini dari database
+		err := tx.QueryRow(`SELECT closed_at FROM wirings WHERE panel_no_pp = $1 AND no_wbs = $2`,
+			item.PanelNoPP, item.NoWBS).Scan(&existingClosedAt)
+
+		status := "Open"
+		var closedAt *time.Time
+
+		if item.Progress >= 100 {
+			status = "Closed"
+			// Jika di DB sudah ada tanggalnya, gunakan yang lama (LOCK)
+			// Jika masih kosong (nil), baru isi dengan waktu sekarang
+			if existingClosedAt != nil && !existingClosedAt.IsZero() {
+				closedAt = existingClosedAt
+			} else {
+				now := time.Now()
+				closedAt = &now
+			}
+		} else if item.Progress > 0 {
+			status = "In Progress"
+			closedAt = nil // AUTO DELETE jika progres turun dari 100
+		} else {
+			status = "Open"
+			closedAt = nil // AUTO DELETE
+		}
+
+		queryWiring := `
+			UPDATE wirings 
+			SET 
+				no_panel = CASE WHEN $3 = '' THEN no_panel ELSE $3 END,
+				progress = CASE WHEN $4 = -1 THEN progress ELSE $4 END,
+				supplier = $5, 
+				target_delivery_wiring = COALESCE($6, target_delivery_wiring),
+				status = $7,
+				closed_at = $8,           
+				updated_at = NOW()
+			WHERE panel_no_pp = $1 
+			AND no_wbs = $2;
+		`
+		res, err := tx.Exec(queryWiring, item.PanelNoPP, item.NoWBS, item.NoPanel, item.Progress, item.Supplier, item.TargetDeliveryWiring, status, closedAt)
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "Gagal update wiring", http.StatusInternalServerError)
+			return
+		}
+
+		rows, _ := res.RowsAffected()
+		if rows > 0 {
+			// Sinkronisasi status dashboard & vendor display
+			tx.Exec(`UPDATE panels SET status_penyelesaian = 'Subcontractor' WHERE no_pp = $1`, item.PanelNoPP)
+			tx.Exec(`UPDATE g3_vendors SET vendor = $1 WHERE panel_no_pp = $2`, item.Supplier, item.PanelNoPP)
+
+			updatedCount++
+		} else {
+			notFoundCount++
+			notFoundList = append(notFoundList, map[string]string{
+				"panel_no_pp": item.PanelNoPP,
+				"no_wbs":      item.NoWBS,
+			})
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Commit Error", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":        "Mass update successful",
+		"updated_rows":   updatedCount,
+		"not_found_rows": notFoundCount,
+		"not_found_list": notFoundList,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func (a *App) createWiringHandler(w http.ResponseWriter, r *http.Request) {
+	var input Wiring
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if input.PanelNoPP == "" {
+		http.Error(w, "panel_no_pp is required", http.StatusBadRequest)
+		return
+	}
+
+	// Tentukan Status & ClosedAt berdasarkan progress
+	status := "Open"
+	var closedAt *time.Time
+	if input.Progress >= 100 {
+		status = "Closed"
+		now := time.Now()
+		closedAt = &now
+	} else if input.Progress > 0 {
+		status = "In Progress"
+	}
+
+	// Ambil data pendukung dari tabel panels (no_panel, no_wbs, type)
+	// Ini agar jika input dari Flutter kurang lengkap, DB tetap sinkron
+	var noPanel, noWbs, pType string
+	err := a.DB.QueryRow(`
+        SELECT no_panel, no_wbs, panel_type FROM panels WHERE no_pp = $1
+    `, input.PanelNoPP).Scan(&noPanel, &noWbs, &pType)
+
+	if err != nil {
+		http.Error(w, "Panel master data tidak ditemukan", http.StatusBadRequest)
+		return
+	}
+
+	// Ambil vendor jika ada (optional, agar tidak mematikan proses jika belum ada)
+	var g3Supplier string
+	_ = a.DB.QueryRow(`
+        SELECT vendor FROM g3_vendors WHERE panel_no_pp = $1 LIMIT 1
+    `, input.PanelNoPP).Scan(&g3Supplier)
+
+	// UPSERT Query: Update jika panel_no_pp sudah ada
+	query := `
+        INSERT INTO wirings 
+        (panel_no_pp, no_wbs, no_panel, panel_type, supplier, 
+         progress, status, closed_at, target_delivery_wiring, updated_at, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+        ON CONFLICT (panel_no_pp) 
+        DO UPDATE SET
+            progress = EXCLUDED.progress,
+            status = EXCLUDED.status,
+            closed_at = EXCLUDED.closed_at,
+            target_delivery_wiring = COALESCE(EXCLUDED.target_delivery_wiring, wirings.target_delivery_wiring),
+            updated_at = NOW()
+        RETURNING id, created_at, updated_at;
+    `
+
+	err = a.DB.QueryRow(
+		query,
+		input.PanelNoPP,
+		noWbs,
+		noPanel,
+		pType,
+		g3Supplier,
+		input.Progress,
+		status,
+		closedAt,
+		input.TargetDeliveryWiring,
+	).Scan(&input.ID, &input.CreatedAt, &input.UpdatedAt)
+
+	if err != nil {
+		http.Error(w, "Gagal simpan/update wiring: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update struct untuk response
+	input.Status = status
+	input.NoWBS = noWbs
+	input.NoPanel = noPanel
+	input.Supplier = g3Supplier
+	input.ClosedAt = closedAt
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(input)
+}
+
+func (a *App) getWiringsByPanelHandler(w http.ResponseWriter, r *http.Request) {
+
+	panelNoPP := mux.Vars(r)["panel_no_pp"]
+
+	rows, err := a.DB.Query(`
+        SELECT id, panel_no_pp, no_wbs, no_panel,
+               panel_type, supplier,
+               progress, status,
+               target_delivery_wiring,
+               actual_delivery_wiring,
+               closed_at,
+               created_at, updated_at
+        FROM wirings
+        WHERE panel_no_pp = $1
+        ORDER BY created_at DESC
+    `, panelNoPP)
+
+	if err != nil {
+		http.Error(w, "Failed to fetch wirings", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var wirings []Wiring
+	for rows.Next() {
+		var wng Wiring
+		if err := rows.Scan(
+			&wng.ID,
+			&wng.PanelNoPP,
+			&wng.NoWBS,
+			&wng.NoPanel,
+			&wng.PanelType,
+			&wng.Supplier,
+			&wng.Progress,
+			&wng.Status,
+			&wng.TargetDeliveryWiring,
+			&wng.ActualDeliveryWiring,
+			&wng.ClosedAt,
+			&wng.CreatedAt,
+			&wng.UpdatedAt,
+		); err != nil {
+			continue
+		}
+		wirings = append(wirings, wng)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(wirings)
+}
+
+func (a *App) updateWiringHandler(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var input Wiring
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	status := "Open"
+	var closedAt *time.Time
+	if input.Progress >= 100 {
+		status = "Closed"
+		now := time.Now()
+		closedAt = &now
+	} else if input.Progress > 0 {
+		status = "In Progress"
+	}
+
+	err := a.DB.QueryRow(`
+        UPDATE wirings
+        SET progress = $1, status = $2, closed_at = $3,
+            target_delivery_wiring = $4, updated_at = NOW()
+        WHERE id = $5
+        RETURNING panel_no_pp, no_wbs, no_panel, supplier, created_at, updated_at
+    `,
+		input.Progress, status, closedAt, input.TargetDeliveryWiring, id,
+	).Scan(&input.PanelNoPP, &input.NoWBS, &input.NoPanel, &input.Supplier, &input.CreatedAt, &input.UpdatedAt)
+
+	if err != nil {
+		http.Error(w, "Gagal update wiring: ID tidak ditemukan", http.StatusInternalServerError)
+		return
+	}
+
+	input.ID = id
+	input.Status = status
+	input.ClosedAt = closedAt
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(input)
+}
+
+func (a *App) deleteWiringHandler(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+
+	query := `DELETE FROM wirings WHERE id = $1`
+	_, err := a.DB.Exec(query, id)
+	if err != nil {
+		log.Println("Error deleting wiring:", err)
+		http.Error(w, "Failed to delete wiring", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) massUploadWiringsHandler(w http.ResponseWriter, r *http.Request) {
+	type MassUploadRequest struct {
+		PanelNoPP string `json:"panel_no_pp"`
+		NoWBS     string `json:"no_wbs"`
+		Data      []struct {
+			Progress int `json:"progress"`
+			// Tambahkan field lain jika ada dari JSON
+		} `json:"data"`
+	}
+
+	var input MassUploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Inisialisasi variabel count (WAJIB di luar loop)
+	updatedCount := 0
+	notFoundCount := 0
+	var notFoundList []map[string]string
+
+	tx, err := a.DB.Begin()
+	if err != nil {
+		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	// Defer rollback harus tepat setelah Begin
+	defer tx.Rollback()
+
+	// 2. Cek Panel & Supplier (Cukup sekali saja di luar loop data)
+	var noPanel string
+	err = tx.QueryRow(`SELECT no_panel FROM panels WHERE no_pp = $1`, input.PanelNoPP).Scan(&noPanel)
+	if err != nil {
+		http.Error(w, "Panel not found", http.StatusBadRequest)
+		return
+	}
+
+	var g3Supplier string
+	err = tx.QueryRow(`SELECT vendor FROM g3_vendors WHERE panel_no_pp = $1 LIMIT 1`, input.PanelNoPP).Scan(&g3Supplier)
+	if err != nil {
+		http.Error(w, "Panel belum transfer ke G3 Vendor", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Proses Loop Data
+	for _, item := range input.Data {
+		status := "Open"
+		var closedAt *time.Time
+
+		if item.Progress >= 100 {
+			status = "Closed"
+			now := time.Now()
+			closedAt = &now
+		} else if item.Progress > 0 {
+			status = "In Progress"
+		}
+
+		// Jalankan Upsert
+		res, err := tx.Exec(`
+            INSERT INTO wirings
+            (panel_no_pp, no_wbs, no_panel, supplier, progress, status, closed_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7, NOW())
+            ON CONFLICT (panel_no_pp, no_wbs)
+            DO UPDATE SET
+                no_panel = EXCLUDED.no_panel,
+                supplier = EXCLUDED.supplier,
+                progress = EXCLUDED.progress,
+                status   = EXCLUDED.status,
+                closed_at = EXCLUDED.closed_at,
+                updated_at = NOW()
+        `,
+			input.PanelNoPP,
+			input.NoWBS,
+			noPanel,
+			g3Supplier,
+			item.Progress,
+			status,
+			closedAt,
+		)
+
+		if err != nil {
+			// Jika satu gagal, gagalkan semua (opsional, tergantung kebutuhan)
+			log.Printf("Error upsert: %v", err)
+			continue
+		}
+
+		// 4. Tambahkan Count (Ini yang membuat notifikasi SnackBar muncul angkanya)
+		rows, _ := res.RowsAffected()
+		if rows > 0 {
+			updatedCount++
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Failed to commit", http.StatusInternalServerError)
+		return
+	}
+
+	// 5. KIRIM RESPONSE (Hanya satu kali di paling bawah)
+	response := map[string]interface{}{
+		"updated_rows":   updatedCount,
+		"not_found_rows": notFoundCount,
+		"not_found_list": notFoundList,
+		"message":        "Mass upload wiring successful",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK) // Jangan gunakan StatusCreated jika mengembalikan JSON kompleks
+	json.NewEncoder(w).Encode(response)
+}
+
+// Batas akhir Revisi..
 const ctLayout = "2006-01-02T15:04:05.999999"
 
 func (ct *customTime) UnmarshalJSON(b []byte) (err error) {
@@ -257,15 +699,16 @@ type Panel struct {
 	AoBusbarMcc        *customTime `json:"ao_busbar_mcc"`
 	CreatedBy          *string     `json:"created_by"`
 	VendorID           *string     `json:"vendor_id"`
+	BusbarVendorID     *string     `json:"busbar_vendor_id"`
 	IsClosed           bool        `json:"is_closed"`
 	ClosedDate         *customTime `json:"closed_date"`
 	PanelType          *string     `json:"panel_type,omitempty"`
+	ProductType        *string     `json:"product_type"`
 	Remarks            *string     `json:"remarks,omitempty"`
 	CloseDateBusbarPcc *customTime `json:"close_date_busbar_pcc,omitempty"`
 	CloseDateBusbarMcc *customTime `json:"close_date_busbar_mcc,omitempty"`
-
-	StatusPenyelesaian *string `json:"status_penyelesaian,omitempty"`
-	ProductionSlot     *string `json:"production_slot,omitempty"`
+	StatusPenyelesaian *string     `json:"status_penyelesaian,omitempty"`
+	ProductionSlot     *string     `json:"production_slot,omitempty"`
 }
 
 type ProductionSlot struct {
@@ -333,6 +776,7 @@ type PanelDisplayDataWithTimeline struct {
 	PanelVendorName      *string         `json:"panel_vendor_name"`
 	BusbarVendorNames    *string         `json:"busbar_vendor_names"`
 	BusbarVendorIds      []string        `json:"busbar_vendor_ids"`
+	ProductType          *string         `json:"product_type"`
 	BusbarRemarks        json.RawMessage `json:"busbar_remarks"`
 	ComponentVendorNames *string         `json:"component_vendor_names"`
 	ComponentVendorIds   []string        `json:"component_vendor_ids"`
@@ -341,11 +785,16 @@ type PanelDisplayDataWithTimeline struct {
 	CorepartVendorNames  *string         `json:"corepart_vendor_names"`
 	CorepartVendorIds    []string        `json:"corepart_vendor_ids"`
 	G3VendorNames        *string         `json:"g3_vendor_names,omitempty"`
+	Wirings              []Wiring        `json:"wirings"`
 	IssueCount           int             `json:"issue_count"`
 	AdditionalSRCount    int             `json:"additional_sr_count"`
 	ProductionDate       *time.Time      `json:"production_date,omitempty"`
 	FatDate              *time.Time      `json:"fat_date,omitempty"`
 	AllDoneDate          *time.Time      `json:"all_done_date,omitempty"`
+	WiringProgress       int             `json:"wiring_progress"`
+	WiringStatus         *string         `json:"wiring_status,omitempty"`
+	WiringVendorNames    *string         `json:"wiring_vendor_names"`
+	WiringTargetDelivery *time.Time      `json:"wiring_target_delivery,omitempty"`
 }
 
 type DBTX interface {
@@ -424,18 +873,6 @@ func main() {
 		log.Fatal("Variabel environment DB_USER, DB_PASSWORD, DB_NAME, dan DB_HOST harus di-set!")
 	}
 
-	// ctx := context.Background()
-
-	// firebaseApp, err := firebase.NewApp(ctx, nil)
-	// if err != nil {
-	// 	log.Fatalf("error initializing Firebase app: %v\n", err)
-	// }
-
-	// fcmClient, err := firebaseApp.Messaging(ctx)
-	// if err != nil {
-	// 	log.Fatalf("error getting FCM client: %v\n", err)
-	// }
-
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
 	// app.FCMClient = fcmClient
@@ -459,6 +896,7 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/users/display", a.getAllUserAccountsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/users/colleagues/display", a.getColleagueAccountsForDisplayHandler).Methods("GET")
 	a.Router.HandleFunc("/accounts/search", a.searchUsernamesHandler).Methods("GET")
+	a.Router.HandleFunc("/extract/panel/{no_pp}", a.extractPanelDataHandler).Methods("GET")
 
 	// Company Management
 	a.Router.HandleFunc("/company", a.insertCompanyHandler).Methods("POST", "OPTIONS")
@@ -474,6 +912,8 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/panels", a.upsertPanelHandler).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/panel/status-ao-k5", a.upsertStatusAOK5).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/panel/status-whs", a.upsertStatusWHS).Methods("POST", "OPTIONS")
+
+	a.Router.HandleFunc("/panels/import-custom", a.importFromCustomTemplateHandler).Methods("POST", "OPTIONS")
 
 	a.Router.HandleFunc("/panels/bulk-delete", a.deletePanelsHandler).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/panels/{no_pp}", a.deletePanelHandler).Methods("DELETE", "OPTIONS")
@@ -506,7 +946,8 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/export/database", a.generateFilteredDatabaseJsonHandler).Methods("GET")
 	a.Router.HandleFunc("/import/database", a.importDataHandler).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/import/template", a.generateImportTemplateHandler).Methods("GET")
-	a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST", "OPTIONS")
+	// a.Router.HandleFunc("/import/custom", a.importFromCustomTemplateHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/import/panels/mass", a.massImportPanelsHandler).Methods("POST", "OPTIONS")
 
 	// Issue Management Routes
 	a.Router.HandleFunc("/issues/email-recommendations", a.getEmailRecommendationsHandler).Methods("GET")
@@ -549,6 +990,16 @@ func (a *App) initializeRoutes() {
 	// Workflow Transfer
 	a.Router.HandleFunc("/production-slots", a.getProductionSlotsHandler).Methods("GET")
 	a.Router.HandleFunc("/panels/{no_pp}/transfer", a.transferPanelHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/mass-transfer-panel", a.MassTransferPanelHandler).Methods("POST")
+
+	// router wiring
+	// Wiring - akhir edit
+	a.Router.HandleFunc("/wirings", a.createWiringHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/wirings/{panel_no_pp}", a.getWiringsByPanelHandler).Methods("GET")
+	a.Router.HandleFunc("/wirings/{id}", a.updateWiringHandler).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/wirings/{id}", a.deleteWiringHandler).Methods("DELETE", "OPTIONS")
+	a.Router.HandleFunc("/wirings/mass-upload", a.massUploadWiringsHandler).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/wirings/mass-replace", a.MassReplaceWiringHandler).Methods("POST", "OPTIONS")
 }
 
 func (a *App) insertCompanyHandler(w http.ResponseWriter, r *http.Request) {
@@ -582,19 +1033,54 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 		return
 	}
-
+	if p.NoPp == "" {
+		p.NoPp = fmt.Sprintf("TEMP-%d", time.Now().Unix())
+	}
 	var isNewPanel bool
 	var exists bool
 	err := a.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM panels WHERE no_pp = $1)", p.NoPp).Scan(&exists)
 	isNewPanel = (err == nil && !exists)
 
 	query := `
-		INSERT INTO panels (no_pp, no_panel, no_wbs, project, percent_progress, start_date, target_delivery, status_busbar_pcc, status_busbar_mcc, status_component, status_palet, status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id, is_closed, closed_date, panel_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-		ON CONFLICT (no_pp) DO UPDATE SET
-		no_panel = EXCLUDED.no_panel, no_wbs = EXCLUDED.no_wbs, project = EXCLUDED.project, percent_progress = EXCLUDED.percent_progress, start_date = EXCLUDED.start_date, target_delivery = EXCLUDED.target_delivery, status_busbar_pcc = EXCLUDED.status_busbar_pcc, status_busbar_mcc = EXCLUDED.status_busbar_mcc, status_component = EXCLUDED.status_component, status_palet = EXCLUDED.status_palet, status_corepart = EXCLUDED.status_corepart, ao_busbar_pcc = EXCLUDED.ao_busbar_pcc, ao_busbar_mcc = EXCLUDED.ao_busbar_mcc, created_by = EXCLUDED.created_by, vendor_id = EXCLUDED.vendor_id, is_closed = EXCLUDED.is_closed, closed_date = EXCLUDED.closed_date, panel_type = EXCLUDED.panel_type`
+		INSERT INTO panels (
+			no_pp,
+			no_panel,
+			no_wbs,
+			project,
+			panel_type,
+			target_delivery,
+			vendor_id,
+			percent_progress,
+			status_busbar_pcc,
+			ao_busbar_pcc
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 
-	_, err = a.DB.Exec(query, p.NoPp, p.NoPanel, p.NoWbs, p.Project, p.PercentProgress, p.StartDate, p.TargetDelivery, p.StatusBusbarPcc, p.StatusBusbarMcc, p.StatusComponent, p.StatusPalet, p.StatusCorepart, p.AoBusbarPcc, p.AoBusbarMcc, p.CreatedBy, p.VendorID, p.IsClosed, p.ClosedDate, p.PanelType)
+		ON CONFLICT (no_pp)
+		DO UPDATE SET
+			no_panel = EXCLUDED.no_panel,
+			no_wbs = EXCLUDED.no_wbs,
+			project = EXCLUDED.project,
+			panel_type = EXCLUDED.panel_type,
+			target_delivery = EXCLUDED.target_delivery,
+			vendor_id = EXCLUDED.vendor_id,
+			percent_progress = EXCLUDED.percent_progress,
+			status_busbar_pcc = EXCLUDED.status_busbar_pcc,
+			ao_busbar_pcc = EXCLUDED.ao_busbar_pcc;
+		`
+
+	_, err = a.DB.Exec(query,
+		p.NoPp,
+		p.NoPanel,
+		p.NoWbs,
+		p.Project,
+		p.PanelType,
+		p.TargetDelivery,
+		p.VendorID,
+		p.PercentProgress,
+		p.StatusBusbarPcc,
+		p.AoBusbarPcc,
+	)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			respondWithError(w, http.StatusConflict, "Gagal menyimpan: Terdapat duplikasi pada No Panel.")
@@ -642,6 +1128,256 @@ func (a *App) upsertPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	respondWithJSON(w, http.StatusCreated, p)
+}
+
+func (a *App) massImportPanelsHandler(w http.ResponseWriter, r *http.Request) {
+
+    type PanelWrapper struct {
+        Panel Panel `json:"panel"`
+    }
+
+    var payload struct {
+        Panels []PanelWrapper `json:"panels"`
+    }
+
+    countSuccess := 0
+    countSkipped := 0
+    countUpdatedPP := 0
+    countTransferred := 0
+
+    var errorDetails []string
+
+    bodyBytes, err := io.ReadAll(r.Body)
+    if err != nil {
+        respondWithError(w, http.StatusBadRequest, "Gagal membaca body")
+        return
+    }
+
+    if err := json.Unmarshal(bodyBytes, &payload); err != nil || len(payload.Panels) == 0 {
+        var flatPanels []Panel
+        if errFlat := json.Unmarshal(bodyBytes, &flatPanels); errFlat == nil {
+            for _, p := range flatPanels {
+                payload.Panels = append(payload.Panels, PanelWrapper{Panel: p})
+            }
+        }
+    }
+
+    tx, err := a.DB.Begin()
+    if err != nil {
+        respondWithError(w, http.StatusInternalServerError, err.Error())
+        return
+    }
+    defer tx.Rollback()
+
+    for i, item := range payload.Panels {
+        p := item.Panel
+        
+        if p.NoPanel == nil || *p.NoPanel == "" || p.NoWbs == nil || *p.NoWbs == "" {
+            countSkipped++
+            errorDetails = append(errorDetails, fmt.Sprintf("Baris %d: No Panel/WBS kosong", i+2))
+            continue
+        }
+        // =========================
+        // NORMALISASI PP & RUNNING NUMBER
+        // =========================
+        val := strings.TrimSpace(strings.ToLower(p.NoPp))
+        if val == "" || val == "belum diatur" || val == "-" || val == "null" {
+            var lastCounter int
+            errCount := tx.QueryRow(`
+                SELECT COALESCE(MAX(CAST(SUBSTRING(no_pp FROM 14) AS INTEGER)), 0) 
+                FROM panels 
+                WHERE no_pp LIKE 'Belum Diatur %'
+            `).Scan(&lastCounter)
+            
+            if errCount != nil {
+                lastCounter = 0
+            }
+            manualCounter := lastCounter + 1
+            p.NoPp = fmt.Sprintf("Belum Diatur %02d", manualCounter)
+        } else {
+            p.NoPp = strings.ToUpper(val)
+        }
+
+        // =========================
+        // SAFE VALUE
+        // =========================
+        progress := 0.0
+        if p.PercentProgress != nil {
+            progress = *p.PercentProgress
+        }
+
+        // =========================
+        // TRANSFER LOGIC (WAREHOUSE)
+        // =========================
+        isTransfer := false
+        if p.PercentProgress != nil && *p.PercentProgress == 100 {
+            isTransfer = true
+			countTransferred++
+            if p.ClosedDate == nil {
+                now := time.Now()
+                ct := customTime{Time: now}
+                p.ClosedDate = &ct
+            }
+        }
+
+        var actualNoPp string
+        var errCheck error
+
+        // =========================
+        // CEK PANEL + WBS
+        // =========================
+        errCheck = tx.QueryRow(`
+            SELECT no_pp FROM panels 
+            WHERE no_panel = $1 AND no_wbs = $2 
+            LIMIT 1
+        `, *p.NoPanel, *p.NoWbs).Scan(&actualNoPp)
+
+        if errCheck != nil && errCheck != sql.ErrNoRows {
+            errorDetails = append(errorDetails, fmt.Sprintf("Baris %d: Error DB (%v)", i+2, errCheck))
+            countSkipped++
+            continue
+        }
+
+        // =========================
+        // UPDATE
+        // =========================
+        if errCheck == nil {
+            newNoPp := p.NoPp
+            canUpdatePP := false
+
+            newStatus := ""
+            if p.StatusPenyelesaian != nil && *p.StatusPenyelesaian != "" {
+                newStatus = *p.StatusPenyelesaian
+            }
+            if newStatus == "" && isTransfer {
+                newStatus = "Warehouse"
+            }
+
+            var existingPanel string
+            var existingWbs string
+
+            errPP := tx.QueryRow(`
+                SELECT no_panel, no_wbs 
+                FROM panels 
+                WHERE no_pp = $1 
+                LIMIT 1
+            `, newNoPp).Scan(&existingPanel, &existingWbs)
+
+            if errPP == sql.ErrNoRows {
+                canUpdatePP = true
+            } else if errPP == nil {
+                if existingPanel == *p.NoPanel && existingWbs == *p.NoWbs {
+                    canUpdatePP = true
+                } else {
+                    warning := fmt.Sprintf("Baris %d: Gagal. PP %s sudah dipakai panel %s", i+2, newNoPp, existingPanel)
+                    errorDetails = append(errorDetails, warning)
+                    countSkipped++
+                    continue
+                }
+            } else {
+                errorDetails = append(errorDetails, fmt.Sprintf("Baris %d: Gagal cek duplikat PP", i+2))
+                countSkipped++
+                continue
+            }
+
+            _, err = tx.Exec(`
+                UPDATE panels SET 
+                    no_pp = CASE WHEN $1 THEN $2 ELSE no_pp END,
+                    project = COALESCE(NULLIF($3, ''), project),
+                    panel_type = COALESCE(NULLIF($4, ''), panel_type),
+                    vendor_id = COALESCE(NULLIF($5, ''), vendor_id),
+                    percent_progress = CASE WHEN $6 > 0 THEN $6 ELSE percent_progress END,
+                    status_busbar_pcc = COALESCE(NULLIF($7, ''), status_busbar_pcc),
+                    target_delivery = COALESCE($8, target_delivery),
+                    ao_busbar_pcc = COALESCE($9, ao_busbar_pcc),
+                    closed_date = COALESCE($10, closed_date),
+                    status_penyelesaian = CASE 
+                        WHEN $11 AND status_penyelesaian NOT IN ('Production', 'Subcontractor', 'Done') THEN 'Warehouse'
+                        WHEN $14 IN ('Production', 'Subcontractor') THEN $14
+                        ELSE status_penyelesaian
+                    END,
+                    is_closed = CASE WHEN $11 THEN true ELSE is_closed END,
+                    status_corepart = CASE WHEN $11 THEN 'Closed' ELSE status_corepart END,
+                    status_palet = CASE WHEN $11 THEN 'Closed' ELSE status_palet END
+                WHERE no_panel = $12 AND no_wbs = $13
+            `,
+                canUpdatePP, newNoPp, p.Project, p.PanelType, p.VendorID, progress,
+                p.StatusBusbarPcc, p.TargetDelivery, p.AoBusbarPcc, p.ClosedDate,
+                isTransfer, *p.NoPanel, *p.NoWbs, newStatus,
+            )
+
+            if canUpdatePP {
+                actualNoPp = newNoPp
+                countUpdatedPP++
+            }
+
+        } else {
+            // =========================
+            // INSERT
+            // =========================
+            finalNoPp := p.NoPp
+
+            statusPenyelesaian := "Vendor K3"
+            if isTransfer {
+                statusPenyelesaian = "Warehouse"
+            }
+
+            _, err = tx.Exec(`
+                INSERT INTO panels (
+                    no_pp, no_panel, no_wbs, project, panel_type,
+                    target_delivery, vendor_id, percent_progress,
+                    status_busbar_pcc, ao_busbar_pcc, closed_date,
+                    is_closed, status_corepart, status_component, status_palet,
+                    status_penyelesaian
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            `,
+                finalNoPp, *p.NoPanel, *p.NoWbs, p.Project, p.PanelType,
+                p.TargetDelivery, p.VendorID, progress, p.StatusBusbarPcc,
+                p.AoBusbarPcc, p.ClosedDate, isTransfer,
+                func() string { if isTransfer { return "Closed" }; return "" }(),
+                func() string { if isTransfer { return "Closed" }; return "" }(),
+                func() string { if isTransfer { return "Closed" }; return "" }(),
+                statusPenyelesaian,
+            )
+
+            actualNoPp = finalNoPp
+        }
+
+        if err != nil {
+            errorDetails = append(errorDetails, fmt.Sprintf("Baris %d: Gagal Simpan (%v)", i+2, err))
+            countSkipped++
+            continue
+        }
+
+        // =========================
+        // BUSBAR
+        // =========================
+        if p.BusbarVendorID != nil && *p.BusbarVendorID != "" {
+            _, err = tx.Exec(`
+                INSERT INTO busbars (panel_no_pp, vendor)
+                VALUES ($1, $2)
+                ON CONFLICT (panel_no_pp, vendor) DO NOTHING
+            `, actualNoPp, *p.BusbarVendorID)
+
+            if err != nil {
+                errorDetails = append(errorDetails, fmt.Sprintf("Baris %d (busbar): %v", i+2, err))
+            }
+        }
+        countSuccess++
+    }
+
+    if err := tx.Commit(); err != nil {
+        respondWithError(w, http.StatusInternalServerError, err.Error())
+        return
+    }
+
+    respondWithJSON(w, http.StatusOK, map[string]interface{}{
+        "status": "success",
+        "message": fmt.Sprintf("Import selesai: %d berhasil, %d bermasalah/dilewati", countSuccess, countSkipped),
+        "success_count": countSuccess,
+        "error_count": countSkipped,
+        "errors": errorDetails,
+    })
 }
 
 func (a *App) updateStatusAOHandler(w http.ResponseWriter, r *http.Request) {
@@ -906,7 +1642,6 @@ func (a *App) deleteCompanyAccountHandler(w http.ResponseWriter, r *http.Request
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 func (a *App) getAllCompanyAccountsHandler(w http.ResponseWriter, r *http.Request) {
-	// rows, err := a.DB.Query("SELECT username, password, company_id FROM public.company_accounts")
 	rows, err := a.DB.Query("SELECT username, COALESCE(password, ''), company_id FROM public.company_accounts")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1132,6 +1867,77 @@ func (a *App) getCompaniesByRoleHandler(w http.ResponseWriter, r *http.Request) 
 	respondWithJSON(w, http.StatusOK, companies)
 }
 
+func (a *App) extractPanelDataHandler(w http.ResponseWriter, r *http.Request) {
+	panelNoPP := mux.Vars(r)["no_pp"]
+
+	type ExtractResponse struct {
+		Panel    interface{} `json:"panel"`
+		Wiring   []Wiring    `json:"wiring"`
+		Busbar   interface{} `json:"busbar"`
+		Corepart interface{} `json:"corepart"`
+		Palet    interface{} `json:"palet"`
+	}
+
+	var result ExtractResponse
+
+	err := a.DB.QueryRow(`
+		SELECT row_to_json(p)
+		FROM panels p
+		WHERE no_pp = $1
+	`, panelNoPP).Scan(&result.Panel)
+	if err != nil {
+		http.Error(w, "Panel not found", http.StatusNotFound)
+		return
+	}
+	rows, err := a.DB.Query(`
+		SELECT
+			id,
+		    panel_no_pp, 
+			no_wbs, 
+			no_panel,
+			COALESCE(supplier, 'INTERNAL') as supplier, 
+			progress, 
+			status, 
+			panel_type,
+			closed_at, 
+			created_at, 
+			updated_at
+		FROM wirings
+		WHERE panel_no_pp = $1
+	`, panelNoPP)
+	if err != nil {
+		http.Error(w, "Failed to fetch wiring", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var wng Wiring
+		if err := rows.Scan(
+			&wng.ID,
+			&wng.PanelNoPP,
+			&wng.NoWBS,
+			&wng.NoPanel,
+			&wng.Supplier,
+			&wng.Progress,
+			&wng.Status,
+			&wng.PanelType,
+			&wng.ClosedAt,
+			&wng.CreatedAt,
+			&wng.UpdatedAt,
+		); err == nil {
+			result.Wiring = append(result.Wiring, wng)
+		}
+	}
+
+	result.Busbar = nil
+	result.Corepart = nil
+	result.Palet = nil
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Request) {
 	userRole := r.URL.Query().Get("role")
 	companyId := r.URL.Query().Get("company_id")
@@ -1220,21 +2026,60 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	panelQuery := `
-		SELECT
-			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
-			p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
-			p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
-			p.is_closed, p.closed_date, p.panel_type, p.remarks,
-			p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
-			p.history_stack,
-			pu.name as panel_vendor_name,
-			(SELECT STRING_AGG(c.name, ', ') 
-			 FROM public.companies c 
-			 JOIN public.g3_vendors g3 ON c.id = g3.vendor 
-			 WHERE g3.panel_no_pp = p.no_pp) as g3_vendor_names
-		FROM public.panels p
-		LEFT JOIN public.companies pu ON p.vendor_id = pu.id
-		WHERE p.no_pp = ANY($1)`
+    SELECT
+        -- [Kolom 1-24] Tetap sama (p.no_pp sampai p.production_slot)
+        p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
+        p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
+        p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
+        p.is_closed, p.closed_date, p.panel_type, p.remarks,
+        p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
+        
+        p.history_stack,           -- [Kolom 25]
+        pu.name as panel_vendor_name, -- [Kolom 26]
+		pt.product_type,
+
+        -- TAMBAHAN WIRING (Urutan 27, 28, 29)
+        COALESCE((
+			SELECT progress 
+			FROM public.wirings 
+			WHERE panel_no_pp = p.no_pp 
+			ORDER BY created_at DESC 
+			LIMIT 1
+		), 0) as wiring_progress,
+
+		COALESCE((
+			SELECT status 
+			FROM public.wirings 
+			WHERE panel_no_pp = p.no_pp 
+			ORDER BY created_at DESC 
+			LIMIT 1
+		), 'Open') as wiring_status,
+
+		COALESCE((
+			SELECT supplier 
+			FROM public.wirings 
+			WHERE panel_no_pp = p.no_pp 
+			ORDER BY created_at DESC 
+			LIMIT 1
+		), '') as wiring_vendor_names,
+
+		(
+			SELECT target_delivery_wiring 
+			FROM public.wirings 
+			WHERE panel_no_pp = p.no_pp 
+			ORDER BY created_at DESC 
+			LIMIT 1
+		) as wiring_target_delivery,
+
+        -- [Kolom 30] G3 harus di akhir sesuai urutan variabel scan nanti
+        (SELECT STRING_AGG(c.name, ', ') 
+         FROM public.companies c 
+         JOIN public.g3_vendors g3 ON c.id = g3.vendor 
+         WHERE g3.panel_no_pp = p.no_pp) as g3_vendor_names
+    FROM public.panels p
+    LEFT JOIN public.companies pu ON p.vendor_id = pu.id
+	LEFT JOIN public.product_types pt ON p.panel_type = pt.panel_type
+    WHERE p.no_pp = ANY($1)`
 
 	panelRows, err := a.DB.QueryContext(r.Context(), panelQuery, pq.Array(relevantPanelIds))
 	if err != nil {
@@ -1245,27 +2090,124 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	defer panelRows.Close()
 
 	panelMap := make(map[string]*PanelDisplayDataWithTimeline)
+
 	for panelRows.Next() {
-		var pdd PanelDisplayDataWithTimeline
 		var panel Panel
-		var historyStackJSON []byte
+		var pdd PanelDisplayDataWithTimeline
+
+		var wiringStatus sql.NullString
+		var wiringVendorNames sql.NullString
+		var wiringTargetDelivery sql.NullTime
 		var g3VendorNames sql.NullString
+		var historyStackJSON []byte
+		var productType sql.NullString
 
 		err := panelRows.Scan(
-			&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project, &panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
-			&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart,
-			&panel.AoBusbarPcc, &panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID, &panel.IsClosed, &panel.ClosedDate,
-			&panel.PanelType, &panel.Remarks, &panel.CloseDateBusbarPcc, &panel.CloseDateBusbarMcc,
-			&panel.StatusPenyelesaian, &panel.ProductionSlot,
+			&panel.NoPp,
+			&panel.NoPanel,
+			&panel.NoWbs,
+			&panel.Project,
+			&panel.PercentProgress,
+			&panel.StartDate,
+			&panel.TargetDelivery,
+			&panel.StatusBusbarPcc,
+			&panel.StatusBusbarMcc,
+			&panel.StatusComponent,
+			&panel.StatusPalet,
+			&panel.StatusCorepart,
+			&panel.AoBusbarPcc,
+			&panel.AoBusbarMcc,
+			&panel.CreatedBy,
+			&panel.VendorID,
+			&panel.IsClosed,
+			&panel.ClosedDate,
+			&panel.PanelType,
+			&panel.Remarks,
+			&panel.CloseDateBusbarPcc,
+			&panel.CloseDateBusbarMcc,
+			&panel.StatusPenyelesaian,
+			&panel.ProductionSlot,
 			&historyStackJSON,
 			&pdd.PanelVendorName,
+			&productType,
+			&pdd.WiringProgress,
+			&wiringStatus,
+			&wiringVendorNames,
+			&wiringTargetDelivery,
 			&g3VendorNames,
 		)
 		if err != nil {
 			log.Printf("Error scanning panel row: %v", err)
 			continue
 		}
+		if productType.Valid && productType.String != "" {
+			panel.ProductType = &productType.String
+		} else {
+			others := "Others"
+			panel.ProductType = &others
+		}
+
+		if wiringStatus.Valid {
+			pdd.WiringStatus = &wiringStatus.String
+		}
+
+		if wiringVendorNames.Valid {
+			pdd.WiringVendorNames = &wiringVendorNames.String
+		}
+
+		if wiringTargetDelivery.Valid {
+			pdd.WiringTargetDelivery = &wiringTargetDelivery.Time
+		}
+
+		// assign panel ke pdd
 		pdd.Panel = panel
+		wiringRows, err := a.DB.Query(`
+		SELECT 
+			id, 
+			panel_no_pp, 
+			no_wbs,
+			no_panel,
+			supplier, 
+			progress, 
+			status, 
+			closed_at, 
+			panel_type,
+			target_delivery_wiring,
+			created_at, 
+			updated_at
+		FROM wirings
+		WHERE LOWER(panel_no_pp) = LOWER($1)
+	`, panel.NoPp)
+
+		if err == nil {
+			defer wiringRows.Close()
+
+			var wirings []Wiring
+
+			for wiringRows.Next() {
+				var w Wiring
+				err := wiringRows.Scan(
+					&w.ID,
+					&w.PanelNoPP,
+					&w.NoWBS,
+					&w.NoPanel,
+					&w.Supplier,
+					&w.Progress,
+					&w.Status,
+					&w.ClosedAt,
+					&w.PanelType,
+					&w.TargetDeliveryWiring, // WAJIB ADA
+					&w.CreatedAt,
+					&w.UpdatedAt,
+				)
+				if err == nil {
+					wirings = append(wirings, w)
+				}
+			}
+
+			// MASUKKAN KE STRUCT YANG DIKIRIM KE FRONTEND
+			pdd.Wirings = wirings
+		}
 
 		if g3VendorNames.Valid {
 			pdd.G3VendorNames = &g3VendorNames.String
@@ -1274,25 +2216,34 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 		var historyStackData []map[string]interface{}
 		if historyStackJSON != nil {
 			json.Unmarshal(historyStackJSON, &historyStackData)
+
 			for _, item := range historyStackData {
 				if status, ok := item["snapshot_status"].(string); ok {
 					if timestampStr, ok := item["timestamp"].(string); ok {
 						ts, err := time.Parse(time.RFC3339, timestampStr)
-						if err == nil {
-							if status == "VendorWarehouse" && pdd.ProductionDate == nil {
-								pdd.ProductionDate = &ts
-							}
-							if (status == "Production" || status == "Subcontractor") && pdd.FatDate == nil {
-								pdd.FatDate = &ts
-							}
-							if status == "FAT" && pdd.AllDoneDate == nil {
-								pdd.AllDoneDate = &ts
-							}
+						if err != nil {
+							continue
+						}
+
+						// Cek status "Warehouse" atau "VendorWarehouse"
+						if status == "VendorWarehouse" || status == "Warehouse" {
+							pdd.ProductionDate = &ts
+						}
+
+						// Cek status "Production" atau "Subcontractor"
+						if status == "Production" || status == "Subcontractor" {
+							pdd.FatDate = &ts
+						}
+
+						// Cek status "FAT"
+						if status == "FAT" {
+							pdd.AllDoneDate = &ts
 						}
 					}
 				}
 			}
 		}
+
 		panelMap[panel.NoPp] = &pdd
 	}
 
@@ -1338,29 +2289,47 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 	var finalResults []PanelDisplayDataWithTimeline
 	for _, panelID := range relevantPanelIds {
 		if pdd, ok := panelMap[panelID]; ok {
+
+			// ===============================
+			// SET PRODUCT TYPE FROM DATABASE
+			// ===============================
+			if pdd.Panel.ProductType != nil {
+				pdd.ProductType = pdd.Panel.ProductType
+			}
+
 			if relations, found := busbarsMap[panelID]; found {
 				var names, ids []string
 				var remarks []map[string]interface{}
+
 				for _, r := range relations {
 					names = append(names, r.VendorName)
 					ids = append(ids, r.VendorID)
+
 					if r.Remarks.Valid && r.Remarks.String != "" {
-						remarks = append(remarks, map[string]interface{}{"vendor_name": r.VendorName, "remark": r.Remarks.String, "vendor_id": r.VendorID})
+						remarks = append(remarks, map[string]interface{}{
+							"vendor_name": r.VendorName,
+							"remark":      r.Remarks.String,
+							"vendor_id":   r.VendorID,
+						})
 					}
 				}
+
 				busbarNamesStr := strings.Join(names, ", ")
 				pdd.BusbarVendorNames = &busbarNamesStr
 				pdd.BusbarVendorIds = ids
+
 				jsonRemarks, _ := json.Marshal(remarks)
 				pdd.BusbarRemarks = jsonRemarks
 			}
 
 			if relations, found := componentsMap[panelID]; found {
 				var names, ids []string
+
 				for _, r := range relations {
 					names = append(names, r.VendorName)
 					ids = append(ids, r.VendorID)
 				}
+
 				componentNamesStr := strings.Join(names, ", ")
 				pdd.ComponentVendorNames = &componentNamesStr
 				pdd.ComponentVendorIds = ids
@@ -1368,10 +2337,12 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 
 			if relations, found := paletsMap[panelID]; found {
 				var names, ids []string
+
 				for _, r := range relations {
 					names = append(names, r.VendorName)
 					ids = append(ids, r.VendorID)
 				}
+
 				paletNamesStr := strings.Join(names, ", ")
 				pdd.PaletVendorNames = &paletNamesStr
 				pdd.PaletVendorIds = ids
@@ -1379,10 +2350,12 @@ func (a *App) getAllPanelsForDisplayHandler(w http.ResponseWriter, r *http.Reque
 
 			if relations, found := corepartsMap[panelID]; found {
 				var names, ids []string
+
 				for _, r := range relations {
 					names = append(names, r.VendorName)
 					ids = append(ids, r.VendorID)
 				}
+
 				corepartNamesStr := strings.Join(names, ", ")
 				pdd.CorepartVendorNames = &corepartNamesStr
 				pdd.CorepartVendorIds = ids
@@ -1556,31 +2529,33 @@ func (a *App) getAllPanelsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) getPanelByNoPpHandler(w http.ResponseWriter, r *http.Request) {
-	noPp := mux.Vars(r)["no_pp"]
-	var p Panel
+	vars := mux.Vars(r)
+	noPP := vars["no_pp"]
 
-	query := `
-		SELECT
-			CASE WHEN no_pp LIKE 'TEMP_PP_%' THEN '' ELSE no_pp END AS no_pp,
-			no_panel, no_wbs, project, percent_progress, start_date, target_delivery,
-			status_busbar_pcc, status_busbar_mcc, status_component, status_palet,
-			status_corepart, ao_busbar_pcc, ao_busbar_mcc, created_by, vendor_id,
-			is_closed, closed_date, panel_type
-		FROM public.panels WHERE no_pp = $1`
-
-	err := a.DB.QueryRow(query, noPp).Scan(
-		&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress, &p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc, &p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc, &p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate, &p.PanelType)
-
+	panel, err := a.getPanelByNoPP(noPP) // Memanggil fungsi helper database
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatusNotFound, "Panel tidak ditemukan")
-			return
+			http.Error(w, "Panel tidak ditemukan", http.StatusNotFound)
+		} else {
+			http.Error(w, "Gagal mengambil data panel", http.StatusInternalServerError)
 		}
-		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondWithJSON(w, http.StatusOK, p)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(panel)
 }
+
+func (a *App) getPanelByNoPP(noPP string) (*Panel, error) {
+	var p Panel
+	query := `SELECT no_pp, no_panel, no_wbs, project, panel_type FROM panels WHERE no_pp = $1`
+	err := a.DB.QueryRow(query, noPP).Scan(&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PanelType)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 func (a *App) isNoPpTakenHandler(w http.ResponseWriter, r *http.Request) {
 	noPp := mux.Vars(r)["no_pp"]
 	var exists bool
@@ -1726,13 +2701,14 @@ func (a *App) changePanelNoPpHandler(w http.ResponseWriter, r *http.Request) {
 
 	updateQuery := `
 		UPDATE panels SET
-			no_panel = $1, no_wbs = $2, project = $3, percent_progress = $4,
+			no_panel = $1, no_wbs = $2, project = $3, 
+			percent_progress = $4, -- <--- PASTIKAN INI ADALAH PROGRESS PANEL (0-100)
 			start_date = $5, target_delivery = $6, status_busbar_pcc = $7,
 			status_busbar_mcc = $8, status_component = $9, status_palet = $10,
 			status_corepart = $11, ao_busbar_pcc = $12, ao_busbar_mcc = $13,
 			vendor_id = $14, is_closed = $15, closed_date = $16, panel_type = $17, remarks = $18,
 			close_date_busbar_pcc = $19, close_date_busbar_mcc = $20
-	WHERE no_pp = $21`
+		WHERE no_pp = $21`
 
 	_, err = tx.Exec(updateQuery,
 		existingPanel.NoPanel, existingPanel.NoWbs, existingPanel.Project, existingPanel.PercentProgress,
@@ -2122,14 +3098,26 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	defer tx.Rollback()
 
 	panelQuery := `
-		SELECT DISTINCT 
+	SELECT DISTINCT 
 			p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress,
 			p.start_date, p.target_delivery, p.status_busbar_pcc, p.status_busbar_mcc,
 			p.status_component, p.status_palet, p.status_corepart, p.ao_busbar_pcc,
 			p.ao_busbar_mcc, p.created_by, p.vendor_id, p.is_closed, p.closed_date,
-			p.panel_type, p.remarks, p.close_date_busbar_pcc, p.close_date_busbar_mcc,
-			p.status_penyelesaian, p.production_slot 
+			p.panel_type,
+			pt.product_type,
+			p.remarks,
+			p.close_date_busbar_pcc, p.close_date_busbar_mcc,
+			p.status_penyelesaian, p.production_slot,
+			COALESCE((
+				SELECT progress 
+				FROM public.wirings 
+				WHERE panel_no_pp = p.no_pp 
+				ORDER BY created_at DESC 
+				LIMIT 1
+			), 0) as wiring_progress
 		FROM public.panels p
+		LEFT JOIN public.product_types pt 
+			ON LOWER(p.panel_type) = LOWER(pt.panel_type)
 		LEFT JOIN public.busbars b ON p.no_pp = b.panel_no_pp
 		LEFT JOIN public.components c ON p.no_pp = c.panel_no_pp
 		LEFT JOIN public.palet pa ON p.no_pp = pa.panel_no_pp
@@ -2293,13 +3281,14 @@ func (a *App) getFilteredDataForExport(r *http.Request) (map[string]interface{},
 	panelIdSet := make(map[string]bool)
 	for rows.Next() {
 		var p Panel
+		var wiringProgress int
 		if err := rows.Scan(
 			&p.NoPp, &p.NoPanel, &p.NoWbs, &p.Project, &p.PercentProgress,
 			&p.StartDate, &p.TargetDelivery, &p.StatusBusbarPcc, &p.StatusBusbarMcc,
 			&p.StatusComponent, &p.StatusPalet, &p.StatusCorepart, &p.AoBusbarPcc,
 			&p.AoBusbarMcc, &p.CreatedBy, &p.VendorID, &p.IsClosed, &p.ClosedDate,
-			&p.PanelType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc,
-			&p.StatusPenyelesaian, &p.ProductionSlot,
+			&p.PanelType, &p.ProductType, &p.Remarks, &p.CloseDateBusbarPcc, &p.CloseDateBusbarMcc,
+			&p.StatusPenyelesaian, &p.ProductionSlot, &wiringProgress,
 		); err != nil {
 			continue
 		}
@@ -2478,7 +3467,20 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 				}
 			}
 		}
+		wirings := data["wirings"].([]interface{})
+		wiringMap := make(map[string]*Wiring)
 
+		for _, w := range wirings {
+			wiring := w.(*Wiring)
+
+			key := wiring.PanelNoPP
+
+			if key == "" && wiring.NoWBS != "" && wiring.NoPanel != "" {
+				key = wiring.NoWBS + "_" + wiring.NoPanel
+			}
+
+			wiringMap[key] = wiring
+		}
 		var panelData []map[string]interface{}
 		for _, panel := range panels {
 			panelVendorName := ""
@@ -2487,22 +3489,58 @@ func (a *App) generateCustomExportJsonHandler(w http.ResponseWriter, r *http.Req
 					panelVendorName = company.Name
 				}
 			}
+			key := panel.NoPp
+			if key == "" && panel.NoWbs != nil && panel.NoPanel != nil {
+				key = *panel.NoWbs + "_" + *panel.NoPanel
+			}
+			wiringData, exists := wiringMap[key]
+
 			panelData = append(panelData, map[string]interface{}{
 				"PP Panel":               panel.NoPp,
 				"Panel No":               panel.NoPanel,
 				"WBS":                    panel.NoWbs,
 				"PROJECT":                panel.Project,
-				"Target Delicery":        panel.TargetDelivery,
+				"Target Delivery":        panel.TargetDelivery,
 				"Actual Delivery ke SEC": panel.TargetDelivery,
 				"Panel":                  panelVendorName,
 				"Busbar":                 panelBusbarMap[panel.NoPp],
 				"Progres Panel":          panel.PercentProgress,
-				"Status Corepart":        panel.StatusCorepart,
-				"Status Palet":           panel.StatusPalet,
-				"Status Busbar PCC":      panel.StatusBusbarPcc,
-				"Status Busbar MCC":      panel.StatusBusbarMcc,
-				"AO Busbar PCC":          panel.AoBusbarPcc,
-				"AO Busbar MCC":          panel.AoBusbarMcc,
+
+				// 🔹 DATA DARI WIRING
+				"Progress Wiring": func() interface{} {
+					if exists {
+						return wiringData.Progress
+					}
+					return nil
+				}(),
+
+				"Wiring Status": func() interface{} {
+					if exists {
+						return wiringData.Status
+					}
+					return nil
+				}(),
+
+				"Target Delivery Wiring": func() interface{} {
+					if exists {
+						return wiringData.TargetDeliveryWiring
+					}
+					return nil
+				}(),
+
+				"Actual Delivery Wiring": func() interface{} {
+					if exists {
+						return wiringData.ActualDeliveryWiring
+					}
+					return nil
+				}(),
+
+				"Status Corepart":   panel.StatusCorepart,
+				"Status Palet":      panel.StatusPalet,
+				"Status Busbar PCC": panel.StatusBusbarPcc,
+				"Status Busbar MCC": panel.StatusBusbarMcc,
+				"AO Busbar PCC":     panel.AoBusbarPcc,
+				"AO Busbar MCC":     panel.AoBusbarMcc,
 			})
 		}
 		jsonData["panel_data"] = panelData
@@ -2700,11 +3738,13 @@ func generateAcronym(name string) string {
 
 func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
+		Mode             string                              `json:"mode"`
 		Data             map[string][]map[string]interface{} `json:"data"`
-		LoggedInUsername *string                             `json:"loggedInUsername"`
+		LoggedInUsername *string                             `json:"imported_by"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON: "+err.Error())
 		return
 	}
 
@@ -2715,303 +3755,98 @@ func (a *App) importFromCustomTemplateHandler(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
-	var loggedInUserCompanyId string
-	var loggedInUserRole string
-	if payload.LoggedInUsername != nil && *payload.LoggedInUsername != "" {
-		query := `SELECT c.id, c.role FROM public.companies c JOIN public.company_accounts ca ON c.id = ca.company_id WHERE ca.username = $1`
-		err := tx.QueryRow(query, *payload.LoggedInUsername).Scan(&loggedInUserCompanyId, &loggedInUserRole)
-		if err != nil && err != sql.ErrNoRows {
-
-			respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data user: "+err.Error())
-			return
-		}
-	}
-
 	var errors []string
 	dataProcessed := false
 
-	vendorIdMap := make(map[string]bool)
-	normalizedNameToIdMap := make(map[string]string)
-	acronymToIdMap := make(map[string]string)
-
-	rows, err := tx.Query("SELECT id, name FROM public.companies")
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data companies: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var c Company
-		if err := rows.Scan(&c.ID, &c.Name); err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Gagal scan company: "+err.Error())
-			return
-		}
-		vendorIdMap[c.ID] = true
-		normalized := normalizeVendorName(c.Name)
-		if normalized != "" {
-			normalizedNameToIdMap[normalized] = c.ID
-		}
-		acronym := generateAcronym(c.Name)
-		if acronym != "" {
-			acronymToIdMap[acronym] = c.ID
-		}
-	}
-
-	resolveVendor := func(vendorInput string) string {
-		trimmedInput := strings.TrimSpace(vendorInput)
-		if trimmedInput == "" {
-			return ""
-		}
-		if vendorIdMap[trimmedInput] {
-			return trimmedInput
-		}
-		normalizedInput := normalizeVendorName(trimmedInput)
-		if id, ok := normalizedNameToIdMap[normalizedInput]; ok {
-			return id
-		}
-		if id, ok := acronymToIdMap[normalizedInput]; ok {
-			return id
-		}
-		acronymInput := generateAcronym(trimmedInput)
-		if id, ok := acronymToIdMap[acronymInput]; ok {
-			return id
-		}
-		return ""
-	}
-
-	if userSheetData, ok := payload.Data["user"]; ok {
-		for i, row := range userSheetData {
-			cleanMapData(row)
-			rowNum := i + 2
-			username := getValueCaseInsensitive(row, "Username")
-			companyName := getValueCaseInsensitive(row, "Company")
-			companyRole := strings.ToLower(getValueCaseInsensitive(row, "Company Role"))
-			password := getValueCaseInsensitive(row, "Password")
-			if password == "" {
-				password = "123"
-			}
-
-			if username == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Username' wajib diisi.", rowNum))
-				continue
-			}
-			if companyName == "" {
-				errors = append(errors, fmt.Sprintf("User baris %d: Kolom 'Company' wajib diisi.", rowNum))
-				continue
-			}
-			var companyId string
-			err := tx.QueryRow("SELECT id FROM public.companies WHERE LOWER(name) = LOWER($1)", strings.TrimSpace(companyName)).Scan(&companyId)
-			if err == sql.ErrNoRows {
-				companyId = strings.ToLower(strings.ReplaceAll(companyName, " ", "_"))
-				_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING", companyId, companyName, companyRole)
-				if errInsert != nil {
-					errors = append(errors, fmt.Sprintf("User baris %d: Gagal membuat company baru '%s': %v", rowNum, companyName, errInsert))
-					continue
-				}
-			} else if err != nil {
-				errors = append(errors, fmt.Sprintf("User baris %d: Error mencari company: %v", rowNum, err))
-				continue
-			}
-			_, err = tx.Exec("INSERT INTO company_accounts (username, password, company_id) VALUES ($1, $2, $3) ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, company_id = EXCLUDED.company_id", username, password, companyId)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("User baris %d: Gagal memasukkan/update akun '%s': %v", rowNum, username, err))
-				continue
-			}
-			dataProcessed = true
-		}
-	}
-
+	// Cek apakah sheet "panel" ada
 	if panelSheetData, ok := payload.Data["panel"]; ok {
+		for idx, row := range panelSheetData {
+			rowNum := idx + 2
 
-		var warehouseCompanyId string
-		err := tx.QueryRow("SELECT id FROM public.companies WHERE name = 'Warehouse'").Scan(&warehouseCompanyId)
-		if err == sql.ErrNoRows {
-
-			warehouseCompanyId = "warehouse"
-			_, errInsert := tx.Exec(
-				"INSERT INTO companies (id, name, role) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING",
-				warehouseCompanyId,
-				"Warehouse",
-				AppRoleWarehouse,
-			)
-			if errInsert != nil {
-				errors = append(errors, fmt.Sprintf("Kritis: Gagal membuat company 'Warehouse' secara otomatis: %v", errInsert))
-			}
-		} else if err != nil {
-			errors = append(errors, fmt.Sprintf("Kritis: Gagal mencari company 'Warehouse': %v", err))
-		}
-
-		for i, row := range panelSheetData {
-			cleanMapData(row)
-			rowNum := i + 2
-			noPpRaw := getValueCaseInsensitive(row, "PP Panel")
-			noPanel := getValueCaseInsensitive(row, "Panel No")
-			project := getValueCaseInsensitive(row, "PROJECT")
-			noWbs := getValueCaseInsensitive(row, "WBS")
-
-			var noPp string
-			if f, err := strconv.ParseFloat(noPpRaw, 64); err == nil {
-				noPp = fmt.Sprintf("%d", int(f))
-			} else {
-				noPp = noPpRaw
-			}
-
-			var oldTempNoPp string
-			if noPp != "" && (noPanel != "" || project != "" || noWbs != "") {
-				findTempQuery := `SELECT no_pp FROM public.panels WHERE no_pp LIKE 'TEMP_PP_%' AND no_panel = $1 AND project = $2 AND no_wbs = $3`
-				err := tx.QueryRow(findTempQuery, noPanel, project, noWbs).Scan(&oldTempNoPp)
-				if err != nil && err != sql.ErrNoRows {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal mencari data sementara: %v", rowNum, err))
-					continue
-				}
-
-				if oldTempNoPp != "" {
-					_, err := tx.Exec("DELETE FROM public.panels WHERE no_pp = $1", oldTempNoPp)
-					if err != nil {
-						errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal menghapus data sementara %s: %v", rowNum, oldTempNoPp, err))
-						continue
+			// Fungsi ambil data dari row atau nested 'panel'
+			getVal := func(key string) string {
+				if v, ok := row[key]; ok && v != nil {
+					res := strings.TrimSpace(fmt.Sprintf("%v", v))
+					if res != "" && res != "<nil>" && res != "null" {
+						return res
 					}
 				}
-			}
-
-			if noPp == "" {
-				timestamp := time.Now().UnixNano() / int64(time.Millisecond)
-				noPp = fmt.Sprintf("TEMP_PP_%d_%d", rowNum, timestamp)
-			}
-
-			var panelVendorId, busbarVendorId sql.NullString
-
-			if loggedInUserRole == AppRoleK3 {
-
-				panelVendorId = sql.NullString{String: loggedInUserCompanyId, Valid: true}
-
-			} else {
-
-				panelVendorInput := getValueCaseInsensitive(row, "Panel")
-				busbarVendorInput := getValueCaseInsensitive(row, "Busbar")
-
-				if panelVendorInput != "" {
-					resolvedId := resolveVendor(panelVendorInput)
-					if resolvedId == "" {
-						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Panel '%s' tidak ditemukan.", rowNum, panelVendorInput))
-					} else {
-						panelVendorId = sql.NullString{String: resolvedId, Valid: true}
+				if nested, ok := row["panel"].(map[string]interface{}); ok {
+					if v, ok := nested[key]; ok && v != nil {
+						res := strings.TrimSpace(fmt.Sprintf("%v", v))
+						if res != "" && res != "<nil>" && res != "null" {
+							return res
+						}
 					}
 				}
-
-				if busbarVendorInput != "" {
-					resolvedId := resolveVendor(busbarVendorInput)
-					if resolvedId == "" {
-						errors = append(errors, fmt.Sprintf("Panel baris %d: Vendor Busbar '%s' tidak ditemukan.", rowNum, busbarVendorInput))
-					} else {
-						busbarVendorId = sql.NullString{String: resolvedId, Valid: true}
-					}
-				}
+				return ""
 			}
 
-			lastErrorIndex := len(errors) - 1
-			if lastErrorIndex >= 0 && strings.Contains(errors[lastErrorIndex], fmt.Sprintf("baris %d", rowNum)) {
+			pPp := getVal("no_pp")
+			pPanel := getVal("no_panel")
+			pWbs := getVal("no_wbs")
+			pProj := getVal("project")
+			pType := getVal("panel_type")
+			pTarget := getVal("target_delivery")
+
+			// Skip baris kosong
+			if pPp == "" && pProj == "" {
 				continue
 			}
 
-			actualDeliveryDate := parseDate(getValueCaseInsensitive(row, "Actual Delivery ke SEC"))
-			var progress float64 = 0.0
+			// DEBUG di Terminal
+			// fmt.Printf("PROCESS [%d] -> PP: %s | PANEL: %s\n", rowNum, pPp, pPanel)
 
-			if actualDeliveryDate != nil {
-				progress = 100.0
-			}
+			// UPSERT QUERY: Insert jika baru, Update jika no_pp sudah ada (Anti-Duplikat)
+			query := `
+				INSERT INTO panels (
+					no_pp, no_panel, no_wbs, project, 
+					panel_type, target_delivery, percent_progress, created_by,
+					is_closed, status_penyelesaian
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				ON CONFLICT (no_pp) 
+				DO UPDATE SET 
+					no_panel = EXCLUDED.no_panel,
+					no_wbs = EXCLUDED.no_wbs,
+					project = EXCLUDED.project,
+					panel_type = EXCLUDED.panel_type,
+					target_delivery = EXCLUDED.target_delivery;`
 
-			rawTargetDelivery := getValueCaseInsensitive(row, "Target Delivery")
-
-			if rawTargetDelivery == "" {
-				rawTargetDelivery = getValueCaseInsensitive(row, "Plan Start")
-			}
-
-			rawStartDate := getValueCaseInsensitive(row, "Start Assembly")
-
-			if rawStartDate == "" {
-				rawStartDate = getValueCaseInsensitive(row, "Start Date")
-			}
-
-			rawPanelType := getValueCaseInsensitive(row, "Type Panel")
-
-			parsedStartDate := parseDate(rawStartDate)
-
-			panelMap := map[string]interface{}{
-				"no_pp":             noPp,
-				"no_panel":          getValueCaseInsensitive(row, "Panel No"),
-				"no_wbs":            getValueCaseInsensitive(row, "WBS"),
-				"project":           getValueCaseInsensitive(row, "PROJECT"),
-				"target_delivery":   parseDate(rawTargetDelivery),
-				"closed_date":       actualDeliveryDate,
-				"is_closed":         actualDeliveryDate != nil,
-				"vendor_id":         panelVendorId,
-				"created_by":        "import",
-				"percent_progress":  progress,
-				"status_busbar_pcc": "On Progress",
-				"status_busbar_mcc": "On Progress",
-				"status_component":  "Open",
-				"status_palet":      "Open",
-				"status_corepart":   "Open",
-			}
-
-			if rawPanelType != "" {
-				panelMap["panel_type"] = rawPanelType
-			}
-
-			if parsedStartDate != nil {
-				panelMap["start_date"] = parsedStartDate
-			}
-
+			var creator string
 			if payload.LoggedInUsername != nil {
-				panelMap["created_by"] = *payload.LoggedInUsername
+				creator = *payload.LoggedInUsername
 			}
 
-			if err := insertMap(tx, "panels", panelMap); err != nil {
-				errors = append(errors, fmt.Sprintf("Panel baris %d (%s): Gagal menyimpan: %v", rowNum, noPp, err))
-				continue
-			}
-			if panelVendorId.Valid {
-				if err := insertMap(tx, "palet", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link palet: %v", rowNum, err))
-				}
-				if err := insertMap(tx, "corepart", map[string]interface{}{"panel_no_pp": noPp, "vendor": panelVendorId.String}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link corepart: %v", rowNum, err))
-				}
-			}
-			if warehouseCompanyId != "" {
-				if err := insertMap(tx, "components", map[string]interface{}{"panel_no_pp": noPp, "vendor": warehouseCompanyId}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link component: %v", rowNum, err))
-				}
-			}
-			if busbarVendorId.Valid {
-				if err := insertMap(tx, "busbars", map[string]interface{}{"panel_no_pp": noPp, "vendor": busbarVendorId.String}); err != nil {
-					errors = append(errors, fmt.Sprintf("Panel baris %d: Gagal link busbar: %v", rowNum, err))
-				}
-			}
+			_, err := tx.Exec(query,
+				pPp, pPanel, pWbs, pProj,
+				pType, parseDate(pTarget), 0.0, creator,
+				false, "VendorWarehouse",
+			)
 
-			dataProcessed = true
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Baris %d: %v", rowNum, err))
+			} else {
+				dataProcessed = true
+			}
 		}
 	}
+
 	if len(errors) > 0 {
-		log.Printf("Import validation error details: %s", strings.Join(errors, " | "))
-		finalMessage := "Impor dibatalkan karena error berikut:\n- " + strings.Join(errors, "\n- ")
-		respondWithError(w, http.StatusBadRequest, finalMessage)
+		respondWithError(w, http.StatusBadRequest, strings.Join(errors, "\n"))
 		return
 	}
 
 	if !dataProcessed {
-		respondWithError(w, http.StatusBadRequest, "Tidak ada data valid yang ditemukan di dalam sheet 'Panel' atau 'User'.")
+		respondWithError(w, http.StatusBadRequest, "Tidak ada data yang diproses.")
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed: "+err.Error())
+		respondWithError(w, http.StatusInternalServerError, "Gagal commit database")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Impor berhasil diselesaikan! 🎉"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Import Berhasil!"})
 }
 
 func getOrCreateChatByPanel(tx *sql.Tx, panelNoPp string) (int, error) {
@@ -3577,7 +4412,7 @@ func toColumnName(n int) string {
 	for n >= 0 {
 
 		remainder := n % 26
-		result = string('A'+remainder) + result
+		result = string(rune('A'+remainder)) + result
 		n = (n / 26) - 1
 	}
 	return result
@@ -5905,13 +6740,18 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	// MODIFIKASI: Ambil data tambahan (no_wbs, no_panel, panel_type) untuk keperluan wiring
 	var p struct {
 		StatusPenyelesaian *string
 		ProductionSlot     *string
 		HistoryStack       []byte
+		NoWbs              string
+		NoPanel            string
+		PanelType          string
 	}
-	query := `SELECT status_penyelesaian, production_slot, history_stack FROM panels WHERE no_pp = $1 FOR UPDATE`
-	err = tx.QueryRow(query, noPp).Scan(&p.StatusPenyelesaian, &p.ProductionSlot, &p.HistoryStack)
+	query := `SELECT status_penyelesaian, production_slot, history_stack, no_wbs, no_panel, panel_type 
+              FROM panels WHERE no_pp = $1 FOR UPDATE`
+	err = tx.QueryRow(query, noPp).Scan(&p.StatusPenyelesaian, &p.ProductionSlot, &p.HistoryStack, &p.NoWbs, &p.NoPanel, &p.PanelType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			respondWithError(w, http.StatusNotFound, "Panel not found")
@@ -5966,25 +6806,29 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		for i, item := range historyStack {
 			status, _ := item["snapshot_status"].(string)
 			switch status {
-			case "VendorWarehouse":
-				if payload.ProductionDate != nil {
+			case "VendorWarehouse", "Warehouse": // <--- Tambahkan "Warehouse"
+				if payload.ProductionDate != nil && *payload.ProductionDate != "" {
 					if newDate, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
 						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
 						historyChanged = true
 					}
 				}
 			case "Production", "Subcontractor":
-				if payload.FatDate != nil {
+				if payload.FatDate != nil && *payload.FatDate != "" {
 					if newDate, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
 						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
 						historyChanged = true
 					}
 				}
 			case "FAT":
-				if payload.AllDoneDate != nil {
-					if newDate, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
+				if payload.AllDoneDate != nil && *payload.AllDoneDate != "" {
+					newDate, err := time.Parse(time.RFC3339, *payload.AllDoneDate)
+
+					if err == nil {
 						historyStack[i]["timestamp"] = newDate.UTC().Format(time.RFC3339)
 						historyChanged = true
+					} else {
+						log.Printf("Error: Gagal update tanggal FAT untuk %s. Format salah: %v", noPp, err)
 					}
 				}
 			}
@@ -6052,28 +6896,35 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 		switch payload.Action {
 		case "to_production":
 			nextStatus = "Production"
-			if payload.ProductionDate != nil {
+			if payload.ProductionDate != nil && *payload.ProductionDate != "" {
 				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
 					snapshotDate = &t
 				}
 			}
 		case "to_subcontractor":
 			nextStatus = "Subcontractor"
-			if payload.ProductionDate != nil {
+			if payload.ProductionDate != nil && *payload.ProductionDate != "" {
 				if t, err := time.Parse(time.RFC3339, *payload.ProductionDate); err == nil {
 					snapshotDate = &t
 				}
 			}
 		case "to_fat":
 			nextStatus = "FAT"
-			if payload.FatDate != nil {
+			if payload.FatDate != nil && *payload.FatDate != "" {
 				if t, err := time.Parse(time.RFC3339, *payload.FatDate); err == nil {
 					snapshotDate = &t
+				} else {
+					now := time.Now().UTC()
+					snapshotDate = &now
+					log.Printf("Warning: Format FatDate salah, menggunakan waktu sekarang untuk %s", noPp)
 				}
+			} else {
+				now := time.Now().UTC()
+				snapshotDate = &now
 			}
 		case "to_done":
 			nextStatus = "Done"
-			if payload.AllDoneDate != nil {
+			if payload.AllDoneDate != nil && *payload.AllDoneDate != "" {
 				if t, err := time.Parse(time.RFC3339, *payload.AllDoneDate); err == nil {
 					snapshotDate = &t
 				}
@@ -6098,6 +6949,16 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			if snapshotDate != nil {
 				dateToUse = *snapshotDate
 			}
+			_, _ = tx.Exec(`DELETE FROM wirings WHERE panel_no_pp = $1`, noPp)
+			_, err = tx.Exec(`
+				INSERT INTO wirings (no_wbs, panel_no_pp, no_panel, panel_type, status, progress, updated_at, created_at)
+				VALUES ($1, $2, $3, $4, 'Open', 0, NOW(), NOW())
+			`, p.NoWbs, noPp, p.NoPanel, p.PanelType)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to create wiring: "+err.Error())
+				return
+			}
+
 			updateQuery := `UPDATE panels SET status_component = 'Done', status_palet = 'Close', status_corepart = 'Close', percent_progress = 100, is_closed = true, closed_date = COALESCE(closed_date, $1), status_penyelesaian = $2, production_slot = $3, history_stack = $4 WHERE no_pp = $5`
 			_, err = tx.Exec(updateQuery, dateToUse, nextStatus, payload.Slot, historyJson, noPp)
 			if err != nil {
@@ -6120,49 +6981,50 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			vendorInput := *payload.VendorID
 
 			err := tx.QueryRow("SELECT id, role FROM companies WHERE id = $1", vendorInput).Scan(&finalVendorId, &roleToUse)
-			if err == nil {
-			} else if err == sql.ErrNoRows {
-				errName := tx.QueryRow("SELECT id, role FROM companies WHERE name = $1", vendorInput).Scan(&finalVendorId, &roleToUse)
-				if errName == nil {
-				} else if errName == sql.ErrNoRows {
-					newId := strings.ToLower(strings.ReplaceAll(vendorInput, " ", "_"))
-
-					var existingId string
-					errCheck := tx.QueryRow("SELECT id FROM companies WHERE id = $1", newId).Scan(&existingId)
-					if errCheck != nil && errCheck != sql.ErrNoRows {
-						respondWithError(w, http.StatusInternalServerError, "Gagal mengecek ID vendor baru: "+errCheck.Error())
-						return
-					}
-
-					if errCheck == sql.ErrNoRows {
-						if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
-							roleToUse = *payload.NewVendorRole
+			if err != nil {
+				if err == sql.ErrNoRows {
+					errName := tx.QueryRow("SELECT id, role FROM companies WHERE name = $1", vendorInput).Scan(&finalVendorId, &roleToUse)
+					if errName != nil {
+						if errName == sql.ErrNoRows {
+							newId := strings.ToLower(strings.ReplaceAll(vendorInput, " ", "_"))
+							var existingId string
+							errCheck := tx.QueryRow("SELECT id FROM companies WHERE id = $1", newId).Scan(&existingId)
+							if errCheck == sql.ErrNoRows {
+								if payload.NewVendorRole != nil && *payload.NewVendorRole != "" {
+									roleToUse = *payload.NewVendorRole
+								} else {
+									roleToUse = "g3"
+								}
+								_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", newId, vendorInput, roleToUse)
+								if errInsert != nil {
+									respondWithError(w, http.StatusInternalServerError, "Gagal membuat vendor baru: "+errInsert.Error())
+									return
+								}
+							}
+							finalVendorId = newId
 						} else {
-							roleToUse = "g3"
-						}
-
-						_, errInsert := tx.Exec("INSERT INTO companies (id, name, role) VALUES ($1, $2, $3)", newId, vendorInput, roleToUse)
-						if errInsert != nil {
-							respondWithError(w, http.StatusInternalServerError, "Gagal membuat vendor baru: "+errInsert.Error())
+							respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi vendor by name: "+errName.Error())
 							return
 						}
 					}
-					finalVendorId = newId
 				} else {
-					respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi vendor by name: "+errName.Error())
+					respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi vendor by id: "+err.Error())
 					return
 				}
-			} else {
-				respondWithError(w, http.StatusInternalServerError, "Gagal memvalidasi vendor by id: "+err.Error())
+			}
+
+			// --- MODIFIKASI: CREATE WIRING ROW ---
+			_, _ = tx.Exec(`DELETE FROM wirings WHERE panel_no_pp = $1`, noPp)
+			_, err = tx.Exec(`
+				INSERT INTO wirings (no_wbs, panel_no_pp, no_panel, panel_type, supplier, status, progress, updated_at, created_at)
+				VALUES ($1, $2, $3, $4, $5, 'Open', 0, NOW(), NOW())
+			`, p.NoWbs, noPp, p.NoPanel, p.PanelType, finalVendorId)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to create wiring: "+err.Error())
 				return
 			}
 
-			_, errDelG3 := tx.Exec(`DELETE FROM g3_vendors WHERE panel_no_pp = $1`, noPp)
-			if errDelG3 != nil {
-				respondWithError(w, http.StatusInternalServerError, "Gagal clear G3 vendor lama: "+errDelG3.Error())
-				return
-			}
-
+			_, _ = tx.Exec(`DELETE FROM g3_vendors WHERE panel_no_pp = $1`, noPp)
 			queryG3 := `INSERT INTO g3_vendors (panel_no_pp, vendor) VALUES ($1, $2) ON CONFLICT DO NOTHING`
 			_, errG3 := tx.Exec(queryG3, noPp, finalVendorId)
 			if errG3 != nil {
@@ -6181,26 +7043,45 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
                               history_stack = $1 
                             WHERE no_pp = $2`
 			_, err = tx.Exec(updateQuery, historyJson, noPp)
-
 			if err != nil {
 				respondWithError(w, http.StatusInternalServerError, "Gagal transfer ke subkontraktor: "+err.Error())
 				return
 			}
 
 		case "to_fat":
-			occupiedSlot := p.ProductionSlot
-			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
+			var wProgress int
+			var wStatus string
+			err := tx.QueryRow(`
+				SELECT progress, status FROM wirings WHERE panel_no_pp = $1
+			`, noPp).Scan(&wProgress, &wStatus)
+
 			if err != nil {
-				respondWithError(w, http.StatusInternalServerError, "Failed to transfer to FAT")
+				respondWithError(w, http.StatusBadRequest, "Data wiring tidak ditemukan. Panel harus melalui tahap Wiring dahulu.")
 				return
 			}
-			if occupiedSlot != nil {
-				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
-				if err != nil {
-					respondWithError(w, http.StatusInternalServerError, "Failed to free up slot")
-					return
-				}
+
+			if wProgress < 100 || wStatus != "Closed" {
+				msg := fmt.Sprintf("Gagal Transfer: Wiring baru %d%% (%s). Harus 100%% & Closed!", wProgress, wStatus)
+				respondWithError(w, http.StatusBadRequest, msg)
+				return
 			}
+			occupiedSlot := p.ProductionSlot
+			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, production_slot = NULL, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
+
+			if err != nil {
+
+				respondWithError(w, http.StatusInternalServerError, "Failed to transfer to FAT")
+
+				return
+
+			}
+
+			if occupiedSlot != nil {
+
+				_, err = tx.Exec("UPDATE production_slots SET is_occupied = false WHERE position_code = $1", *occupiedSlot)
+
+			}
+
 		case "to_done":
 			_, err = tx.Exec("UPDATE panels SET status_penyelesaian = $1, history_stack = $2 WHERE no_pp = $3", nextStatus, historyJson, noPp)
 			if err != nil {
@@ -6209,172 +7090,18 @@ func (a *App) transferPanelHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
 	if err := tx.Commit(); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Transaction commit failed")
 		return
 	}
+	var updatedPanel map[string]interface{}
+    err = a.DB.QueryRow("SELECT row_to_json(p) FROM panels p WHERE no_pp = $1", noPp).Scan(&updatedPanel)
 
-	var pdd PanelDisplayDataWithTimeline
-	var panel Panel
-	var historyStackJSON []byte
-	var g3VendorNames, busbarVendorNames, componentVendorNames, paletVendorNames, corepartVendorNames sql.NullString
-	var busbarRemarksJSON json.RawMessage
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(updatedPanel)
 
-	panelQuery := `
-	    SELECT
-	        p.no_pp, p.no_panel, p.no_wbs, p.project, p.percent_progress, p.start_date, p.target_delivery,
-	        p.status_busbar_pcc, p.status_busbar_mcc, p.status_component, p.status_palet,
-	        p.status_corepart, p.ao_busbar_pcc, p.ao_busbar_mcc, p.created_by, p.vendor_id,
-	        p.is_closed, p.closed_date, p.panel_type, p.remarks,
-	        p.close_date_busbar_pcc, p.close_date_busbar_mcc, p.status_penyelesaian, p.production_slot,
-	        p.history_stack,
-	        pu.name as panel_vendor_name,
-	        (SELECT STRING_AGG(c.name, ', ') 
-	         FROM public.companies c 
-	         JOIN public.busbars b ON c.id = b.vendor 
-	         WHERE b.panel_no_pp = p.no_pp) as busbar_vendor_names,
-			COALESCE((SELECT json_agg(json_build_object('vendor_name', c.name, 'remark', b.remarks, 'vendor_id', c.id))
-			 FROM public.busbars b
-			 JOIN public.companies c ON b.vendor = c.id
-			 WHERE b.panel_no_pp = p.no_pp AND b.remarks IS NOT NULL AND b.remarks != ''), '[]'::json) as busbar_remarks,
-	        (SELECT STRING_AGG(c.name, ', ') 
-	         FROM public.companies c 
-	         JOIN public.components co ON c.id = co.vendor 
-	         WHERE co.panel_no_pp = p.no_pp) as component_vendor_names,
-	        (SELECT STRING_AGG(c.name, ', ') 
-	         FROM public.companies c 
-	         JOIN public.palet pa ON c.id = pa.vendor 
-	         WHERE pa.panel_no_pp = p.no_pp) as palet_vendor_names,
-	        (SELECT STRING_AGG(c.name, ', ') 
-	         FROM public.companies c 
-	         JOIN public.corepart cp ON c.id = cp.vendor 
-	         WHERE cp.panel_no_pp = p.no_pp) as corepart_vendor_names,
-	        (SELECT STRING_AGG(c.name, ', ') 
-	         FROM public.companies c 
-	         JOIN public.g3_vendors g3 ON c.id = g3.vendor 
-	         WHERE g3.panel_no_pp = p.no_pp) as g3_vendor_names
-	    FROM public.panels p
-	    LEFT JOIN public.companies pu ON p.vendor_id = pu.id
-	    WHERE p.no_pp = $1`
-
-	err = a.DB.QueryRow(panelQuery, noPp).Scan(
-		&panel.NoPp, &panel.NoPanel, &panel.NoWbs, &panel.Project, &panel.PercentProgress, &panel.StartDate, &panel.TargetDelivery,
-		&panel.StatusBusbarPcc, &panel.StatusBusbarMcc, &panel.StatusComponent, &panel.StatusPalet, &panel.StatusCorepart,
-		&panel.AoBusbarPcc, &panel.AoBusbarMcc, &panel.CreatedBy, &panel.VendorID, &panel.IsClosed, &panel.ClosedDate,
-		&panel.PanelType, &panel.Remarks, &panel.CloseDateBusbarPcc, &panel.CloseDateBusbarMcc,
-		&panel.StatusPenyelesaian, &panel.ProductionSlot,
-		&historyStackJSON,
-		&pdd.PanelVendorName,
-		&busbarVendorNames,
-		&busbarRemarksJSON,
-		&componentVendorNames,
-		&paletVendorNames,
-		&corepartVendorNames,
-		&g3VendorNames,
-	)
-
-	if err != nil {
-		log.Printf("FATAL: Gagal mengambil data panel %s setelah transfer: %v", noPp, err)
-		respondWithError(w, http.StatusInternalServerError, "Gagal mengambil data panel yang telah diupdate: "+err.Error())
-		return
-	}
-
-	pdd.Panel = panel
-	if busbarVendorNames.Valid {
-		pdd.BusbarVendorNames = &busbarVendorNames.String
-	}
-	if busbarRemarksJSON != nil {
-		pdd.BusbarRemarks = busbarRemarksJSON
-	}
-	if componentVendorNames.Valid {
-		pdd.ComponentVendorNames = &componentVendorNames.String
-	}
-	if paletVendorNames.Valid {
-		pdd.PaletVendorNames = &paletVendorNames.String
-	}
-	if corepartVendorNames.Valid {
-		pdd.CorepartVendorNames = &corepartVendorNames.String
-	}
-	if g3VendorNames.Valid {
-		pdd.G3VendorNames = &g3VendorNames.String
-	}
-
-	var historyStackData []map[string]interface{}
-	var productionDate, fatDate, allDoneDate *time.Time
-
-	if historyStackJSON != nil {
-		json.Unmarshal(historyStackJSON, &historyStackData)
-		for _, item := range historyStackData {
-			if status, ok := item["snapshot_status"].(string); ok {
-				if timestampStr, ok := item["timestamp"].(string); ok {
-					ts, err := time.Parse(time.RFC3339, timestampStr)
-					if err == nil {
-						if status == "VendorWarehouse" && productionDate == nil {
-							productionDate = &ts
-						}
-						if (status == "Production" || status == "Subcontractor") && fatDate == nil {
-							fatDate = &ts
-						}
-						if status == "FAT" && allDoneDate == nil {
-							allDoneDate = &ts
-						}
-					}
-				}
-			}
-		}
-	}
-
-	finalResponse := map[string]interface{}{
-		"panel":                  pdd.Panel,
-		"panel_vendor_name":      pdd.PanelVendorName,
-		"busbar_vendor_names":    pdd.BusbarVendorNames,
-		"busbar_remarks":         pdd.BusbarRemarks,
-		"component_vendor_names": pdd.ComponentVendorNames,
-		"palet_vendor_names":     pdd.PaletVendorNames,
-		"corepart_vendor_names":  pdd.CorepartVendorNames,
-		"g3_vendor_names":        pdd.G3VendorNames,
-		"production_date":        productionDate,
-		"fat_date":               fatDate,
-		"all_done_date":          allDoneDate,
-	}
-
-	go func() {
-		stakeholders, err := a.getPanelStakeholders(noPp)
-		if err != nil {
-			return
-		}
-
-		finalRecipients := []string{}
-		for _, user := range stakeholders {
-			if user != payload.Actor {
-				finalRecipients = append(finalRecipients, user)
-			}
-		}
-
-		var actionText string
-		switch payload.Action {
-		case "to_production":
-			actionText = "masuk ke tahap Produksi"
-		case "to_subcontractor":
-			actionText = "diserahkan ke Subcontractor"
-		case "to_fat":
-			actionText = "masuk ke tahap FAT"
-		case "to_done":
-			actionText = "dinyatakan Selesai"
-		case "rollback":
-			actionText = "dikembalikan ke tahap sebelumnya"
-		default:
-			return
-		}
-
-		if len(finalRecipients) > 0 {
-			title := fmt.Sprintf("Transfer Panel: %s", noPp)
-			body := fmt.Sprintf("%s memindahkan panel %s, kini %s.", payload.Actor, noPp, actionText)
-			a.sendNotificationToUsers(finalRecipients, title, body)
-		}
-	}()
-
-	respondWithJSON(w, http.StatusOK, finalResponse)
 }
 func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) {
 
@@ -6410,6 +7137,20 @@ func (a *App) getProductionSlotsHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *App) sendNotificationToUsers(usernames []string, title string, body string) {
+	// Guard checks to prevent nil pointer panic
+	if a == nil {
+		log.Println("sendNotificationToUsers: App is nil")
+		return
+	}
+	if a.DB == nil {
+		log.Println("sendNotificationToUsers: DB is nil")
+		return
+	}
+	if a.FCMClient == nil {
+		log.Println("sendNotificationToUsers: FCMClient is nil")
+		return
+	}
+
 	if len(usernames) == 0 {
 		return
 	}
@@ -6429,7 +7170,9 @@ func (a *App) sendNotificationToUsers(usernames []string, title string, body str
 			log.Printf("Error scanning token: %v", err)
 			continue
 		}
-		tokens = append(tokens, token)
+		if token != "" {
+			tokens = append(tokens, token)
+		}
 	}
 
 	if len(tokens) == 0 {
@@ -6458,7 +7201,13 @@ func (a *App) sendNotificationToUsers(usernames []string, title string, body str
 		return
 	}
 
-	log.Printf("Successfully sent %d notifications to %d devices for users %v. Failures: %d", br.SuccessCount, len(tokens), usernames, br.FailureCount)
+	log.Printf(
+		"Successfully sent %d notifications to %d devices for users %v. Failures: %d",
+		br.SuccessCount,
+		len(tokens),
+		usernames,
+		br.FailureCount,
+	)
 }
 
 func (a *App) getAdminUsernames() ([]string, error) {
@@ -6615,4 +7364,182 @@ func (a *App) registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+func (a *App) MassTransferPanelHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Actor string `json:"actor"`
+		Data  []struct {
+			NoPP         string  `json:"no_pp"`
+			Action       string  `json:"action"`
+			Slot         *string `json:"slot,omitempty"`
+			Vendor       *string `json:"vendor,omitempty"`
+			TargetWiring *string `json:"target_delivery_wiring,omitempty"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+
+	tx, err := a.DB.Begin()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "DB Error")
+		return
+	}
+	defer tx.Rollback()
+
+	type Skipped struct {
+		NoPP   string `json:"no_pp"`
+		Reason string `json:"reason"`
+	}
+
+	var (
+		success int
+		skipped int
+		failLog []Skipped
+	)
+
+	for _, item := range input.Data {
+		if item.NoPP == "" {
+			continue
+		}
+		var status, noWbs, noPanel, pType string
+		var progress int
+		var currentSlot *string
+		var currentHistoryJSON []byte
+
+		err := tx.QueryRow(`
+            SELECT status_penyelesaian, percent_progress, production_slot, no_wbs, no_panel, panel_type, history_stack
+            FROM panels WHERE no_pp = $1 FOR UPDATE
+        `, item.NoPP).Scan(&status, &progress, &currentSlot, &noWbs, &noPanel, &pType, &currentHistoryJSON)
+
+		if err != nil {
+			failLog = append(failLog, Skipped{item.NoPP, "Panel tidak ditemukan"})
+			skipped++
+			continue
+		}
+		if status == "Vendor K3" || status == "Production" {
+			failLog = append(failLog, Skipped{item.NoPP, fmt.Sprintf("Gagal: Panel masih berstatus %s", status)})
+			skipped++
+			continue
+		}
+		var historyStack []map[string]interface{}
+		if len(currentHistoryJSON) > 0 && string(currentHistoryJSON) != "null" {
+			json.Unmarshal(currentHistoryJSON, &historyStack)
+		}
+		now := time.Now().UTC()
+		snapshot := map[string]interface{}{
+			"snapshot_status": status,
+			"timestamp":       now.Format(time.RFC3339),
+			"state": map[string]interface{}{
+				"actor":  input.Actor,
+				"action": item.Action,
+				"note":   "Executed via Mass Transfer",
+			},
+		}
+		historyStack = append(historyStack, snapshot)
+		newHistoryJSON, _ := json.Marshal(historyStack)
+		var parsedTargetWiring *time.Time = nil
+
+		if item.TargetWiring != nil && *item.TargetWiring != "" {
+			cleanDate := strings.TrimSpace(*item.TargetWiring)
+
+			//log.Printf("[DEBUG] TargetWiring RAW: '%s'", cleanDate)
+
+			t, errParse := time.Parse("02/01/2006", cleanDate)
+			if errParse != nil {
+				t, errParse = time.Parse("2006-01-02", cleanDate)
+			}
+
+			if errParse == nil {
+				parsedTargetWiring = &t
+				//log.Printf("[DEBUG] Parsed TargetWiring SUCCESS: %v", t)
+			} //else {
+				log.Printf("[WARN] Gagal parse tanggal: %s", cleanDate)
+			//}
+		}
+		switch item.Action {
+
+		case "to_production":
+			var slotVal string
+			if item.Slot != nil {
+				slotVal = *item.Slot
+			}
+			_, _ = tx.Exec(`DELETE FROM wirings WHERE panel_no_pp = $1`, item.NoPP)
+			_, err = tx.Exec(`
+				INSERT INTO wirings (no_wbs, panel_no_pp, no_panel, panel_type, status, progress, target_delivery_wiring, updated_at, created_at)
+				VALUES ($1, $2, $3, $4, 'Open', 0, $5, NOW(), NOW())
+			`, noWbs, item.NoPP, noPanel, pType, parsedTargetWiring)
+
+			_, err = tx.Exec(`
+                UPDATE panels SET
+                    status_palet = 'Closed', status_corepart = 'Closed',
+                    percent_progress = 100, is_closed = true, closed_date = COALESCE(closed_date, NOW()),
+                    status_penyelesaian = 'Production', 
+                    production_slot = $1,
+                    history_stack = $2 
+                WHERE no_pp = $3
+            `, slotVal, newHistoryJSON, item.NoPP)
+
+			if slotVal != "" {
+				_, _ = tx.Exec(`UPDATE production_slots SET is_occupied = true WHERE position_code = $1`, slotVal)
+			}
+
+		case "to_subcontractor":
+			if item.Vendor == nil || *item.Vendor == "" {
+				failLog = append(failLog, Skipped{item.NoPP, "Vendor wajib diisi"})
+				skipped++
+				continue
+			}
+			vendor := *item.Vendor
+			_, _ = tx.Exec(`DELETE FROM g3_vendors WHERE panel_no_pp = $1`, item.NoPP)
+			_, err = tx.Exec(`INSERT INTO g3_vendors (panel_no_pp, vendor) VALUES ($1, $2)`, item.NoPP, vendor)
+
+			_, _ = tx.Exec(`DELETE FROM wirings WHERE panel_no_pp = $1`, item.NoPP)
+			_, err = tx.Exec(`
+				INSERT INTO wirings (no_wbs, panel_no_pp, no_panel, panel_type, supplier, status, progress, target_delivery_wiring, updated_at, created_at)
+				VALUES ($1, $2, $3, $4, $5, 'Open', 0, $6, NOW(), NOW())
+			`, noWbs, item.NoPP, noPanel, pType, vendor, parsedTargetWiring)
+
+			if currentSlot != nil && *currentSlot != "" {
+				_, _ = tx.Exec(`UPDATE production_slots SET is_occupied = false WHERE position_code = $1`, *currentSlot)
+			}
+
+			_, err = tx.Exec(`
+                UPDATE panels SET
+                    status_penyelesaian = 'Subcontractor',
+                    status_palet = 'Closed', status_corepart = 'Closed',
+                    percent_progress = 100, is_closed = true,
+                    closed_date = COALESCE(closed_date, NOW()), 
+                    production_slot = NULL,
+                    history_stack = $1
+                WHERE no_pp = $2
+            `, newHistoryJSON, item.NoPP)
+
+		default:
+			failLog = append(failLog, Skipped{item.NoPP, "Action tidak valid"})
+			skipped++
+			continue
+		}
+
+		if err != nil {
+			failLog = append(failLog, Skipped{item.NoPP, "DB Error: " + err.Error()})
+			skipped++
+			continue
+		}
+		success++
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Commit failed")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"message":     "Mass transfer completed with history tracking",
+		"success":     success,
+		"skipped":     skipped,
+		"skip_detail": failLog,
+	})
 }
