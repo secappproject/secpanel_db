@@ -875,12 +875,14 @@ func main() {
 
 	app := App{}
 	app.Initialize(dbUser, dbPassword, dbName, dbHost)
-	// app.FCMClient = fcmClient
 
-	// go app.startNotificationScheduler()
+	port := os.Getenv("APP_PORT")
+		if port == "" {
+			port = "8099" 
+		}
 
-	app.Run(":8099")
-}
+		app.Run(":" + port)
+	}
 func (a *App) initializeRoutes() {
 
 	// Auth & User Management
