@@ -244,9 +244,9 @@ func (a *App) MassReplaceWiringHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// --- LOGIKA TIMESTAMP LOCKING ---
+		
 		var existingClosedAt *time.Time
-		// Ambil data timestamp saat ini dari database
+
 		err := tx.QueryRow(`SELECT closed_at FROM wirings WHERE panel_no_pp = $1 AND no_wbs = $2`,
 			item.PanelNoPP, item.NoWBS).Scan(&existingClosedAt)
 
@@ -255,8 +255,7 @@ func (a *App) MassReplaceWiringHandler(w http.ResponseWriter, r *http.Request) {
 
 		if item.Progress >= 100 {
 			status = "Closed"
-			// Jika di DB sudah ada tanggalnya, gunakan yang lama (LOCK)
-			// Jika masih kosong (nil), baru isi dengan waktu sekarang
+
 			if existingClosedAt != nil && !existingClosedAt.IsZero() {
 				closedAt = existingClosedAt
 			} else {
@@ -336,7 +335,6 @@ func (a *App) createWiringHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tentukan Status & ClosedAt berdasarkan progress
 	status := "Open"
 	var closedAt *time.Time
 	if input.Progress >= 100 {
@@ -347,8 +345,7 @@ func (a *App) createWiringHandler(w http.ResponseWriter, r *http.Request) {
 		status = "In Progress"
 	}
 
-	// Ambil data pendukung dari tabel panels (no_panel, no_wbs, type)
-	// Ini agar jika input dari Flutter kurang lengkap, DB tetap sinkron
+
 	var noPanel, noWbs, pType string
 	err := a.DB.QueryRow(`
         SELECT no_panel, no_wbs, panel_type FROM panels WHERE no_pp = $1
@@ -359,13 +356,13 @@ func (a *App) createWiringHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ambil vendor jika ada (optional, agar tidak mematikan proses jika belum ada)
+
 	var g3Supplier string
 	_ = a.DB.QueryRow(`
         SELECT vendor FROM g3_vendors WHERE panel_no_pp = $1 LIMIT 1
     `, input.PanelNoPP).Scan(&g3Supplier)
 
-	// UPSERT Query: Update jika panel_no_pp sudah ada
+
 	query := `
         INSERT INTO wirings 
         (panel_no_pp, no_wbs, no_panel, panel_type, supplier, 
@@ -878,7 +875,7 @@ func main() {
 
 	port := os.Getenv("APP_PORT")
 		if port == "" {
-			port = "8099" 
+			port = "8099"
 		}
 
 		app.Run(":" + port)
