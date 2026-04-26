@@ -2,3 +2,4 @@ serviceAccountKey.json
 .env
 pg_data/
 *.exe
+secpanel.sql
